@@ -1,0 +1,30 @@
+services:
+  zmoney-app:
+    build: .
+    image: zmoney-app:latest
+    container_name: zmoney-app
+    restart: unless-stopped
+    ports:
+      - "8121:3000"
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://zmoney:zmoney_secure_pass@zmoney-postgres:5432/zmoney_db
+    depends_on:
+      - zmoney-postgres
+
+  zmoney-postgres:
+    image: postgres:16-alpine
+    container_name: zmoney-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: zmoney
+      POSTGRES_PASSWORD: zmoney_secure_pass
+      POSTGRES_DB: zmoney_db
+    ports:
+      - "5442:5432"
+    volumes:
+      - zmoney-pgdata:/var/lib/postgresql/data
+
+volumes:
+  zmoney-pgdata:
+    external: true
