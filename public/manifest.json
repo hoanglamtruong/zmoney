@@ -1,0 +1,23 @@
+{
+  "name": "Zmoney",
+  "short_name": "Zmoney",
+  "description": "Quản lý tài chính cá nhân / hộ kinh doanh - Kho chứa, Dòng chảy, Nghĩa vụ",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FFFFFF",
+  "theme_color": "#0C2C47",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
