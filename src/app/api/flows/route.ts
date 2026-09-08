@@ -7,6 +7,7 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const vaultId = searchParams.get("vaultId");
     const tag = searchParams.get("tag");
+    const status = searchParams.get("status"); // 'actual' | 'planned' | 'all'
     const startDate = searchParams.get("startDate");
     const endDate = searchParams.get("endDate");
 
@@ -14,7 +15,7 @@ export async function GET(request: Request) {
       SELECT id, title, amount::float as amount, type, 
              from_vault_id as "fromVaultId", to_vault_id as "toVaultId",
              from_title as "from", to_title as "to",
-             tag, is_actual as "isActual",
+             tag, is_actual as "isActual", is_reconcile as "isReconcile",
              TO_CHAR(flow_date, 'DD/MM/YYYY') as date,
              flow_date as "rawDate"
       FROM flows
@@ -33,6 +34,12 @@ export async function GET(request: Request) {
       query += ` AND tag = $${pIdx}`;
       params.push(tag);
       pIdx++;
+    }
+
+    if (status === "actual") {
+      query += ` AND is_actual = true`;
+    } else if (status === "planned") {
+      query += ` AND is_actual = false`;
     }
 
     if (startDate) {
@@ -91,15 +98,15 @@ export async function POST(request: Request) {
           await client.query("ROLLBACK");
           return NextResponse.json({ success: false, error: "Chuyển khoản cần chọn đủ Kho nguồn và Kho đích" }, { status: 400 });
         }
-        await client.query(`UPDATE vaults SET balance = balance - $1 WHERE id = $2`, [numAmount, fromVaultId]);
-        await client.query(`UPDATE vaults SET balance = balance + $1 WHERE id = $2`, [numAmount, toVaultId]);
+        await client.query(`UPDATE vaults SET balance = balance - $1, last_recorded_at = CURRENT_TIMESTAMP WHERE id = $2`, [numAmount, fromVaultId]);
+        await client.query(`UPDATE vaults SET balance = balance + $1, last_recorded_at = CURRENT_TIMESTAMP WHERE id = $2`, [numAmount, toVaultId]);
       } else if (type === "expense") {
         if (fromVaultId) {
-          await client.query(`UPDATE vaults SET balance = balance - $1 WHERE id = $2`, [numAmount, fromVaultId]);
+          await client.query(`UPDATE vaults SET balance = balance - $1, last_recorded_at = CURRENT_TIMESTAMP WHERE id = $2`, [numAmount, fromVaultId]);
         }
       } else if (type === "income") {
         if (toVaultId) {
-          await client.query(`UPDATE vaults SET balance = balance + $1 WHERE id = $2`, [numAmount, toVaultId]);
+          await client.query(`UPDATE vaults SET balance = balance + $1, last_recorded_at = CURRENT_TIMESTAMP WHERE id = $2`, [numAmount, toVaultId]);
         }
       }
     }

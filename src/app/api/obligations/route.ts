@@ -5,7 +5,7 @@ export async function GET() {
   try {
     await initDatabase();
     const result = await pool.query(`
-      SELECT id, title, type, amount::float as amount, partner, formula, interest,
+      SELECT id, title, type, role, amount::float as amount, partner, formula, interest,
              TO_CHAR(due_date, 'DD/MM/YYYY') as "dueDate", status
       FROM obligations
       ORDER BY due_date ASC NULLS LAST;
@@ -23,6 +23,7 @@ export async function POST(request: Request) {
     const {
       title,
       type, // 'receivable' | 'payable' | 'tax'
+      role = type === "receivable" ? "creditor" : "debtor",
       amount,
       partner = "",
       formula = null,
@@ -38,11 +39,11 @@ export async function POST(request: Request) {
 
     const id = `o_${Date.now()}`;
     const result = await pool.query(
-      `INSERT INTO obligations (id, title, type, amount, partner, formula, interest, due_date, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-       RETURNING id, title, type, amount::float as amount, partner, formula, interest,
+      `INSERT INTO obligations (id, title, type, role, amount, partner, formula, interest, due_date, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       RETURNING id, title, type, role, amount::float as amount, partner, formula, interest,
                  TO_CHAR(due_date, 'DD/MM/YYYY') as "dueDate", status;`,
-      [id, title, type, numAmount, partner, formula, interest, dueDate, status]
+      [id, title, type, role, numAmount, partner, formula, interest, dueDate, status]
     );
 
     return NextResponse.json({ success: true, data: result.rows[0] });
