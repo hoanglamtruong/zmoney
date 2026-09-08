@@ -324,6 +324,15 @@ export default function Home() {
             <p className="mt-1 text-xs text-slate-300">
               Tài sản ròng = Tổng Kho ({totalBalance.toLocaleString("vi-VN")}₫) + Nợ phải thu (+{totalReceivable.toLocaleString("vi-VN")}₫) − Nợ phải trả (-{totalPayable.toLocaleString("vi-VN")}₫)
             </p>
+            <div className="mt-3 flex items-center space-x-3">
+              <button
+                onClick={() => setShowQuickRecordModal(true)}
+                className="bg-[#BF512C] hover:bg-[#BF512C]/90 text-white text-xs sm:text-sm font-black px-4 py-2 rounded-xl shadow-md flex items-center space-x-2 transition cursor-pointer"
+              >
+                <PlusCircle className="w-4 h-4" />
+                <span>+ GHI NHANH GIAO DỊCH</span>
+              </button>
+            </div>
           </div>
 
           <div className="grid grid-cols-3 gap-2 sm:gap-4 bg-white/10 backdrop-blur-sm p-3 sm:p-4 rounded-xl border border-white/15">
@@ -937,10 +946,11 @@ export default function Home() {
       {/* NÚT GHI NHANH NỔI (FLOATING ACTION BUTTON - FAB) TOÀN CỤC */}
       <button
         onClick={() => setShowQuickRecordModal(true)}
-        className="fixed bottom-6 right-6 z-40 bg-[#BF512C] text-white p-3.5 sm:px-5 sm:py-3.5 rounded-full shadow-2xl hover:bg-[#BF512C]/90 flex items-center space-x-2 transition-all transform hover:scale-105"
+        className="fixed bottom-6 right-6 z-[9999] bg-[#BF512C] text-white px-5 py-3.5 rounded-full shadow-[0_10px_25px_rgba(191,81,44,0.5)] border-2 border-white hover:bg-[#BF512C]/90 flex items-center space-x-2.5 transition-all transform hover:scale-105 active:scale-95 cursor-pointer"
+        title="Ghi nhanh giao dịch dòng chảy mới"
       >
-        <PlusCircle className="w-5 h-5 sm:w-6 sm:h-6" />
-        <span className="font-black text-sm hidden sm:inline tracking-wide">Ghi Nhanh Giao Dịch</span>
+        <PlusCircle className="w-6 h-6 animate-pulse" />
+        <span className="font-black text-sm tracking-wide">Ghi Nhanh</span>
       </button>
 
       {/* MODAL GHI NHANH GIAO DỊCH */}

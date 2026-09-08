@@ -1,6 +1,5 @@
-const CACHE_NAME = 'zmoney-cache-v1';
+const CACHE_NAME = 'zmoney-cache-v2';
 const ASSETS_TO_CACHE = [
-  '/',
   '/manifest.json',
   '/icon-192.png',
   '/icon-512.png'
@@ -35,9 +34,24 @@ self.addEventListener('fetch', (event) => {
   if (event.request.url.includes('/api/')) {
     return;
   }
+  
+  // HTML Navigation request: Dùng Network First để luôn load UI mới nhất khi user reload
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          const copy = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+          return response;
+        })
+        .catch(() => caches.match(event.request))
+    );
+    return;
+  }
+
   event.respondWith(
     caches.match(event.request).then((response) => {
-      return response || fetch(event.request).catch(() => caches.match('/'));
+      return response || fetch(event.request);
     })
   );
 });
