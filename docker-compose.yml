@@ -8,7 +8,10 @@ services:
       - "8121:3000"
     environment:
       - NODE_ENV=production
+      - PORT=3000
       - DATABASE_URL=postgresql://zmoney:zmoney_secure_pass@zmoney-postgres:5432/zmoney_db
+    networks:
+      - homelab-net
     depends_on:
       - zmoney-postgres
 
@@ -24,6 +27,12 @@ services:
       - "5442:5432"
     volumes:
       - zmoney-pgdata:/var/lib/postgresql/data
+    networks:
+      - homelab-net
+
+networks:
+  homelab-net:
+    external: true
 
 volumes:
   zmoney-pgdata:
