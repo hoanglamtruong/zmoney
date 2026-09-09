@@ -1413,19 +1413,21 @@ export default function Home() {
         </div>
       )}
 
-      {/* NÚT GHI NHANH NỔI (FLOATING ACTION BUTTON - FAB) TOÀN CỤC */}
-      <button
-        onClick={() => setShowQuickRecordModal(true)}
-        className="fixed bottom-6 right-6 z-[9999] bg-[#BF512C] text-white px-5 py-3.5 rounded-full shadow-[0_10px_25px_rgba(191,81,44,0.5)] border-2 border-white hover:bg-[#BF512C]/90 flex items-center space-x-2.5 transition-all transform hover:scale-105 active:scale-95 cursor-pointer"
-        title="Ghi nhanh giao dịch dòng chảy mới"
-      >
-        <PlusCircle className="w-6 h-6 animate-pulse" />
-        <span className="font-black text-sm tracking-wide">Ghi Nhanh</span>
-      </button>
+      {/* NÚT GHI NHANH NỔI (FLOATING ACTION BUTTON - FAB) TOÀN CỤC: Tự động ẩn khi có Modal mở */}
+      {!showQuickRecordModal && !showVaultModal && !showReconcileModal && !selectedVaultDetail && (
+        <button
+          onClick={() => setShowQuickRecordModal(true)}
+          className="fixed bottom-6 right-6 z-40 bg-[#BF512C] text-white px-5 py-3.5 rounded-full shadow-[0_10px_25px_rgba(191,81,44,0.5)] border-2 border-white hover:bg-[#BF512C]/90 flex items-center space-x-2.5 transition-all transform hover:scale-105 active:scale-95 cursor-pointer"
+          title="Ghi nhanh giao dịch dòng chảy mới"
+        >
+          <PlusCircle className="w-6 h-6 animate-pulse" />
+          <span className="font-black text-sm tracking-wide">Ghi Nhanh</span>
+        </button>
+      )}
 
       {/* MODAL GHI NHANH GIAO DỊCH (Mục 2.1) */}
       {showQuickRecordModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-[#ABCBCA] space-y-4">
             <div className="flex items-center justify-between border-b pb-3">
               <div className="flex items-center space-x-2">
@@ -1584,7 +1586,7 @@ export default function Home() {
 
       {/* MODAL ĐỐI CHIẾU SỐ DƯ (MỤC 2.6) */}
       {showReconcileModal && selectedVaultForReconcile && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-[#ABCBCA] space-y-4">
             <div className="flex items-center justify-between border-b pb-3">
               <div className="flex items-center space-x-2">
@@ -1652,7 +1654,7 @@ export default function Home() {
 
       {/* MODAL THÊM KHO MỚI (Mục 1.3) */}
       {showVaultModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-[#ABCBCA] space-y-4">
             <div className="flex items-center justify-between border-b pb-3">
               <h3 className="text-lg font-black text-[#0C2C47]">Thêm Kho Chứa Tiền Mới</h3>
