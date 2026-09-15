@@ -150,6 +150,7 @@ export async function PUT(request: Request) {
       toVaultId,
       fromTitle,
       toTitle,
+      isActual,
     } = body;
 
     if (!id) {
@@ -172,8 +173,33 @@ export async function PUT(request: Request) {
       return NextResponse.json({ success: false, error: "Số tiền không hợp lệ" }, { status: 400 });
     }
 
-    // Nếu là giao dịch thực tế, điều chỉnh số dư kho theo chênh lệch
-    if (oldFlow.is_actual) {
+    const finalIsActual = isActual !== undefined ? Boolean(isActual) : Boolean(oldFlow.is_actual);
+
+    // Xử lý biến động số dư BoMo
+    if (!oldFlow.is_actual && finalIsActual) {
+      // Chuyển từ Kế hoạch dự kiến sang Thực tế -> trừ/cộng BoMo ngay
+      const finalFromVaultId = fromVaultId !== undefined ? fromVaultId : oldFlow.from_vault_id;
+      const finalToVaultId = toVaultId !== undefined ? toVaultId : oldFlow.to_vault_id;
+      if (oldFlow.type === "expense" && finalFromVaultId) {
+        await client.query("UPDATE vaults SET balance = balance - $1 WHERE id = $2", [newAmount, finalFromVaultId]);
+      } else if (oldFlow.type === "income" && finalToVaultId) {
+        await client.query("UPDATE vaults SET balance = balance + $1 WHERE id = $2", [newAmount, finalToVaultId]);
+      } else if (oldFlow.type === "transfer") {
+        if (finalFromVaultId) await client.query("UPDATE vaults SET balance = balance - $1 WHERE id = $2", [newAmount, finalFromVaultId]);
+        if (finalToVaultId) await client.query("UPDATE vaults SET balance = balance + $1 WHERE id = $2", [newAmount, finalToVaultId]);
+      }
+    } else if (oldFlow.is_actual && !finalIsActual) {
+      // Chuyển từ Thực tế về Kế hoạch dự kiến -> hoàn trả số dư BoMo
+      if (oldFlow.type === "expense" && oldFlow.from_vault_id) {
+        await client.query("UPDATE vaults SET balance = balance + $1 WHERE id = $2", [oldAmount, oldFlow.from_vault_id]);
+      } else if (oldFlow.type === "income" && oldFlow.to_vault_id) {
+        await client.query("UPDATE vaults SET balance = balance - $1 WHERE id = $2", [oldAmount, oldFlow.to_vault_id]);
+      } else if (oldFlow.type === "transfer") {
+        if (oldFlow.from_vault_id) await client.query("UPDATE vaults SET balance = balance + $1 WHERE id = $2", [oldAmount, oldFlow.from_vault_id]);
+        if (oldFlow.to_vault_id) await client.query("UPDATE vaults SET balance = balance - $1 WHERE id = $2", [oldAmount, oldFlow.to_vault_id]);
+      }
+    } else if (oldFlow.is_actual && finalIsActual) {
+      // Đã là thực tế, cập nhật chênh lệch số dư
       // 1. Hoàn lại số dư cũ
       if (oldFlow.type === "expense" && oldFlow.from_vault_id) {
         await client.query("UPDATE vaults SET balance = balance + $1 WHERE id = $2", [oldAmount, oldFlow.from_vault_id]);
@@ -207,8 +233,9 @@ export async function PUT(request: Request) {
            from_vault_id = COALESCE($5, from_vault_id),
            to_vault_id = COALESCE($6, to_vault_id),
            from_title = COALESCE($7, from_title),
-           to_title = COALESCE($8, to_title)
-       WHERE id = $9
+           to_title = COALESCE($8, to_title),
+           is_actual = $9
+       WHERE id = $10
        RETURNING id, title, amount::float as amount, type,
                  from_vault_id as "fromVaultId", to_vault_id as "toVaultId",
                  from_title as "from", to_title as "to",
@@ -224,6 +251,7 @@ export async function PUT(request: Request) {
         toVaultId !== undefined ? toVaultId : null,
         fromTitle !== undefined ? fromTitle : null,
         toTitle !== undefined ? toTitle : null,
+        finalIsActual,
         id,
       ]
     );

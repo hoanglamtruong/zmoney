@@ -147,9 +147,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
 
   // Tab điều hướng chính chuẩn 7 mục SITEMAP
-  const [activeTab, setActiveTab] = useState<
-    "overview" | "vaults" | "flows" | "reconcile" | "obligations" | "pricing" | "forecast" | "reports" | "settings"
-  >("overview");
+  const [activeTab, setActiveTab] = useState<"home" | "settings">("home");
 
   // Modals
   const [showQuickRecordModal, setShowQuickRecordModal] = useState(false);
@@ -268,6 +266,28 @@ export default function Home() {
     isActual: true,
     flowDate: new Date().toISOString().split("T")[0],
   });
+
+  // State Modal Trung Tâm Thông Báo Hệ Thống
+  const [notifCenterTab, setNotifCenterTab] = useState<"alerts" | "history">("alerts");
+  const [readAlertIds, setReadAlertIds] = useState<string[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("zmoney_read_alert_ids");
+        return saved ? JSON.parse(saved) : [];
+      } catch (_) {
+        return [];
+      }
+    }
+    return [];
+  });
+
+  // State Bộ Lọc Thu Chi Trang Chủ (Khối 3)
+  const [homeFilterRange, setHomeFilterRange] = useState<"all" | "today" | "7days" | "month" | "custom">("all");
+  const [homeFilterStartDate, setHomeFilterStartDate] = useState<string>("");
+  const [homeFilterEndDate, setHomeFilterEndDate] = useState<string>("");
+  const [homeFilterType, setHomeFilterType] = useState<"all" | "income" | "expense" | "transfer">("all");
+  const [homeFilterVault, setHomeFilterVault] = useState<string>("");
+  const [homeFilterTag, setHomeFilterTag] = useState<string>("");
 
   // Form Đối Chiếu Số Dư Thực Tế (Mục 2.6)
   const [reconcileForm, setReconcileForm] = useState({
@@ -880,6 +900,37 @@ export default function Home() {
     }
   };
 
+  // Thực hiện ngay một khoản dự thu / dự chi: chuyển sang thực tế và trừ/cộng BoMo ngay
+  const handleExecutePlannedFlow = async (flow: Flow) => {
+    const confirmMsg = flow.type === "income"
+      ? `Xác nhận thực hiện ngay khoản DỰ THU "${flow.title}" (+${flow.amount.toLocaleString("vi-VN")} ₫) vào thực tế?`
+      : `Xác nhận thực hiện ngay khoản DỰ CHI "${flow.title}" (-${flow.amount.toLocaleString("vi-VN")} ₫) vào thực tế?`;
+
+    if (!confirm(confirmMsg)) return;
+
+    try {
+      const todayStr = new Date().toISOString().split("T")[0];
+      const res = await fetch("/api/flows", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: flow.id,
+          isActual: true,
+          flowDate: todayStr,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        playCashCounterSound(1.5);
+        await fetchData();
+      } else {
+        alert("Lỗi: " + data.error);
+      }
+    } catch (err: any) {
+      alert("Lỗi thực hiện kế hoạch: " + err.message);
+    }
+  };
+
   // Xóa Flow và hoàn lại số dư kho tương ứng
   const handleDeleteFlowConfirm = async () => {
     if (!flowToDelete) return;
@@ -963,20 +1014,19 @@ export default function Home() {
     }
   };
 
-  // CÔNG THỨC TÀI SẢN RÒNG (Nguyên tắc xuyên suốt toàn hệ thống)
-  // Tài sản ròng = Tổng số dư các Kho + Nợ phải thu (người khác nợ mình) - Nợ phải trả (mình nợ người khác)
+  // CÔNG THỨC TÀI SẢN RÒNG (Nguyên tắc xuyên suốt toàn hệ sinh thái BoMo)
+  // Tổng BoMo khả dụng (+), Tổng dư nợ ngân hàng (−), Tài sản ròng = Tổng BoMo (+) − Dư nợ (−)
+  const positiveBalance = vaults.filter((v) => v.balance > 0).reduce((acc, v) => acc + v.balance, 0);
+  const negativeDebt = Math.abs(vaults.filter((v) => v.balance < 0).reduce((acc, v) => acc + v.balance, 0));
   const totalBalance = vaults.reduce((acc, v) => acc + (v.balance || 0), 0);
+  const netWorth = totalBalance;
   const totalReceivable = obligations
     .filter((o) => o.type === "receivable" || o.role === "creditor")
     .reduce((acc, o) => acc + (o.amount || 0), 0);
-  const totalPayable = obligations
-    .filter((o) => o.type === "payable" || o.role === "debtor")
-    .reduce((acc, o) => acc + (o.amount || 0), 0);
+  const totalPayable = negativeDebt;
   const totalTax = obligations
     .filter((o) => o.type === "tax")
     .reduce((acc, o) => acc + (o.amount || 0), 0);
-  
-  const netWorth = totalBalance + totalReceivable - totalPayable;
 
   // Tính toán kiểm soát theo Ngưỡng Cài Đặt (Mục 7)
   // 1. Kiểm tra sự kiện dự chi/thu sắp diễn ra trong vòng X ngày (mặc định 3 ngày)
@@ -1015,14 +1065,14 @@ export default function Home() {
   const allFuturePlannedFlows = flows.filter((f) => !f.isActual);
 
   // 2. Ngưỡng âm nợ cho phép
-  const isDebtExceeded = totalPayable > systemSettings.maxNegativeDebtAllowed;
+  const isDebtExceeded = negativeDebt > systemSettings.maxNegativeDebtAllowed;
 
   // 3. Ngưỡng tiền kho cho phép (cảnh báo kho nào có số dư dưới ngưỡng)
   const lowBalanceVaults = vaults.filter((v) => v.balance < systemSettings.minVaultBalanceAllowed);
 
   // 4. Mục tiêu tiết kiệm (Tính theo tổng tiền kho hoặc tài sản ròng)
   const savingsProgressPct = systemSettings.savingsGoalAmount > 0 
-    ? Math.min(100, Math.round((totalBalance / systemSettings.savingsGoalAmount) * 100))
+    ? Math.min(100, Math.round((positiveBalance / systemSettings.savingsGoalAmount) * 100))
     : 0;
 
   // Cảnh báo ưu tiên (Mục Trang chủ)
@@ -1073,7 +1123,7 @@ export default function Home() {
         title: f.type === "income" ? `Sắp đến ngày DỰ THU (+)` : `Sắp đến ngày DỰ CHI (-)`,
         desc: `${f.title} (${f.amount.toLocaleString("vi-VN")} ₫) vào ngày ${f.date || f.rawDate || "sắp tới"}`,
         severity: f.type === "income" ? "info" : "warning",
-        actionTab: "settings",
+        actionTab: "home",
       });
     });
   }
@@ -1084,9 +1134,9 @@ export default function Home() {
       id: "debt_exceeded",
       type: "debt",
       title: "CẢNH BÁO: Vượt ngưỡng âm nợ an toàn!",
-      desc: `Tổng nợ phải trả là ${totalPayable.toLocaleString("vi-VN")} ₫ (vượt mức cho phép tối đa ${systemSettings.maxNegativeDebtAllowed.toLocaleString("vi-VN")} ₫)`,
+      desc: `Tổng dư nợ ngân hàng là ${negativeDebt.toLocaleString("vi-VN")} ₫ (vượt mức cho phép tối đa ${systemSettings.maxNegativeDebtAllowed.toLocaleString("vi-VN")} ₫)`,
       severity: "danger",
-      actionTab: "obligations",
+      actionTab: "home",
     });
   }
 
@@ -1098,7 +1148,7 @@ export default function Home() {
       title: `Hạn mức kho: Số dư kho "${v.name}" dưới mức an toàn!`,
       desc: `Số dư hiện tại ${v.balance.toLocaleString("vi-VN")} ₫ thấp hơn ngưỡng tối thiểu ${systemSettings.minVaultBalanceAllowed.toLocaleString("vi-VN")} ₫`,
       severity: "warning",
-      actionTab: "vaults",
+      actionTab: "home",
     });
   });
 
@@ -1110,7 +1160,7 @@ export default function Home() {
       title: "Trễ hẹn: Chưa chốt sổ / kiểm tra tài chính hôm nay!",
       desc: `Khung giờ nhắc hẹn là ${reminderConfig.dailyTime} hàng ngày nhưng bạn chưa xác nhận kiểm đếm dòng tiền hôm nay`,
       severity: "danger",
-      actionTab: "reconcile",
+      actionTab: "settings",
     });
   }
 
@@ -1134,7 +1184,7 @@ export default function Home() {
       title: `Kỷ luật kiểm kê: Có ${unverifiedReconciliations.length} khoản chênh lệch chưa rõ nguyên nhân`,
       desc: "Cần rà soát đối chiếu lại dòng chảy để bảo vệ tính toàn vẹn kiểm toán",
       severity: "warning",
-      actionTab: "reconcile",
+      actionTab: "settings",
     });
   }
 
@@ -1146,9 +1196,24 @@ export default function Home() {
       title: "Cảnh báo quỹ thuế: Quỹ thuế bị thiếu hụt",
       desc: `Số tiền khóa dự phòng (${lockedTaxVault?.lockedAmount || 0} ₫) thấp hơn ước tính nghĩa vụ thuế (${totalTax.toLocaleString("vi-VN")} ₫)`,
       severity: "warning",
-      actionTab: "obligations",
+      actionTab: "home",
     });
   }
+
+  // Lọc thông báo chưa đọc & đánh dấu đã đọc
+  const unreadAlerts = allSystemAlerts.filter((a) => !readAlertIds.includes(a.id));
+  const unreadAlertsCount = unreadAlerts.length;
+
+  const markAllAlertsAsRead = () => {
+    const allIds = allSystemAlerts.map((a) => a.id);
+    const updated = Array.from(new Set([...readAlertIds, ...allIds]));
+    setReadAlertIds(updated);
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem("zmoney_read_alert_ids", JSON.stringify(updated));
+      } catch (_) {}
+    }
+  };
 
   return (
     <div className="space-y-6 pb-32 sm:pb-36 relative">
@@ -1161,31 +1226,31 @@ export default function Home() {
               <span>Chỉ số cốt lõi · Toàn hệ sinh thái BoMo (BoxMoney)</span>
             </div>
             <div className="mt-1 text-2xl sm:text-4xl font-black tracking-tight text-white">
-              {netWorth.toLocaleString("vi-VN")} ₫
+              {netWorth < 0 ? `-${Math.abs(netWorth).toLocaleString("vi-VN")} ₫` : `${netWorth.toLocaleString("vi-VN")} ₫`}
             </div>
             <p className="mt-1 text-xs text-slate-300">
-              Tài sản ròng = Tổng BoMo ({totalBalance.toLocaleString("vi-VN")}₫) + Nợ phải thu (+{totalReceivable.toLocaleString("vi-VN")}₫) − Nợ phải trả (-{totalPayable.toLocaleString("vi-VN")}₫)
+              Tài sản ròng = Tổng BoMo khả dụng (+{positiveBalance.toLocaleString("vi-VN")}₫) − Tổng dư nợ vay (-{negativeDebt.toLocaleString("vi-VN")}₫)
             </p>
           </div>
 
           <div className="flex items-center gap-3">
             <div className="grid grid-cols-3 gap-2 sm:gap-4 bg-white/10 backdrop-blur-sm p-3 sm:p-4 rounded-xl border border-white/15">
               <div>
-                <span className="text-[10px] text-slate-300 uppercase block font-semibold">Tổng BoMo</span>
+                <span className="text-[10px] text-slate-300 uppercase block font-semibold">Tài sản ròng</span>
                 <span className="text-sm sm:text-base font-bold text-white truncate block">
-                  {totalBalance.toLocaleString("vi-VN")}₫
+                  {netWorth < 0 ? `-${Math.abs(netWorth).toLocaleString("vi-VN")}₫` : `${netWorth.toLocaleString("vi-VN")}₫`}
                 </span>
               </div>
               <div>
-                <span className="text-[10px] text-[#2E5749] bg-white/80 px-1 rounded uppercase font-bold inline-block">Phải thu (+)</span>
+                <span className="text-[10px] text-[#2E5749] bg-white/80 px-1 rounded uppercase font-bold inline-block">BoMo khả dụng (+)</span>
                 <span className="text-sm sm:text-base font-bold text-[#ABCBCA] truncate block">
-                  +{totalReceivable.toLocaleString("vi-VN")}₫
+                  +{positiveBalance.toLocaleString("vi-VN")}₫
                 </span>
               </div>
               <div>
-                <span className="text-[10px] text-[#BF512C] bg-white/80 px-1 rounded uppercase font-bold inline-block">Phải trả (-)</span>
-                <span className="text-sm sm:text-base font-bold text-[#DA9B2B] truncate block">
-                  -{totalPayable.toLocaleString("vi-VN")}₫
+                <span className="text-[10px] text-[#BF512C] bg-white/80 px-1 rounded uppercase font-bold inline-block">Dư nợ vay (-)</span>
+                <span className="text-sm sm:text-base font-bold text-rose-300 truncate block">
+                  -{negativeDebt.toLocaleString("vi-VN")}₫
                 </span>
               </div>
             </div>
@@ -1193,7 +1258,7 @@ export default function Home() {
         </div>
 
         {/* Thanh Cảnh báo ưu tiên & Ngưỡng kiểm soát hệ thống */}
-        {(nearDueObligations.length > 0 || unverifiedReconciliations.length > 0 || isTaxFundShort || (systemSettings.enablePlannedNotice && upcomingPlannedFlows.length > 0) || isDebtExceeded || lowBalanceVaults.length > 0) && (
+        {(unreadAlertsCount > 0) && (
           <div className="mt-4 pt-3 border-t border-white/10 flex flex-wrap gap-2 text-xs">
             {/* Cảnh báo sự kiện dự chi/thu sắp diễn ra trong X ngày */}
             {systemSettings.enablePlannedNotice && upcomingPlannedFlows.map((f) => (
@@ -1213,7 +1278,7 @@ export default function Home() {
               <span className="bg-rose-500 text-white font-black px-2.5 py-1 rounded-full flex items-center space-x-1 shadow-xs">
                 <AlertTriangle className="w-3.5 h-3.5 text-white" />
                 <span>
-                  VƯỢT NGƯỠNG ÂM NỢ ({totalPayable.toLocaleString("vi-VN")}₫ &gt; {systemSettings.maxNegativeDebtAllowed.toLocaleString("vi-VN")}₫)
+                  VƯỢT NGƯỠNG ÂM NỢ ({negativeDebt.toLocaleString("vi-VN")}₫ &gt; {systemSettings.maxNegativeDebtAllowed.toLocaleString("vi-VN")}₫)
                 </span>
               </span>
             )}
@@ -1223,1119 +1288,741 @@ export default function Home() {
               <span key={v.id} className="bg-orange-500 text-white font-bold px-2.5 py-1 rounded-full flex items-center space-x-1">
                 <AlertTriangle className="w-3.5 h-3.5 text-white" />
                 <span>
-                  Kho "{v.name}" dưới ngưỡng an toàn ({v.balance.toLocaleString("vi-VN")}₫ &lt; {systemSettings.minVaultBalanceAllowed.toLocaleString("vi-VN")}₫)
+                  BoMo "{v.name}" dưới ngưỡng an toàn ({v.balance.toLocaleString("vi-VN")}₫ &lt; {systemSettings.minVaultBalanceAllowed.toLocaleString("vi-VN")}₫)
                 </span>
               </span>
             ))}
-
-            {nearDueObligations.map((o) => (
-              <span key={o.id} className="bg-[#DA9B2B] text-slate-900 font-bold px-2.5 py-1 rounded-full flex items-center space-x-1">
-                <AlertTriangle className="w-3.5 h-3.5" />
-                <span>Nợ đến hạn: {o.title} ({o.amount.toLocaleString("vi-VN")}₫)</span>
-              </span>
-            ))}
-            {unverifiedReconciliations.length > 0 && (
-              <span className="bg-[#BF512C] text-white font-bold px-2.5 py-1 rounded-full flex items-center space-x-1">
-                <AlertTriangle className="w-3.5 h-3.5" />
-                <span>{unverifiedReconciliations.length} chênh lệch chưa rõ nguyên nhân cần đối chiếu</span>
-              </span>
-            )}
-            {isTaxFundShort && (
-              <span className="bg-[#DA9B2B] text-slate-900 font-bold px-2.5 py-1 rounded-full flex items-center space-x-1">
-                <AlertTriangle className="w-3.5 h-3.5" />
-                <span>Cảnh báo: Quỹ dự phòng thuế đang hụt so với ước tính {totalTax.toLocaleString("vi-VN")}₫</span>
-              </span>
-            )}
           </div>
         )}
       </div>
 
-      {/* THANH ĐIỀU HƯỚNG TẦNG SITEMAP (Đầy đủ 7 mục) */}
-      <div className="flex overflow-x-auto space-x-2 border-b border-[#ABCBCA] pb-2 text-xs sm:text-sm font-bold no-scrollbar">
+      {/* THANH ĐIỀU HƯỚNG CHÍNH (Đã tinh gọn chỉ còn Trang Chủ & Cài Đặt) */}
+      <div className="flex space-x-2 border-b border-slate-200 pb-3 text-xs sm:text-sm font-black">
         <button
-          onClick={() => setActiveTab("overview")}
-          className={`px-3.5 py-2 rounded-lg whitespace-nowrap transition flex items-center space-x-1.5 ${
-            activeTab === "overview" ? "bg-[#0C2C47] text-white shadow-sm" : "bg-white text-slate-700 hover:bg-slate-100"
+          onClick={() => setActiveTab("home")}
+          className={`px-5 py-2.5 rounded-xl whitespace-nowrap transition-all flex items-center space-x-2 cursor-pointer ${
+            activeTab === "home" ? "bg-[#0C2C47] text-white shadow-md" : "bg-white text-slate-700 hover:bg-slate-100 border border-slate-200"
           }`}
         >
-          <TrendingUp className="w-4 h-4" />
-          <span>Tổng Quan</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab("vaults")}
-          className={`px-3.5 py-2 rounded-lg whitespace-nowrap transition flex items-center space-x-1.5 ${
-            activeTab === "vaults" ? "bg-[#0C2C47] text-white shadow-sm" : "bg-white text-slate-700 hover:bg-slate-100"
-          }`}
-        >
-          <Wallet className="w-4 h-4" />
-          <span>1. BoMo (BoxMoney) ({vaults.length})</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab("flows")}
-          className={`px-3.5 py-2 rounded-lg whitespace-nowrap transition flex items-center space-x-1.5 ${
-            activeTab === "flows" ? "bg-[#0C2C47] text-white shadow-sm" : "bg-white text-slate-700 hover:bg-slate-100"
-          }`}
-        >
-          <ArrowRightLeft className="w-4 h-4" />
-          <span>2. Dòng Chảy ({flows.length})</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab("reconcile")}
-          className={`px-3.5 py-2 rounded-lg whitespace-nowrap transition flex items-center space-x-1.5 ${
-            activeTab === "reconcile" ? "bg-[#0C2C47] text-white shadow-sm" : "bg-white text-slate-700 hover:bg-slate-100"
-          }`}
-        >
-          <CheckCircle2 className="w-4 h-4" />
-          <span>2.6. Đối Chiếu Số Dư</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab("obligations")}
-          className={`px-3.5 py-2 rounded-lg whitespace-nowrap transition flex items-center space-x-1.5 ${
-            activeTab === "obligations" ? "bg-[#0C2C47] text-white shadow-sm" : "bg-white text-slate-700 hover:bg-slate-100"
-          }`}
-        >
-          <FileText className="w-4 h-4" />
-          <span>3. Nghĩa Vụ ({obligations.length})</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab("pricing")}
-          className={`px-3.5 py-2 rounded-lg whitespace-nowrap transition flex items-center space-x-1.5 ${
-            activeTab === "pricing" ? "bg-[#0C2C47] text-white shadow-sm" : "bg-white text-slate-700 hover:bg-slate-100"
-          }`}
-        >
-          <Calculator className="w-4 h-4" />
-          <span>4. Vốn & Hòa Vốn</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab("forecast")}
-          className={`px-3.5 py-2 rounded-lg whitespace-nowrap transition flex items-center space-x-1.5 ${
-            activeTab === "forecast" ? "bg-[#0C2C47] text-white shadow-sm" : "bg-white text-slate-700 hover:bg-slate-100"
-          }`}
-        >
-          <LineChart className="w-4 h-4" />
-          <span>5. Dự Báo Dòng Tiền</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab("reports")}
-          className={`px-3.5 py-2 rounded-lg whitespace-nowrap transition flex items-center space-x-1.5 ${
-            activeTab === "reports" ? "bg-[#0C2C47] text-white shadow-sm" : "bg-white text-slate-700 hover:bg-slate-100"
-          }`}
-        >
-          <PieChart className="w-4 h-4" />
-          <span>6. Báo Cáo</span>
+          <TrendingUp className="w-4 h-4 text-emerald-400" />
+          <span>🏠 Trang Chủ (5 Khối Cốt Lõi)</span>
         </button>
 
         <button
           onClick={() => setActiveTab("settings")}
-          className={`px-3.5 py-2 rounded-lg whitespace-nowrap transition flex items-center space-x-1.5 ${
-            activeTab === "settings" ? "bg-[#0C2C47] text-white shadow-sm" : "bg-white text-slate-700 hover:bg-slate-100"
+          className={`px-5 py-2.5 rounded-xl whitespace-nowrap transition-all flex items-center space-x-2 cursor-pointer ${
+            activeTab === "settings" ? "bg-[#0C2C47] text-white shadow-md" : "bg-white text-slate-700 hover:bg-slate-100 border border-slate-200"
           }`}
         >
-          <Settings className="w-4 h-4" />
-          <span>7. Cài Đặt</span>
+          <Settings className="w-4 h-4 text-amber-300" />
+          <span>⚙️ Cài Đặt Hệ Thống</span>
         </button>
       </div>
 
-      {/* NỘI DUNG TỪNG TAB THEO SITEMAP */}
-
-      {/* TAB 1: TỔNG QUAN (TRANG CHỦ) */}
-      {activeTab === "overview" && (
-        <div className="space-y-6">
-          {/* ĐÈN TÍN HIỆU: ĐỘ LIÊN TỤC GHI CHÉP THEO KHO CHỨA */}
-          <div className="bg-white rounded-xl border border-[#ABCBCA] p-5 shadow-sm space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <Clock className="w-5 h-5 text-[#0C2C47]" />
-                <h3 className="font-bold text-[#0C2C47] text-sm sm:text-base">
-                  Chỉ số "Độ liên tục ghi chép" (Kỷ luật cập nhật dữ liệu)
-                </h3>
+      {/* NỘI DUNG TRANG CHỦ (activeTab === "home"): 5 KHỐI ĐÚNG THỨ TỰ */}
+      {activeTab === "home" && (
+        <div className="space-y-7">
+          {/* ======================================================== */}
+          {/* KHỐI 1: TỔNG TÀI SẢN */}
+          {/* ======================================================== */}
+          <div className="bg-white rounded-3xl p-6 border border-slate-200/90 shadow-sm space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center text-[#0C2C47]">
+                  <Scale className="w-5 h-5 text-[#BF512C]" />
+                </div>
+                <div>
+                  <h3 className="font-black text-slate-900 text-base sm:text-lg tracking-tight">
+                    Khối 1: Tổng Tài Sản Hệ Thống
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Bao gồm toàn bộ BoMo khả dụng (+), dư nợ vay ngân hàng (−) và tài sản ròng
+                  </p>
+                </div>
               </div>
-              <span className="text-xs text-slate-500">Quy tắc đèn giao thông 3 màu</span>
+              <span className="text-[11px] font-bold bg-emerald-50 text-emerald-800 px-3 py-1 rounded-full border border-emerald-200">
+                Toàn Hệ Thống
+              </span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
-              {vaults.map((v) => {
-                const days = v.daysInactive ?? 0;
-                const statusColor =
-                  days === 0
-                    ? "bg-[#2E5749] text-white" // Xanh: Cập nhật hôm nay
-                    : days <= 3
-                    ? "bg-[#DA9B2B] text-slate-900" // Vàng: 1-3 ngày chưa ghi
-                    : "bg-[#BF512C] text-white"; // Đỏ: > 3 ngày im lặng
-                const statusLabel =
-                  days === 0 ? "🟢 Hôm nay" : days <= 3 ? `🟡 ${days} ngày chưa ghi` : `🔴 ${days} ngày im lặng`;
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {/* Thẻ 1: Tổng BoMo khả dụng (+) */}
+              <div className="bg-emerald-50/70 border-2 border-emerald-200/90 rounded-2xl p-4.5 shadow-2xs">
+                <span className="text-[11px] font-black text-emerald-800 uppercase tracking-wider block">
+                  1. Tổng BoMo Khả Dụng (+)
+                </span>
+                <span className="text-2xl sm:text-3xl font-black text-emerald-600 mt-1.5 block tracking-tight">
+                  +{positiveBalance.toLocaleString("vi-VN")} ₫
+                </span>
+                <span className="text-xs text-emerald-700/90 mt-1 block font-medium">
+                  {vaults.filter((v) => v.balance > 0).length} BoMo dương có thể luân chuyển ngay
+                </span>
+              </div>
 
+              {/* Thẻ 2: Tổng Dư Nợ Ngân Hàng (−) */}
+              <div className="bg-rose-50/70 border-2 border-rose-200/90 rounded-2xl p-4.5 shadow-2xs">
+                <span className="text-[11px] font-black text-rose-800 uppercase tracking-wider block">
+                  2. Tổng Dư Nợ Vay Ngân Hàng (−)
+                </span>
+                <span className="text-2xl sm:text-3xl font-black text-rose-600 mt-1.5 block tracking-tight">
+                  {negativeDebt > 0 ? `-${negativeDebt.toLocaleString("vi-VN")} ₫` : "0 ₫"}
+                </span>
+                <span className="text-xs text-rose-700/90 mt-1 block font-medium">
+                  {vaults.filter((v) => v.balance < 0).length} BoMo thấu chi / vay nợ ngân hàng
+                </span>
+              </div>
+
+              {/* Thẻ 3: Tài Sản Ròng */}
+              <div className="bg-slate-50 border-2 border-[#0C2C47]/20 rounded-2xl p-4.5 shadow-2xs bg-gradient-to-br from-slate-50 to-blue-50/40">
+                <span className="text-[11px] font-black text-[#0C2C47] uppercase tracking-wider block">
+                  3. Tài Sản Ròng Thực Có
+                </span>
+                <span className={`text-2xl sm:text-3xl font-black mt-1.5 block tracking-tight ${netWorth < 0 ? "text-rose-600" : "text-[#0C2C47]"}`}>
+                  {netWorth < 0 ? `-${Math.abs(netWorth).toLocaleString("vi-VN")} ₫` : `${netWorth.toLocaleString("vi-VN")} ₫`}
+                </span>
+                <span className="text-xs text-slate-500 mt-1 block font-medium">
+                  = Tiền khả dụng (+) trừ (-) Tổng dư nợ ngân hàng
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* ======================================================== */}
+          {/* KHỐI 2: CÁC BOMO (BOXMONEY) */}
+          {/* ======================================================== */}
+          <div className="bg-white rounded-3xl p-6 border border-slate-200/90 shadow-sm space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-100 pb-3">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-9 h-9 rounded-xl bg-blue-100 flex items-center justify-center text-[#0C2C47]">
+                  <Wallet className="w-5 h-5 text-[#0C2C47]" />
+                </div>
+                <div>
+                  <h3 className="font-black text-slate-900 text-base sm:text-lg tracking-tight">
+                    Khối 2: Các BoMo (BoxMoney) ({vaults.length})
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Hộp tiền mặt, tài khoản ngân hàng, ví điện tử & thẻ vay nợ thấu chi
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setShowVaultModal(true)}
+                className="bg-[#0C2C47] hover:bg-[#0C2C47]/90 text-white px-4 py-2.5 rounded-xl text-xs font-black flex items-center space-x-2 shadow-sm transition active:scale-95 cursor-pointer self-start sm:self-auto"
+              >
+                <PlusCircle className="w-4 h-4" />
+                <span>+ Tạo BoMo Mới</span>
+              </button>
+            </div>
+
+            {/* Danh sách các BoMo */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pt-1">
+              {vaults.map((vault) => {
+                const isNegative = vault.balance < 0;
                 return (
-                  <div key={v.id} className="p-3 rounded-lg border border-slate-200 bg-slate-50 flex items-center justify-between">
-                    <div>
-                      <span className="font-bold text-slate-800 text-xs sm:text-sm block">{v.name}</span>
-                      <span className="text-[11px] text-slate-500">{v.balance.toLocaleString("vi-VN")}₫</span>
+                  <div
+                    key={vault.id}
+                    className={`p-4.5 rounded-2xl border transition-all shadow-2xs flex flex-col justify-between ${
+                      isNegative
+                        ? "bg-rose-50/40 border-rose-300 ring-1 ring-rose-200"
+                        : "bg-slate-50/60 border-slate-200 hover:border-slate-300"
+                    }`}
+                  >
+                    <div className="space-y-2">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
+                            <span className="font-black text-slate-900 text-sm sm:text-base">{vault.name}</span>
+                            {isNegative && (
+                              <span className="bg-rose-100 text-rose-800 text-[10px] font-black px-2 py-0.5 rounded-md border border-rose-300">
+                                🔴 Vay nợ
+                              </span>
+                            )}
+                            {vault.isLocked && (
+                              <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-1.5 py-0.5 rounded flex items-center space-x-1">
+                                <Lock className="w-3 h-3" />
+                                <span>Khóa</span>
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-[11px] text-slate-500 mt-0.5 block truncate max-w-[200px]">
+                            {vault.desc || "Không có ghi chú"}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center space-x-1 shrink-0">
+                          {/* Sửa BoMo */}
+                          <button
+                            onClick={() => openEditVaultModal(vault)}
+                            title="Sửa thông tin BoMo"
+                            className="p-1.5 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-white transition cursor-pointer border border-transparent hover:border-slate-200"
+                          >
+                            <Edit className="w-3.5 h-3.5" />
+                          </button>
+                          {/* Xóa BoMo */}
+                          <button
+                            onClick={() => openDeleteVaultModal(vault)}
+                            title="Xóa BoMo (yêu cầu số dư 0đ hoặc kết chuyển)"
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-white transition cursor-pointer border border-transparent hover:border-slate-200"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="mt-2.5 pt-2 border-t border-slate-200/60 flex items-baseline justify-between">
+                        <span className="text-[11px] text-slate-500">
+                          {isNegative ? "Dư nợ ngân hàng:" : "Số dư khả dụng:"}
+                        </span>
+                        <span className={`text-lg font-black ${isNegative ? "text-rose-600" : "text-[#0C2C47]"}`}>
+                          {isNegative
+                            ? `-${Math.abs(vault.balance).toLocaleString("vi-VN")} ₫`
+                            : `${vault.balance.toLocaleString("vi-VN")} ₫`}
+                        </span>
+                      </div>
                     </div>
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${statusColor}`}>
-                      {statusLabel}
-                    </span>
+
+                    <div className="pt-2 border-t border-slate-200/60 flex items-center justify-between text-[11px] mt-2">
+                      <span className="text-slate-400 capitalize">
+                        {vault.type === "bank"
+                          ? "🏦 Ngân hàng"
+                          : vault.type === "cash"
+                          ? "💵 Tiền mặt"
+                          : vault.type === "ewallet"
+                          ? "📱 Ví điện tử"
+                          : vault.type === "credit"
+                          ? "💳 Thấu chi/Vay"
+                          : vault.type}
+                      </span>
+                      <button
+                        onClick={() => setSelectedVaultDetail(vault)}
+                        className="text-slate-600 hover:text-[#0C2C47] font-bold text-[11px] cursor-pointer hover:underline"
+                      >
+                        Chi tiết ➔
+                      </button>
+                    </div>
                   </div>
                 );
               })}
             </div>
           </div>
 
-          {/* Biểu đồ dòng tiền 30 ngày gần nhất / sắp tới */}
-          <div className="bg-white rounded-xl border border-[#ABCBCA] p-5 shadow-sm space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="font-bold text-[#0C2C47] text-sm sm:text-base flex items-center space-x-2">
-                <LineChart className="w-5 h-5 text-[#2E5749]" />
-                <span>Biểu Đồ Dòng Tiền 30 Ngày Gần Nhất & Sắp Tới</span>
-              </h3>
-              <span className="text-xs text-slate-500">Mô phỏng thu/chi & dự kiến</span>
-            </div>
-            <div className="h-44 flex items-end justify-between gap-1 sm:gap-2 pt-4 px-2 border-b border-slate-200">
-              {[
-                { day: "01/09", in: 15, out: 8, net: 7 },
-                { day: "05/09", in: 12, out: 3, net: 9 },
-                { day: "08/09", in: 25, out: 14, net: 11 },
-                { day: "12/09", in: 5, out: 18, net: -13 },
-                { day: "15/09", in: 30, out: 6, net: 24 },
-                { day: "20/09", in: 8, out: 10, net: -2 },
-                { day: "25/09", in: 20, out: 5, net: 15 },
-                { day: "30/09", in: 10, out: 12, net: -2 },
-              ].map((bar, idx) => (
-                <div key={idx} className="flex-1 flex flex-col items-center gap-1 group relative">
-                  <div className="w-full flex items-end justify-center gap-0.5 sm:gap-1 h-32">
-                    <div
-                      style={{ height: `${Math.min(100, bar.in * 3.2)}%` }}
-                      className="w-2.5 sm:w-4 bg-[#2E5749] rounded-t transition-all hover:opacity-80"
-                      title={`Thu: +${bar.in}tr`}
-                    ></div>
-                    <div
-                      style={{ height: `${Math.min(100, bar.out * 3.2)}%` }}
-                      className="w-2.5 sm:w-4 bg-[#BF512C] rounded-t transition-all hover:opacity-80"
-                      title={`Chi: -${bar.out}tr`}
-                    ></div>
-                  </div>
-                  <span className="text-[10px] text-slate-500 font-mono">{bar.day}</span>
+          {/* ======================================================== */}
+          {/* KHỐI 3: XEM CHI TIẾT THU CHI LỌC THEO THỜI GIAN */}
+          {/* ======================================================== */}
+          <div className="bg-white rounded-3xl p-6 border border-slate-200/90 shadow-sm space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-100 pb-3">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-9 h-9 rounded-xl bg-purple-100 flex items-center justify-center text-[#0C2C47]">
+                  <ArrowRightLeft className="w-5 h-5 text-purple-700" />
                 </div>
-              ))}
-            </div>
-            <div className="flex items-center justify-center space-x-6 text-xs text-slate-600 pt-1">
-              <span className="flex items-center space-x-1.5">
-                <span className="w-3 h-3 rounded bg-[#2E5749] inline-block"></span>
-                <span>Dòng tiền vào (Thu nhập)</span>
-              </span>
-              <span className="flex items-center space-x-1.5">
-                <span className="w-3 h-3 rounded bg-[#BF512C] inline-block"></span>
-                <span>Dòng tiền ra (Chi phí / Nghĩa vụ)</span>
-              </span>
-            </div>
-          </div>
+                <div>
+                  <h3 className="font-black text-slate-900 text-base sm:text-lg tracking-tight">
+                    Khối 3: Chi Tiết Thu Chi (Lọc Theo Thời Gian)
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Theo dõi biến động dòng tiền thực tế, chỉnh sửa và xóa giao dịch quy ước 1=1.000 VNĐ
+                  </p>
+                </div>
+              </div>
 
-          {/* 3 KHỐI NGUYÊN THỦY (Overview Grid) */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Kho chứa preview */}
-            <div className="bg-white rounded-xl border border-[#ABCBCA] shadow-sm flex flex-col p-4 space-y-3">
-              <div className="flex items-center justify-between border-b pb-2">
-                <h4 className="font-bold text-[#0C2C47] text-sm flex items-center space-x-1.5">
-                  <Wallet className="w-4 h-4" />
-                  <span>BoMo (BoxMoney) ({vaults.length})</span>
-                </h4>
-                <button onClick={() => setActiveTab("vaults")} className="text-xs text-[#BF512C] font-semibold hover:underline cursor-pointer">
-                  Xem tất cả ➔
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={() => setShowQuickIncomeModal(true)}
+                  className="bg-emerald-700 hover:bg-emerald-800 text-white px-3 py-1.5 rounded-xl text-xs font-black shadow-xs cursor-pointer"
+                >
+                  + Thu
+                </button>
+                <button
+                  onClick={() => setShowQuickExpenseModal(true)}
+                  className="bg-rose-700 hover:bg-rose-800 text-white px-3 py-1.5 rounded-xl text-xs font-black shadow-xs cursor-pointer"
+                >
+                  - Chi
                 </button>
               </div>
-              <div className="space-y-2 flex-1">
-                {vaults.slice(0, 4).map((v) => (
-                  <div
-                    key={v.id}
-                    className={`p-2.5 rounded-xl border flex justify-between text-xs items-center ${
-                      v.balance < 0
-                        ? "bg-rose-50/50 border-rose-200"
-                        : "bg-slate-50 border-slate-100"
+            </div>
+
+            {/* BỘ LỌC ĐA NĂNG */}
+            <div className="bg-slate-50/80 p-4 rounded-2xl border border-slate-200 space-y-3">
+              {/* Nút lọc thời gian nhanh */}
+              <div className="flex flex-wrap items-center gap-1.5 text-xs font-bold">
+                <span className="text-[11px] text-slate-400 uppercase mr-1">Thời gian:</span>
+                {[
+                  { key: "all", label: "Tất cả" },
+                  { key: "today", label: "Hôm nay" },
+                  { key: "7days", label: "7 ngày qua" },
+                  { key: "month", label: "Tháng này" },
+                  { key: "custom", label: "Tùy chọn ngày" },
+                ].map((item) => (
+                  <button
+                    key={item.key}
+                    type="button"
+                    onClick={() => setHomeFilterRange(item.key as any)}
+                    className={`px-3 py-1.5 rounded-xl transition cursor-pointer text-xs ${
+                      homeFilterRange === item.key
+                        ? "bg-[#0C2C47] text-white font-black shadow-xs"
+                        : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
                     }`}
                   >
-                    <div>
-                      <span className="font-bold text-slate-700 block">{v.name}</span>
-                      <span className="text-[10px] text-slate-400 capitalize">
-                        {v.type === "bank"
-                          ? "Ngân hàng"
-                          : v.type === "cash"
-                          ? "Tiền mặt"
-                          : v.type === "ewallet"
-                          ? "Ví điện tử"
-                          : v.type === "reserve"
-                          ? "Quỹ dự phòng"
-                          : v.type === "credit"
-                          ? "Vay nợ / Thấu chi"
-                          : v.type}
-                      </span>
-                    </div>
-                    <span className={`font-black ${v.balance < 0 ? "text-rose-600" : "text-[#0C2C47]"}`}>
-                      {v.balance < 0
-                        ? `-${Math.abs(v.balance).toLocaleString("vi-VN")}₫`
-                        : `${v.balance.toLocaleString("vi-VN")}₫`}
-                    </span>
-                  </div>
+                    {item.label}
+                  </button>
                 ))}
               </div>
-            </div>
 
-            {/* Dòng chảy preview */}
-            <div className="bg-white rounded-xl border border-[#ABCBCA] shadow-sm flex flex-col p-4 space-y-3">
-              <div className="flex items-center justify-between border-b pb-2">
-                <h4 className="font-bold text-[#0C2C47] text-sm flex items-center space-x-1.5">
-                  <ArrowRightLeft className="w-4 h-4" />
-                  <span>Dòng Chảy Gần Nhất ({flows.length})</span>
-                </h4>
-                <button onClick={() => setActiveTab("flows")} className="text-xs text-[#BF512C] font-semibold hover:underline">
-                  Sổ ghi ➔
-                </button>
-              </div>
-              <div className="space-y-2 flex-1">
-                {flows.slice(0, 4).map((f) => (
-                  <div key={f.id} className="p-2.5 bg-slate-50 rounded border border-slate-100 flex justify-between text-xs">
-                    <div className="truncate mr-2">
-                      <span className="font-bold text-slate-700 block truncate">{f.title}</span>
-                      <span className="text-[10px] text-slate-400">{f.from} ➔ {f.to}</span>
-                    </div>
-                    <span className={`font-black whitespace-nowrap ${f.type === 'income' ? 'text-[#2E5749]' : f.type === 'expense' ? 'text-[#BF512C]' : 'text-[#0C2C47]'}`}>
-                      {f.type === 'income' ? '+' : f.type === 'expense' ? '-' : ''}{f.amount.toLocaleString("vi-VN")}₫
-                    </span>
+              {/* Hàng chọn ngày tùy chọn & dropdown BoMo, Nhãn, Loại */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                {homeFilterRange === "custom" && (
+                  <div className="col-span-1 sm:col-span-2 flex items-center space-x-2">
+                    <input
+                      type="date"
+                      value={homeFilterStartDate}
+                      onChange={(e) => setHomeFilterStartDate(e.target.value)}
+                      className="p-2 rounded-xl border border-slate-300 bg-white w-full text-xs"
+                      placeholder="Từ ngày"
+                    />
+                    <span className="text-slate-400">➔</span>
+                    <input
+                      type="date"
+                      value={homeFilterEndDate}
+                      onChange={(e) => setHomeFilterEndDate(e.target.value)}
+                      className="p-2 rounded-xl border border-slate-300 bg-white w-full text-xs"
+                      placeholder="Đến ngày"
+                    />
                   </div>
-                ))}
-              </div>
-            </div>
+                )}
 
-            {/* Nghĩa vụ preview */}
-            <div className="bg-white rounded-xl border border-[#ABCBCA] shadow-sm flex flex-col p-4 space-y-3">
-              <div className="flex items-center justify-between border-b pb-2">
-                <h4 className="font-bold text-[#0C2C47] text-sm flex items-center space-x-1.5">
-                  <FileText className="w-4 h-4" />
-                  <span>Nghĩa Vụ & Thuế ({obligations.length})</span>
-                </h4>
-                <button onClick={() => setActiveTab("obligations")} className="text-xs text-[#BF512C] font-semibold hover:underline">
-                  Chi tiết ➔
-                </button>
-              </div>
-              <div className="space-y-2 flex-1">
-                {obligations.slice(0, 4).map((o) => (
-                  <div key={o.id} className="p-2.5 bg-slate-50 rounded border border-slate-100 flex justify-between text-xs">
-                    <div className="truncate mr-2">
-                      <span className="font-bold text-slate-700 block truncate">{o.title}</span>
-                      <span className="text-[10px] text-slate-400">Hạn: {o.dueDate || 'Trong kỳ'}</span>
-                    </div>
-                    <span className={`font-black whitespace-nowrap ${o.type === 'receivable' ? 'text-[#2E5749]' : 'text-[#BF512C]'}`}>
-                      {o.amount.toLocaleString("vi-VN")}₫
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* TAB 2: MỤC 1. BOMO (BOXMONEY) */}
-      {activeTab === "vaults" && (
-        <div className="space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-            <div>
-              <h3 className="font-black text-lg text-[#0C2C47]">1. BoMo (BoxMoney) — Điểm Chứa Tiền & Dư Nợ</h3>
-              <p className="text-xs text-slate-500">Ví cá nhân, quỹ kinh doanh, tài khoản ngân hàng, quỹ dự phòng thuế, tài khoản vay nợ</p>
-            </div>
-            <button
-              onClick={() => setShowVaultModal(true)}
-              className="bg-[#0C2C47] text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-[#0C2C47]/90 flex items-center space-x-1.5 shadow-sm self-start sm:self-auto cursor-pointer"
-            >
-              <PlusCircle className="w-4 h-4" />
-              <span>+ Tạo BoMo Mới</span>
-            </button>
-          </div>
-
-          {/* BANNER TỔNG QUAN BOMO (BOXMONEY) */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-              <span className="text-[11px] font-bold text-slate-500 uppercase block">Tổng BoMo Khả Dụng (+)</span>
-              <span className="text-xl font-black text-emerald-600 mt-1 block">
-                +{vaults.filter((v) => v.balance > 0).reduce((acc, v) => acc + v.balance, 0).toLocaleString("vi-VN")} ₫
-              </span>
-              <span className="text-[10px] text-slate-400">
-                {vaults.filter((v) => v.balance > 0).length} BoMo có tiền dương
-              </span>
-            </div>
-
-            <div className="bg-white p-4 rounded-2xl border border-rose-200 shadow-sm bg-rose-50/20">
-              <span className="text-[11px] font-bold text-rose-700 uppercase block">Tổng Dư Nợ Ngân Hàng (−)</span>
-              <span className="text-xl font-black text-rose-600 mt-1 block">
-                {vaults.filter((v) => v.balance < 0).length > 0
-                  ? `-${Math.abs(vaults.filter((v) => v.balance < 0).reduce((acc, v) => acc + v.balance, 0)).toLocaleString("vi-VN")} ₫`
-                  : "0 ₫"}
-              </span>
-              <span className="text-[10px] text-rose-400">
-                {vaults.filter((v) => v.balance < 0).length} BoMo dư nợ âm
-              </span>
-            </div>
-
-            <div className="bg-white p-4 rounded-2xl border border-[#0C2C47]/20 shadow-sm bg-[#0C2C47]/5">
-              <span className="text-[11px] font-bold text-[#0C2C47] uppercase block">Số Dư Ròng BoMo</span>
-              <span className={`text-xl font-black mt-1 block ${totalBalance < 0 ? "text-rose-600" : "text-[#0C2C47]"}`}>
-                {totalBalance < 0
-                  ? `-${Math.abs(totalBalance).toLocaleString("vi-VN")} ₫`
-                  : `${totalBalance.toLocaleString("vi-VN")} ₫`}
-              </span>
-              <span className="text-[10px] text-slate-500">
-                Tổng cộng {vaults.length} BoMo (Tiền − Nợ)
-              </span>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {vaults.map((vault) => {
-              const isNegative = vault.balance < 0;
-              return (
-                <div
-                  key={vault.id}
-                  className={`p-5 rounded-2xl border shadow-sm space-y-3 transition-all ${
-                    isNegative
-                      ? "bg-rose-50/30 border-rose-300 ring-1 ring-rose-200"
-                      : "bg-white border-[#ABCBCA]"
-                  }`}
+                {/* Lọc theo loại */}
+                <select
+                  value={homeFilterType}
+                  onChange={(e) => setHomeFilterType(e.target.value as any)}
+                  className="p-2 rounded-xl border border-slate-300 bg-white text-xs"
                 >
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <div className="flex items-center space-x-2 flex-wrap gap-y-1">
-                        <span className="font-black text-slate-900 text-base">{vault.name}</span>
-                        {isNegative && (
-                          <span className="bg-rose-100 text-rose-700 text-[10px] font-black px-2 py-0.5 rounded-md border border-rose-300">
-                            🔴 Dư nợ vay
-                          </span>
-                        )}
-                        {vault.isLocked && (
-                          <span className="bg-[#DA9B2B]/20 text-[#DA9B2B] text-[10px] font-bold px-2 py-0.5 rounded flex items-center space-x-1">
-                            <Lock className="w-3 h-3" />
-                            <span>Khóa quỹ thuế</span>
-                          </span>
-                        )}
-                      </div>
-                      <span className="text-xs text-slate-500 mt-0.5 block">{vault.desc || "Không có mô tả"}</span>
-                    </div>
+                  <option value="all">Tất cả loại (+ / -)</option>
+                  <option value="income">Thu tiền vào (+)</option>
+                  <option value="expense">Chi tiền ra (-)</option>
+                  <option value="transfer">Chuyển nội bộ (➔)</option>
+                </select>
 
-                    <div className="flex items-center space-x-1.5">
-                      <span className="capitalize text-[11px] font-bold px-2.5 py-1 rounded bg-slate-100 text-slate-700 border border-slate-200">
-                        {vault.type === "bank"
-                          ? "Ngân hàng"
-                          : vault.type === "cash"
-                          ? "Tiền mặt"
-                          : vault.type === "ewallet"
-                          ? "Ví điện tử"
-                          : vault.type === "reserve"
-                          ? "Quỹ dự phòng"
-                          : vault.type === "credit"
-                          ? "Vay nợ / Thấu chi"
-                          : vault.type}
-                      </span>
-                      {/* Nút Sửa */}
-                      <button
-                        onClick={() => openEditVaultModal(vault)}
-                        title="Sửa BoMo"
-                        className="p-1.5 rounded-lg text-slate-600 hover:text-blue-600 hover:bg-blue-50 transition cursor-pointer"
-                      >
-                        <Edit className="w-4 h-4" />
-                      </button>
-                      {/* Nút Xóa */}
-                      <button
-                        onClick={() => openDeleteVaultModal(vault)}
-                        title="Xóa BoMo"
-                        className="p-1.5 rounded-lg text-slate-600 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                {/* Lọc theo BoMo */}
+                <select
+                  value={homeFilterVault}
+                  onChange={(e) => setHomeFilterVault(e.target.value)}
+                  className="p-2 rounded-xl border border-slate-300 bg-white text-xs"
+                >
+                  <option value="">Tất cả BoMo</option>
+                  {vaults.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.name}
+                    </option>
+                  ))}
+                </select>
+
+                {/* Lọc theo Nhãn */}
+                <select
+                  value={homeFilterTag}
+                  onChange={(e) => setHomeFilterTag(e.target.value)}
+                  className="p-2 rounded-xl border border-slate-300 bg-white text-xs"
+                >
+                  <option value="">Tất cả Nhãn</option>
+                  <option value="Doanh thu">Doanh thu</option>
+                  <option value="Chi phí">Chi phí</option>
+                  <option value="Nội bộ">Nội bộ</option>
+                  <option value="Vận hành">Vận hành</option>
+                  <option value="Thu nợ">Thu nợ</option>
+                  <option value="Trả nợ">Trả nợ</option>
+                  <option value="Chênh lệch">Chênh lệch</option>
+                </select>
+              </div>
+            </div>
+
+            {/* DANH SÁCH GIAO DỊCH SAU KHI LỌC */}
+            {(() => {
+              const actualFlows = flows.filter((f) => f.isActual);
+              const todayYMD = new Date().toISOString().split("T")[0];
+              const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+              const curMonthYMD = todayYMD.substring(0, 7); // YYYY-MM
+
+              const filteredFlows = actualFlows.filter((flow) => {
+                // Lọc theo loại
+                if (homeFilterType !== "all" && flow.type !== homeFilterType) return false;
+                // Lọc theo BoMo
+                if (homeFilterVault && flow.fromVaultId !== homeFilterVault && flow.toVaultId !== homeFilterVault) return false;
+                // Lọc theo Nhãn
+                if (homeFilterTag && flow.tag !== homeFilterTag) return false;
+
+                // Chuẩn hóa ngày flow
+                const flowYMD = flow.rawDate ? String(flow.rawDate).split("T")[0] : "";
+                if (homeFilterRange === "today") {
+                  if (flowYMD && flowYMD !== todayYMD) return false;
+                } else if (homeFilterRange === "7days") {
+                  if (flowYMD && flowYMD < sevenDaysAgo) return false;
+                } else if (homeFilterRange === "month") {
+                  if (flowYMD && !flowYMD.startsWith(curMonthYMD)) return false;
+                } else if (homeFilterRange === "custom") {
+                  if (homeFilterStartDate && flowYMD && flowYMD < homeFilterStartDate) return false;
+                  if (homeFilterEndDate && flowYMD && flowYMD > homeFilterEndDate) return false;
+                }
+                return true;
+              });
+
+              const totalFilteredIncome = filteredFlows
+                .filter((f) => f.type === "income")
+                .reduce((sum, f) => sum + f.amount, 0);
+              const totalFilteredExpense = filteredFlows
+                .filter((f) => f.type === "expense")
+                .reduce((sum, f) => sum + f.amount, 0);
+
+              return (
+                <div className="space-y-3">
+                  {/* Thống kê nhanh kết quả lọc */}
+                  <div className="flex items-center justify-between text-xs bg-slate-50 p-3 rounded-xl border border-slate-200">
+                    <span className="text-slate-500 font-medium">
+                      Tìm thấy <b className="text-slate-900">{filteredFlows.length}</b> giao dịch
+                    </span>
+                    <div className="flex items-center space-x-3 font-bold">
+                      <span className="text-emerald-700">+{totalFilteredIncome.toLocaleString("vi-VN")} ₫</span>
+                      <span className="text-slate-300">|</span>
+                      <span className="text-rose-700">-{totalFilteredExpense.toLocaleString("vi-VN")} ₫</span>
                     </div>
                   </div>
 
-                  <div className="flex items-baseline justify-between pt-2 border-t border-slate-100">
-                    <span className="text-xs text-slate-500">
-                      {isNegative ? "Dư nợ ngân hàng:" : "Số dư hệ thống tính:"}
-                    </span>
-                    <span className={`text-xl font-black ${isNegative ? "text-rose-600" : "text-[#0C2C47]"}`}>
-                      {isNegative
-                        ? `-${Math.abs(vault.balance).toLocaleString("vi-VN")} ₫`
-                        : `${vault.balance.toLocaleString("vi-VN")} ₫`}
-                    </span>
-                  </div>
+                  {filteredFlows.length === 0 ? (
+                    <div className="text-center py-10 text-slate-400 text-xs">
+                      Không có giao dịch nào phù hợp với điều kiện lọc thời gian đã chọn
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-slate-100 border border-slate-200 rounded-2xl overflow-hidden bg-white">
+                      {filteredFlows.map((flow) => (
+                        <div key={flow.id} className="p-3.5 hover:bg-slate-50/80 transition flex items-center justify-between text-xs">
+                          <div className="space-y-1">
+                            <div className="flex items-center space-x-2">
+                              <span className="font-bold text-slate-900">{flow.title}</span>
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-600">
+                                {flow.tag}
+                              </span>
+                            </div>
+                            <div className="text-[11px] text-slate-500 flex items-center space-x-1.5">
+                              <span>{flow.from} ➔ {flow.to}</span>
+                              <span>•</span>
+                              <span>{flow.date || flow.rawDate}</span>
+                            </div>
+                          </div>
 
-                  {vault.isLocked && (
-                    <div className="text-xs text-slate-500 flex justify-between bg-slate-50 p-2.5 rounded-xl border border-slate-200">
-                      <span>Số tiền khóa dự phòng thuế:</span>
-                      <span className="font-bold text-[#BF512C]">
-                        {(vault.lockedAmount || 0).toLocaleString("vi-VN")} ₫
-                      </span>
+                          <div className="flex items-center space-x-2.5">
+                            <span
+                              className={`text-sm font-black ${
+                                flow.type === "income"
+                                  ? "text-emerald-600"
+                                  : flow.type === "expense"
+                                  ? "text-rose-600"
+                                  : "text-slate-800"
+                              }`}
+                            >
+                              {flow.type === "income" ? "+" : flow.type === "expense" ? "-" : ""}
+                              {flow.amount.toLocaleString("vi-VN")} ₫
+                            </span>
+
+                            {/* Nút Sửa & Xóa giao dịch */}
+                            <div className="flex items-center space-x-1 pl-2 border-l border-slate-200">
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditFlow(flow)}
+                                className="p-1.5 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-blue-50 transition cursor-pointer"
+                                title="Sửa số liệu (1=1k)"
+                              >
+                                <Edit className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setFlowToDelete(flow)}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
+                                title="Xóa giao dịch"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   )}
-
-                  <div className="flex items-center justify-between pt-2">
-                    <span className="text-[11px] text-slate-400">
-                      Cập nhật: {vault.lastRecordedAt || "Chưa có"}
-                    </span>
-                    <div className="flex items-center space-x-2">
-                      <button
-                        onClick={() => setSelectedVaultDetail(vault)}
-                        className="text-xs font-semibold text-[#0C2C47] hover:underline cursor-pointer"
-                      >
-                        Chi tiết ➔
-                      </button>
-                      <button
-                        onClick={() => {
-                          setSelectedVaultForReconcile(vault);
-                          setReconcileForm({
-                            actualBalance: vault.balance.toString(),
-                            reason: "Đối chiếu kiểm đếm định kỳ",
-                            assignAsFlow: false,
-                            flowTag: "Chênh lệch đối chiếu",
-                          });
-                          setShowReconcileModal(true);
-                        }}
-                        className="text-xs font-bold text-[#BF512C] hover:underline flex items-center space-x-1 bg-white px-2.5 py-1 rounded-lg border border-slate-200 shadow-xs cursor-pointer"
-                      >
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                        <span>Đối chiếu</span>
-                      </button>
-                    </div>
-                  </div>
                 </div>
               );
-            })}
+            })()}
           </div>
 
-          {/* Modal Chi tiết BoMo (BoxMoney) */}
-          {selectedVaultDetail && (
-            <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-              <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-[#ABCBCA] space-y-4">
-                <div className="flex items-center justify-between border-b pb-3">
-                  <div>
-                    <h3 className="text-lg font-black text-[#0C2C47]">{selectedVaultDetail.name}</h3>
-                    <span className="text-xs text-slate-500">Chi tiết số dư & Dòng chảy BoMo</span>
-                  </div>
-                  <button onClick={() => setSelectedVaultDetail(null)} className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer">
-                    <X className="w-5 h-5" />
-                  </button>
+          {/* ======================================================== */}
+          {/* KHỐI 4: TRẠNG THÁI NGƯỠNG */}
+          {/* ======================================================== */}
+          <div className="bg-white rounded-3xl p-6 border border-slate-200/90 shadow-sm space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center text-amber-800">
+                  <ShieldAlert className="w-5 h-5" />
                 </div>
-                <div className="space-y-3 text-xs">
-                  <div className={`flex justify-between p-3 rounded-xl border ${
-                    selectedVaultDetail.balance < 0
-                      ? "bg-rose-50 border-rose-200"
-                      : "bg-slate-50 border-slate-100"
-                  }`}>
-                    <span className="text-slate-600 font-bold">
-                      {selectedVaultDetail.balance < 0 ? "Dư nợ hiện tại:" : "Số dư hiện tại:"}
-                    </span>
-                    <span className={`font-black text-base ${
-                      selectedVaultDetail.balance < 0 ? "text-rose-600" : "text-[#0C2C47]"
-                    }`}>
-                      {selectedVaultDetail.balance < 0
-                        ? `-${Math.abs(selectedVaultDetail.balance).toLocaleString("vi-VN")} ₫ (Nợ)`
-                        : `${selectedVaultDetail.balance.toLocaleString("vi-VN")} ₫`}
-                    </span>
-                  </div>
-                  <div className="flex justify-between p-3 bg-slate-50 rounded-xl">
-                    <span className="text-slate-600 font-bold">Phân loại BoMo:</span>
-                    <span className="font-semibold capitalize text-slate-800">
-                      {selectedVaultDetail.type === "bank"
-                        ? "Ngân hàng"
-                        : selectedVaultDetail.type === "cash"
-                        ? "Tiền mặt"
-                        : selectedVaultDetail.type === "ewallet"
-                        ? "Ví điện tử"
-                        : selectedVaultDetail.type === "reserve"
-                        ? "Quỹ dự phòng"
-                        : selectedVaultDetail.type === "credit"
-                        ? "Vay nợ / Thấu chi"
-                        : selectedVaultDetail.type}
-                    </span>
-                  </div>
-                  <div className="p-3 bg-slate-50 rounded-lg space-y-1">
-                    <span className="text-slate-600 font-semibold block">Dòng chảy gần đây của kho này:</span>
-                    {flows.filter(f => f.fromVaultId === selectedVaultDetail.id || f.toVaultId === selectedVaultDetail.id).length === 0 ? (
-                      <span className="text-slate-400 block">Chưa có dòng chảy nào</span>
-                    ) : (
-                      flows.filter(f => f.fromVaultId === selectedVaultDetail.id || f.toVaultId === selectedVaultDetail.id).slice(0, 4).map(f => (
-                        <div key={f.id} className="flex justify-between py-1 border-b border-slate-200/60 last:border-none">
-                          <span>{f.title} ({f.date})</span>
-                          <span className="font-bold">{f.amount.toLocaleString("vi-VN")}₫</span>
-                        </div>
-                      ))
-                    )}
-                  </div>
+                <div>
+                  <h3 className="font-black text-slate-900 text-base sm:text-lg tracking-tight">
+                    Khối 4: Trạng Thái Ngưỡng Kiểm Soát An Toàn
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Ngưỡng âm nợ tối đa, ngưỡng tiền tối thiểu BoMo và tiến độ mục tiêu tiết kiệm
+                  </p>
                 </div>
-                <div className="flex justify-end pt-2">
+              </div>
+              <button
+                onClick={() => setActiveTab("settings")}
+                className="text-xs text-blue-700 font-bold hover:underline cursor-pointer"
+              >
+                Cài đặt ngưỡng ➔
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Chỉ báo 1: Ngưỡng âm nợ cho phép */}
+              <div className="p-4 rounded-2xl border border-slate-200 bg-slate-50/60 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-700">Ngưỡng âm nợ cho phép</span>
                   <button
-                    onClick={() => setSelectedVaultDetail(null)}
-                    className="px-4 py-2 bg-[#0C2C47] text-white rounded-lg text-xs font-bold"
+                    type="button"
+                    onClick={() =>
+                      setSettingEditModal({
+                        isOpen: true,
+                        key: "maxNegativeDebtAllowed",
+                        title: "Chỉnh Sửa Ngưỡng Âm Nợ Cho Phép",
+                        description: "Hệ thống cảnh báo đỏ khi tổng dư nợ vượt ngưỡng",
+                        currentValue: systemSettings.maxNegativeDebtAllowed,
+                        inputUnits: (systemSettings.maxNegativeDebtAllowed / 1000).toString(),
+                      })
+                    }
+                    className="p-1 rounded text-slate-400 hover:text-blue-600 cursor-pointer"
                   >
-                    Đóng
+                    <Edit className="w-3.5 h-3.5" />
                   </button>
+                </div>
+                <div className="flex items-baseline justify-between">
+                  <span className="text-lg font-black text-slate-900">
+                    {negativeDebt.toLocaleString("vi-VN")} ₫
+                  </span>
+                  <span className="text-xs text-slate-500 font-medium">
+                    / Tối đa {systemSettings.maxNegativeDebtAllowed.toLocaleString("vi-VN")} ₫
+                  </span>
+                </div>
+                <div className="pt-1">
+                  {isDebtExceeded ? (
+                    <span className="text-[11px] font-black text-rose-600 bg-rose-100 px-2 py-0.5 rounded-md border border-rose-300 inline-block">
+                      ⚠️ Đang vượt hạn mức nợ!
+                    </span>
+                  ) : (
+                    <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200 inline-block">
+                      ✓ Nợ trong hạn mức an toàn
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Chỉ báo 2: Ngưỡng số dư tối thiểu mỗi BoMo */}
+              <div className="p-4 rounded-2xl border border-slate-200 bg-slate-50/60 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-700">Ngưỡng BoMo tối thiểu</span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSettingEditModal({
+                        isOpen: true,
+                        key: "minVaultBalanceAllowed",
+                        title: "Chỉnh Sửa Ngưỡng Tiền Tối Thiểu Mỗi BoMo",
+                        description: "Cảnh báo khi BoMo có số dư dưới ngưỡng này",
+                        currentValue: systemSettings.minVaultBalanceAllowed,
+                        inputUnits: (systemSettings.minVaultBalanceAllowed / 1000).toString(),
+                      })
+                    }
+                    className="p-1 rounded text-slate-400 hover:text-blue-600 cursor-pointer"
+                  >
+                    <Edit className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <div className="flex items-baseline justify-between">
+                  <span className="text-lg font-black text-slate-900">
+                    {systemSettings.minVaultBalanceAllowed.toLocaleString("vi-VN")} ₫
+                  </span>
+                  <span className="text-xs text-slate-500 font-medium">ngưỡng an toàn</span>
+                </div>
+                <div className="pt-1">
+                  {lowBalanceVaults.length > 0 ? (
+                    <span className="text-[11px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200 inline-block">
+                      ⚠️ {lowBalanceVaults.length} BoMo dưới ngưỡng
+                    </span>
+                  ) : (
+                    <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200 inline-block">
+                      ✓ Tất cả BoMo đều đạt chuẩn
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Chỉ báo 3: Mục tiêu tiết kiệm */}
+              <div className="p-4 rounded-2xl border border-slate-200 bg-slate-50/60 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-700">Mục tiêu tích lũy</span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSettingEditModal({
+                        isOpen: true,
+                        key: "savingsGoalAmount",
+                        title: "Chỉnh Sửa Mục Tiêu Tiết Kiệm Tích Lũy",
+                        description: "Theo dõi tỷ lệ hoàn thành mục tiêu",
+                        currentValue: systemSettings.savingsGoalAmount,
+                        inputUnits: (systemSettings.savingsGoalAmount / 1000).toString(),
+                      })
+                    }
+                    className="p-1 rounded text-slate-400 hover:text-blue-600 cursor-pointer"
+                  >
+                    <Edit className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <div className="flex items-baseline justify-between">
+                  <span className="text-lg font-black text-emerald-700">{savingsProgressPct}%</span>
+                  <span className="text-xs text-slate-500 font-medium">
+                    {positiveBalance.toLocaleString("vi-VN")} ₫ / {systemSettings.savingsGoalAmount.toLocaleString("vi-VN")} ₫
+                  </span>
+                </div>
+                <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
+                  <div
+                    className="bg-emerald-600 h-full rounded-full transition-all duration-500"
+                    style={{ width: `${savingsProgressPct}%` }}
+                  ></div>
                 </div>
               </div>
             </div>
-          )}
-        </div>
-      )}
-
-      {/* TAB 3: MỤC 2. DÒNG CHẢY (FLOWS) */}
-      {activeTab === "flows" && (
-        <div className="space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-            <div>
-              <h3 className="font-black text-lg text-[#0C2C47]">2. Dòng Chảy — Sổ Ghi Chuyển Động Tiền</h3>
-              <p className="text-xs text-slate-500">Mỗi giao dịch là một mũi tên nối 2 Kho chứa hoặc ra/vào ngoài hệ thống</p>
-            </div>
-            <button
-              onClick={() => setShowQuickRecordModal(true)}
-              className="bg-[#BF512C] text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-[#BF512C]/90 flex items-center space-x-1.5 self-start sm:self-auto shadow-sm"
-            >
-              <PlusCircle className="w-4 h-4" />
-              <span>+ Ghi Dòng Chảy Mới</span>
-            </button>
           </div>
 
-          {/* Sổ Ghi Tổng Bộ Lọc Đa Chiều (Mục 2.2) */}
-          <div className="bg-white p-4 rounded-xl border border-[#ABCBCA] shadow-sm space-y-3">
-            <div className="flex items-center justify-between text-xs font-bold text-slate-600">
-              <span className="flex items-center space-x-1">
-                <SlidersHorizontal className="w-4 h-4 text-[#0C2C47]" />
-                <span>2.2 Sổ ghi tổng — Bộ lọc đa chiều</span>
+          {/* ======================================================== */}
+          {/* KHỐI 5: KẾ HOẠCH SẮP TỚI (DỰ THU / DỰ CHI) */}
+          {/* ======================================================== */}
+          <div className="bg-white rounded-3xl p-6 border border-slate-200/90 shadow-sm space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center text-amber-800">
+                  <Clock className="w-5 h-5 text-amber-700" />
+                </div>
+                <div>
+                  <h3 className="font-black text-slate-900 text-base sm:text-lg tracking-tight">
+                    Khối 5: Kế Hoạch Sắp Tới (Dự Thu / Dự Chi)
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Các sự kiện tài chính tương lai, đếm ngược ngày đến hạn và nút thực hiện ngay
+                  </p>
+                </div>
+              </div>
+
+              <span className="text-xs font-bold text-amber-800 bg-amber-50 px-3 py-1 rounded-full border border-amber-200">
+                {allFuturePlannedFlows.length} Kế Hoạch
               </span>
-              {(filterVault || filterTag || filterStatus !== "all" || filterStartDate || filterEndDate) && (
-                <button
-                  onClick={() => {
-                    setFilterVault("");
-                    setFilterTag("");
-                    setFilterStatus("all");
-                    setFilterStartDate("");
-                    setFilterEndDate("");
-                  }}
-                  className="text-[#BF512C] hover:underline"
-                >
-                  Xóa toàn bộ lọc
-                </button>
-              )}
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 text-xs">
-              <select
-                value={filterVault}
-                onChange={(e) => setFilterVault(e.target.value)}
-                className="p-2 rounded border border-slate-300 bg-white"
-              >
-                <option value="">-- Tất cả Kho chứa --</option>
-                {vaults.map((v) => (
-                  <option key={v.id} value={v.id}>
-                    {v.name}
-                  </option>
-                ))}
-              </select>
-
-              <select
-                value={filterTag}
-                onChange={(e) => setFilterTag(e.target.value)}
-                className="p-2 rounded border border-slate-300 bg-white"
-              >
-                <option value="">-- Tất cả Nhãn --</option>
-                <option value="Doanh thu">Doanh thu</option>
-                <option value="Chi phí">Chi phí</option>
-                <option value="Nội bộ">Nội bộ</option>
-                <option value="Vận hành">Vận hành</option>
-                <option value="Thu nợ">Thu nợ</option>
-                <option value="Trả nợ">Trả nợ</option>
-                <option value="Chênh lệch">Chênh lệch</option>
-              </select>
-
-              <select
-                value={filterStatus}
-                onChange={(e) => setFilterStatus(e.target.value)}
-                className="p-2 rounded border border-slate-300 bg-white"
-              >
-                <option value="all">Tất cả Trạng thái</option>
-                <option value="actual">Chỉ Thực tế (Actual)</option>
-                <option value="planned">Chỉ Dự kiến (Planned)</option>
-              </select>
-
-              <input
-                type="date"
-                value={filterStartDate}
-                onChange={(e) => setFilterStartDate(e.target.value)}
-                className="p-2 rounded border border-slate-300 bg-white"
-                placeholder="Từ ngày"
-              />
-            </div>
-          </div>
-
-          {/* Truy vết vòng xoay vốn (Mục 2.3) */}
-          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs space-y-2">
-            <div className="flex items-center space-x-2 font-bold text-[#0C2C47]">
-              <Layers className="w-4 h-4 text-[#2E5749]" />
-              <span>2.3 Truy vết vòng xoay vốn (Luồng luân chuyển tiền)</span>
-            </div>
-            <p className="text-slate-600">
-              Ví dụ vòng xoay mẫu: Rút từ <strong>Tài Khoản MB Bank</strong> ➔ chuyển sang <strong>Ví Tiền Mặt</strong> ➔ Chi trả đối tác vật tư ➔ Thu tiền bán hàng hoàn về <strong>Tài Khoản MB Bank</strong>.
-            </p>
-          </div>
-
-          {/* Danh sách Dòng chảy */}
-          <div className="bg-white rounded-xl border border-[#ABCBCA] shadow-sm divide-y divide-slate-100 overflow-hidden">
-            {flows.length === 0 ? (
-              <div className="text-center py-10 text-slate-400 text-sm">
-                Chưa có dòng chảy nào khớp với bộ lọc
+            {allFuturePlannedFlows.length === 0 ? (
+              <div className="text-center py-10 text-slate-400 text-xs">
+                Chưa có kế hoạch dự thu hay dự chi nào trong tương lai. Bạn có thể thêm khi ghi Thu hoặc Chi.
               </div>
             ) : (
-              flows.map((flow) => (
-                <div key={flow.id} className="p-4 hover:bg-slate-50 transition flex items-center justify-between">
-                  <div className="space-y-1">
-                    <div className="flex items-center space-x-2">
-                      <span className="font-bold text-slate-800 text-sm">{flow.title}</span>
-                      {!flow.isActual && (
-                        <span className="bg-[#DA9B2B]/20 text-[#DA9B2B] text-[10px] font-bold px-1.5 py-0.2 rounded">
-                          Dự kiến (2.4)
-                        </span>
-                      )}
-                      {flow.isReconcile && (
-                        <span className="bg-[#BF512C]/20 text-[#BF512C] text-[10px] font-bold px-1.5 py-0.2 rounded">
-                          Điều chỉnh đối chiếu (2.6)
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-xs text-slate-500 flex items-center space-x-2">
-                      <span>{flow.from} ➔ {flow.to}</span>
-                      <span>·</span>
-                      <span>{flow.date}</span>
-                      <span>·</span>
-                      <span className="font-semibold text-slate-700 bg-slate-200 px-1.5 py-0.5 rounded text-[10px]">
-                        {flow.tag}
-                      </span>
-                    </div>
-                  </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                {allFuturePlannedFlows.map((plan) => {
+                  // Tính khoảng cách ngày
+                  let diffDaysText = "";
+                  if (plan.rawDate || plan.date) {
+                    const today0 = new Date();
+                    today0.setHours(0, 0, 0, 0);
+                    let pDate: Date | null = null;
+                    if (plan.rawDate) {
+                      pDate = new Date(plan.rawDate);
+                    } else if (plan.date && plan.date.includes("/")) {
+                      const p = plan.date.split("/");
+                      pDate = new Date(`${p[2]}-${p[1]}-${p[0]}`);
+                    }
+                    if (pDate && !isNaN(pDate.getTime())) {
+                      pDate.setHours(0, 0, 0, 0);
+                      const diff = Math.ceil((pDate.getTime() - today0.getTime()) / (24 * 60 * 60 * 1000));
+                      if (diff === 0) diffDaysText = "Hôm nay đến hạn";
+                      else if (diff > 0) diffDaysText = `Còn ${diff} ngày nữa`;
+                      else diffDaysText = `Quá hạn ${Math.abs(diff)} ngày`;
+                    }
+                  }
 
-                  <div className="flex items-center space-x-3">
-                    <div className="text-right">
-                      <span
-                        className={`text-base font-black ${
-                          flow.type === "income"
-                            ? "text-[#2E5749]"
-                            : flow.type === "expense"
-                            ? "text-[#BF512C]"
-                            : "text-[#0C2C47]"
-                        }`}
-                      >
-                        {flow.type === "income" ? "+" : flow.type === "expense" ? "-" : ""}
-                        {flow.amount.toLocaleString("vi-VN")} ₫
-                      </span>
-                      <span className="block text-[10px] uppercase font-bold text-slate-400">
-                        {flow.type}
-                      </span>
-                    </div>
+                  return (
+                    <div
+                      key={plan.id}
+                      className="p-4 rounded-2xl border border-slate-200 bg-slate-50/50 hover:bg-slate-50 transition flex flex-col justify-between space-y-3"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                            <span
+                              className={`px-2 py-0.5 rounded-md text-[10px] font-black ${
+                                plan.type === "income"
+                                  ? "bg-emerald-100 text-emerald-800"
+                                  : "bg-rose-100 text-rose-800"
+                              }`}
+                            >
+                              {plan.type === "income" ? "DỰ THU (+)" : "DỰ CHI (-)"}
+                            </span>
+                            <span className="font-bold text-slate-900 text-sm">{plan.title}</span>
+                          </div>
+                          <p className="text-[11px] text-slate-500 mt-1">
+                            {plan.from} ➔ {plan.to} • Ngày: <b className="text-slate-700">{plan.date || plan.rawDate}</b>
+                          </p>
+                        </div>
 
-                    {/* Nút Sửa & Xóa Flow */}
-                    <div className="flex items-center space-x-1 pl-2 border-l border-slate-200">
-                      <button
-                        type="button"
-                        onClick={() => handleOpenEditFlow(flow)}
-                        className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-600 hover:text-blue-600 transition cursor-pointer"
-                        title="Sửa số liệu"
-                      >
-                        <Edit className="w-4 h-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setFlowToDelete(flow)}
-                        className="p-1.5 rounded-lg hover:bg-rose-50 text-slate-400 hover:text-rose-600 transition cursor-pointer"
-                        title="Xóa giao dịch"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                        <div className="text-right shrink-0">
+                          <span className="text-base font-black text-slate-900 block">
+                            {plan.amount.toLocaleString("vi-VN")} ₫
+                          </span>
+                          {diffDaysText && (
+                            <span className="text-[10px] font-black text-amber-700 bg-amber-100/70 px-2 py-0.5 rounded-full inline-block mt-0.5">
+                              ⏳ {diffDaysText}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Các nút hành động: Thực hiện ngay, Sửa, Xóa */}
+                      <div className="pt-2 border-t border-slate-200/60 flex items-center justify-between">
+                        <div className="flex items-center space-x-1">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEditFlow(plan)}
+                            className="p-1.5 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-white border border-transparent hover:border-slate-200 transition cursor-pointer"
+                            title="Sửa kế hoạch (1=1k)"
+                          >
+                            <Edit className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setFlowToDelete(plan)}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-white border border-transparent hover:border-slate-200 transition cursor-pointer"
+                            title="Xóa kế hoạch"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleExecutePlannedFlow(plan)}
+                          className="px-3.5 py-1.5 rounded-xl bg-[#0C2C47] hover:bg-[#0C2C47]/90 text-white font-black text-xs shadow-xs transition active:scale-95 cursor-pointer flex items-center space-x-1"
+                        >
+                          <span>✓ Thực hiện ngay</span>
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                </div>
-              ))
+                  );
+                })}
+              </div>
             )}
           </div>
         </div>
       )}
 
-      {/* TAB 4: MỤC 2.6. ĐỐI CHIẾU SỐ DƯ THỰC TẾ & ĐIỀU CHỈNH CHƯA RÕ NGUYÊN NHÂN */}
-      {activeTab === "reconcile" && (
-        <div className="space-y-6">
-          <div className="bg-[#0C2C47] text-white p-5 rounded-xl space-y-2">
-            <h3 className="font-black text-lg">2.6. Đối Chiếu Số Dư Thực Tế (Audit Kiểm Đếm)</h3>
-            <p className="text-xs text-slate-300 leading-relaxed">
-              Nguyên tắc thiết kế cốt lõi: <strong>Không bao giờ ghi đè số dư khi phát hiện chênh lệch</strong>. 
-              Mọi chênh lệch giữa số tiền thực đếm được và hệ thống sẽ tự động sinh Dòng chảy <strong>"Điều chỉnh chưa rõ nguyên nhân"</strong> để bảo toàn dấu vết kiểm toán và dùng làm chỉ số cảnh báo kỷ luật ghi chép.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {vaults.map((vault) => (
-              <div key={vault.id} className="bg-white p-4 rounded-xl border border-[#ABCBCA] shadow-sm flex justify-between items-center">
-                <div>
-                  <span className="font-bold text-slate-900 text-sm block">{vault.name}</span>
-                  <span className="text-xs text-slate-500">Hệ thống đang tính:</span>
-                  <span className="text-base font-black text-[#0C2C47] block">
-                    {vault.balance.toLocaleString("vi-VN")} ₫
-                  </span>
-                </div>
-                <button
-                  onClick={() => {
-                    setSelectedVaultForReconcile(vault);
-                    setReconcileForm({
-                      actualBalance: vault.balance.toString(),
-                      reason: "Đối chiếu kiểm đếm định kỳ",
-                      assignAsFlow: false,
-                      flowTag: "Chênh lệch đối chiếu",
-                    });
-                    setShowReconcileModal(true);
-                  }}
-                  className="bg-[#0C2C47] text-white px-3 py-2 rounded-lg text-xs font-bold hover:bg-[#0C2C47]/90"
-                >
-                  Nhập số thực đếm ➔
-                </button>
-              </div>
-            ))}
-          </div>
-
-          {/* Danh sách "Điều chỉnh chưa rõ nguyên nhân" theo thời gian (Chỉ số cảnh báo kỷ luật) */}
-          <div className="bg-white rounded-xl border border-[#ABCBCA] shadow-sm p-4 space-y-3">
-            <div className="flex items-center justify-between border-b pb-2">
-              <h4 className="font-bold text-sm text-[#0C2C47] flex items-center space-x-1.5">
-                <AlertTriangle className="w-4 h-4 text-[#BF512C]" />
-                <span>Danh sách "Điều chỉnh chưa rõ nguyên nhân" theo thời gian</span>
-              </h4>
-              <span className="text-xs text-slate-500">Thước đo kỷ luật ghi chép</span>
-            </div>
-
-            <div className="divide-y divide-slate-100">
-              {reconciles.length === 0 ? (
-                <div className="text-center py-6 text-slate-400 text-xs">
-                  Chưa có lịch sử đối chiếu nào được ghi nhận
-                </div>
-              ) : (
-                reconciles.map((r) => (
-                  <div key={r.id} className="py-3 flex items-start justify-between text-xs">
-                    <div>
-                      <div className="flex items-center space-x-2">
-                        <span className="font-bold text-slate-800">{r.vaultName}</span>
-                        <span className="text-[10px] text-slate-400">{r.createdAt}</span>
-                      </div>
-                      <span className="text-slate-500 mt-0.5 block">Lý do: {r.reason}</span>
-                      <span className="text-[11px] font-semibold text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded inline-block mt-1">
-                        Hành động: {r.actionTaken}
-                      </span>
-                    </div>
-
-                    <div className="text-right">
-                      <span className="text-slate-400 block text-[10px]">Chênh lệch:</span>
-                      <span
-                        className={`font-black text-sm ${
-                          r.difference === 0
-                            ? "text-[#2E5749]"
-                            : r.difference > 0
-                            ? "text-[#2E5749]"
-                            : "text-[#BF512C]"
-                        }`}
-                      >
-                        {r.difference > 0 ? "+" : ""}
-                        {r.difference.toLocaleString("vi-VN")} ₫
-                      </span>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* TAB 5: MỤC 3. NGHĨA VỤ (NỢ & THUẾ) */}
-      {activeTab === "obligations" && (
-        <div className="space-y-6">
-          <div className="bg-[#0C2C47] text-white p-5 rounded-xl space-y-2">
-            <h3 className="font-black text-lg">3. Quản Lý Nghĩa Vụ (Nợ & Thuế)</h3>
-            <p className="text-xs text-slate-300">
-              Nguyên tắc vàng: <strong>Mọi khoản nợ bắt buộc gắn rõ vai trò Chủ nợ (phải thu) hay Con nợ (phải trả)</strong> vì tác động ngược nhau lên tài sản ròng. Lãi vay không đổi nợ gốc mà là dòng chảy độc lập.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* Phải thu */}
-            <div className="bg-white p-4 rounded-xl border border-[#ABCBCA] shadow-sm space-y-3">
-              <div className="flex items-center justify-between border-b pb-2">
-                <span className="font-bold text-sm text-[#2E5749]">3.1 Nợ Phải Thu (Chủ nợ: +Tài sản)</span>
-                <span className="text-xs font-bold text-[#2E5749]">+{totalReceivable.toLocaleString("vi-VN")}₫</span>
-              </div>
-              <div className="space-y-2">
-                {obligations.filter((o) => o.type === "receivable" || o.role === "creditor").map((o) => (
-                  <div key={o.id} className="p-2.5 bg-slate-50 rounded border border-slate-100 text-xs space-y-1">
-                    <div className="flex justify-between font-bold">
-                      <span>{o.title}</span>
-                      <span className="text-[#2E5749]">+{o.amount.toLocaleString("vi-VN")}₫</span>
-                    </div>
-                    <div className="text-slate-500 text-[11px] flex justify-between">
-                      <span>Đối tác: {o.partner}</span>
-                      <span>Hạn: {o.dueDate}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Phải trả */}
-            <div className="bg-white p-4 rounded-xl border border-[#ABCBCA] shadow-sm space-y-3">
-              <div className="flex items-center justify-between border-b pb-2">
-                <span className="font-bold text-sm text-[#BF512C]">3.2 Nợ Phải Trả (Con nợ: -Tài sản)</span>
-                <span className="text-xs font-bold text-[#BF512C]">-{totalPayable.toLocaleString("vi-VN")}₫</span>
-              </div>
-              <div className="space-y-2">
-                {obligations.filter((o) => o.type === "payable" || o.role === "debtor").map((o) => (
-                  <div key={o.id} className="p-2.5 bg-slate-50 rounded border border-slate-100 text-xs space-y-1">
-                    <div className="flex justify-between font-bold">
-                      <span>{o.title}</span>
-                      <span className="text-[#BF512C]">-{o.amount.toLocaleString("vi-VN")}₫</span>
-                    </div>
-                    <div className="text-slate-500 text-[11px] flex justify-between">
-                      <span>Lãi: {o.interest}</span>
-                      <span className="text-[#DA9B2B] font-bold">Hạn: {o.dueDate}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Thuế */}
-            <div className="bg-white p-4 rounded-xl border border-[#ABCBCA] shadow-sm space-y-3">
-              <div className="flex items-center justify-between border-b pb-2">
-                <span className="font-bold text-sm text-[#0C2C47]">3.3 Thuế Tính Theo Kỳ</span>
-                <span className="text-xs font-bold text-[#0C2C47]">{totalTax.toLocaleString("vi-VN")}₫</span>
-              </div>
-              <div className="space-y-2">
-                {obligations.filter((o) => o.type === "tax").map((o) => (
-                  <div key={o.id} className="p-2.5 bg-slate-50 rounded border border-slate-100 text-xs space-y-1">
-                    <div className="flex justify-between font-bold">
-                      <span>{o.title}</span>
-                      <span className="text-[#0C2C47]">{o.amount.toLocaleString("vi-VN")}₫</span>
-                    </div>
-                    <div className="text-slate-500 text-[11px]">
-                      {o.formula}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* TAB 6: MỤC 4. VỐN, ĐỊNH GIÁ & ĐIỂM HÒA VỐN */}
-      {activeTab === "pricing" && (
-        <div className="space-y-6">
-          <div className="bg-[#0C2C47] text-white p-5 rounded-xl space-y-2">
-            <h3 className="font-black text-lg">4. Vốn, Định Giá Sản Phẩm & Điểm Hòa Vốn</h3>
-            <p className="text-xs text-slate-300">
-              Công cụ tính toán định giá theo chi phí, hòa vốn ngược và cảnh báo co hẹp biên lợi nhuận
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Form nhập tham số */}
-            <div className="bg-white p-5 rounded-xl border border-[#ABCBCA] shadow-sm space-y-4">
-              <h4 className="font-bold text-[#0C2C47] text-sm">4.3 Công cụ định giá sản phẩm / dịch vụ</h4>
-              
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Tên sản phẩm / Dịch vụ</label>
-                <input
-                  type="text"
-                  value={pricingCalc.productName}
-                  onChange={(e) => setPricingCalc({ ...pricingCalc, productName: e.target.value })}
-                  className="w-full p-2 rounded border border-slate-300 text-xs"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Chi phí biến đổi / đơn vị (VNĐ)</label>
-                  <input
-                    type="number"
-                    value={pricingCalc.variableCost}
-                    onChange={(e) => setPricingCalc({ ...pricingCalc, variableCost: parseFloat(e.target.value) || 0 })}
-                    className="w-full p-2 rounded border border-slate-300 text-xs font-bold"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Chi phí cố định phân bổ (VNĐ)</label>
-                  <input
-                    type="number"
-                    value={pricingCalc.fixedCostAlloc}
-                    onChange={(e) => setPricingCalc({ ...pricingCalc, fixedCostAlloc: parseFloat(e.target.value) || 0 })}
-                    className="w-full p-2 rounded border border-slate-300 text-xs font-bold"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Sản lượng dự kiến bán (Đơn vị)</label>
-                  <input
-                    type="number"
-                    value={pricingCalc.expectedUnits}
-                    onChange={(e) => setPricingCalc({ ...pricingCalc, expectedUnits: parseFloat(e.target.value) || 1 })}
-                    className="w-full p-2 rounded border border-slate-300 text-xs"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Biên lợi nhuận mong muốn (%)</label>
-                  <input
-                    type="number"
-                    value={pricingCalc.targetMarginPct}
-                    onChange={(e) => setPricingCalc({ ...pricingCalc, targetMarginPct: parseFloat(e.target.value) || 0 })}
-                    className="w-full p-2 rounded border border-slate-300 text-xs"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Kết quả phân tích */}
-            <div className="bg-white p-5 rounded-xl border border-[#ABCBCA] shadow-sm space-y-4 flex flex-col justify-between">
-              <h4 className="font-bold text-[#0C2C47] text-sm">4.4 & 4.5 Kết quả Định Giá & Điểm Hòa Vốn</h4>
-
-              <div className="space-y-3 text-xs">
-                <div className="p-3 bg-slate-50 rounded-lg flex justify-between items-center">
-                  <span className="text-slate-600">Giá bán khuyến nghị (theo Margin {pricingCalc.targetMarginPct}%):</span>
-                  <span className="font-black text-base text-[#2E5749]">
-                    {Math.round(priceByMargin).toLocaleString("vi-VN")} ₫
-                  </span>
-                </div>
-
-                <div className="p-3 bg-slate-50 rounded-lg flex justify-between items-center">
-                  <span className="text-slate-600">Giá bán tối thiểu hòa vốn ngược:</span>
-                  <span className="font-bold text-sm text-[#0C2C47]">
-                    {Math.round(breakEvenPrice).toLocaleString("vi-VN")} ₫
-                  </span>
-                </div>
-
-                <div className="p-3 bg-slate-50 rounded-lg flex justify-between items-center">
-                  <span className="text-slate-600">Sản lượng hòa vốn vận hành tối thiểu:</span>
-                  <span className="font-black text-sm text-[#BF512C]">
-                    {breakEvenUnits} sản phẩm / kỳ
-                  </span>
-                </div>
-              </div>
-
-              <div className="p-3 bg-amber-50 rounded-lg border border-amber-200 text-amber-900 text-xs flex items-center space-x-2">
-                <AlertTriangle className="w-4 h-4 shrink-0 text-[#DA9B2B]" />
-                <span>Cảnh báo: Nếu chi phí biến đổi tăng quá 15%, biên lợi nhuận thực tế sẽ giảm về dưới 20%.</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* TAB 7: MỤC 5. DỰ BÁO DÒNG TIỀN & KỊCH BẢN GIẢ LẬP */}
-      {activeTab === "forecast" && (
-        <div className="space-y-6">
-          <div className="bg-[#0C2C47] text-white p-5 rounded-xl space-y-2">
-            <h3 className="font-black text-lg">5. Dự Báo Dòng Tiền & Kịch Bản Giả Lập</h3>
-            <p className="text-xs text-slate-300">
-              Phát hiện sớm nguy cơ âm quỹ và thử nghiệm giải pháp (hoãn chi / thu nợ sớm / tăng giá)
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Bộ điều khiển giả lập */}
-            <div className="bg-white p-5 rounded-xl border border-[#ABCBCA] shadow-sm space-y-4">
-              <h4 className="font-bold text-[#0C2C47] text-sm">5.2 Kịch bản giả lập (What-if)</h4>
-              
-              <div className="space-y-3 text-xs">
-                <label className="flex items-center space-x-2 p-2 rounded bg-slate-50 hover:bg-slate-100 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={simulationParams.delayExpenses}
-                    onChange={(e) => setSimulationParams({ ...simulationParams, delayExpenses: e.target.checked })}
-                    className="rounded border-slate-300"
-                  />
-                  <span>Hoãn khoản nợ ICT 18.5tr sang tháng sau</span>
-                </label>
-
-                <label className="flex items-center space-x-2 p-2 rounded bg-slate-50 hover:bg-slate-100 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={simulationParams.speedupReceivables}
-                    onChange={(e) => setSimulationParams({ ...simulationParams, speedupReceivables: e.target.checked })}
-                    className="rounded border-slate-300"
-                  />
-                  <span>Đẩy nhanh thu hồi nợ Zlink 30tr trước 5 ngày</span>
-                </label>
-              </div>
-            </div>
-
-            {/* Dự báo số dư 30 ngày */}
-            <div className="lg:col-span-2 bg-white p-5 rounded-xl border border-[#ABCBCA] shadow-sm space-y-3">
-              <div className="flex items-center justify-between">
-                <h4 className="font-bold text-[#0C2C47] text-sm">5.1 Số dư dự kiến toàn mạng lưới trong 30 ngày tới</h4>
-                <span className="text-xs font-bold text-[#2E5749]">
-                  Điểm đáy an toàn: +124.500.000₫
-                </span>
-              </div>
-              <div className="p-4 bg-emerald-50 rounded-xl border border-emerald-200 text-emerald-900 text-xs">
-                ✅ Không phát hiện điểm âm quỹ trong 30 ngày tới. Dòng tiền dự kiến luôn duy trì mức an toàn &gt; 100.000.000 ₫.
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* TAB 8: MỤC 6. BÁO CÁO & PHÂN TÍCH */}
-      {activeTab === "reports" && (
-        <div className="space-y-6">
-          <div className="bg-[#0C2C47] text-white p-5 rounded-xl flex items-center justify-between">
-            <div>
-              <h3 className="font-black text-lg">6. Báo Cáo & Phân Tích Tài Chính</h3>
-              <p className="text-xs text-slate-300">Tổng hợp thu/chi, doanh thu kênh bán và đối chiếu phục vụ kiểm toán</p>
-            </div>
-            <button
-              onClick={() => window.print()}
-              className="bg-[#BF512C] text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center space-x-1.5 hover:bg-[#BF512C]/90 shadow-sm"
-            >
-              <Printer className="w-4 h-4" />
-              <span>In / Xuất PDF (6.4)</span>
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="bg-white p-4 rounded-xl border border-[#ABCBCA] shadow-sm space-y-2">
-              <span className="text-xs text-slate-500 font-semibold block">6.1 Tổng Thu Nhập Đã Ghi</span>
-              <span className="text-xl font-black text-[#2E5749]">
-                {flows.filter(f => f.type === 'income').reduce((acc, f) => acc + f.amount, 0).toLocaleString("vi-VN")} ₫
-              </span>
-            </div>
-
-            <div className="bg-white p-4 rounded-xl border border-[#ABCBCA] shadow-sm space-y-2">
-              <span className="text-xs text-slate-500 font-semibold block">6.1 Tổng Chi Phí Đã Ghi</span>
-              <span className="text-xl font-black text-[#BF512C]">
-                {flows.filter(f => f.type === 'expense').reduce((acc, f) => acc + f.amount, 0).toLocaleString("vi-VN")} ₫
-              </span>
-            </div>
-
-            <div className="bg-white p-4 rounded-xl border border-[#ABCBCA] shadow-sm space-y-2">
-              <span className="text-xs text-slate-500 font-semibold block">6.3 Chênh lệch Chưa rõ nguyên nhân</span>
-              <span className="text-xl font-black text-[#DA9B2B]">
-                {reconciles.reduce((acc, r) => acc + Math.abs(r.difference), 0).toLocaleString("vi-VN")} ₫
-              </span>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* TAB 9: MỤC 7. CÀI ĐẶT HỆ THỐNG */}
       {activeTab === "settings" && (
@@ -3345,21 +3032,22 @@ export default function Home() {
               {/* 2. NÚT CHUÔNG THÔNG BÁO Ở GIỮA */}
               <button
                 type="button"
-                onClick={() => setShowNotificationCenterModal(true)}
-                style={{
-                  backgroundColor: allSystemAlerts.length > 0 ? "#b45309" : "#0C2C47",
-                  color: "#ffffff",
-                  borderColor: allSystemAlerts.length > 0 ? "#f59e0b" : "#1e3a5f",
+                onClick={() => {
+                  markAllAlertsAsRead();
+                  setShowNotificationCenterModal(true);
                 }}
-                className={`relative group h-13 sm:h-15 rounded-2xl border-2 shadow-md shadow-black/20 flex items-center justify-center gap-1.5 sm:gap-2 transition-all transform active:scale-95 cursor-pointer hover:brightness-105 ${
-                  allSystemAlerts.length > 0 ? "animate-pulse" : ""
-                }`}
+                style={{
+                  backgroundColor: unreadAlertsCount > 0 ? "#b45309" : "#0C2C47",
+                  color: "#ffffff",
+                  borderColor: unreadAlertsCount > 0 ? "#f59e0b" : "#1e3a5f",
+                }}
+                className="relative group h-13 sm:h-15 rounded-2xl border-2 shadow-md shadow-black/20 flex items-center justify-center gap-1.5 sm:gap-2 transition-all transform active:scale-95 cursor-pointer hover:brightness-105"
                 title="Xem thông báo và cảnh báo hệ thống"
               >
-                {/* Badge số lượng thông báo nổi bật */}
-                {allSystemAlerts.length > 0 && (
-                  <span className="absolute -top-2 -right-1 bg-rose-600 text-white font-black text-[11px] min-w-[22px] h-[22px] px-1 flex items-center justify-center rounded-full border-2 border-white shadow-lg animate-bounce">
-                    {allSystemAlerts.length}
+                {/* Badge số lượng thông báo nổi bật - chỉ hiển thị khi có tin chưa đọc, tắt hiệu ứng ping/bounce */}
+                {unreadAlertsCount > 0 && (
+                  <span className="absolute -top-2 -right-1 bg-rose-600 text-white font-black text-[11px] min-w-[22px] h-[22px] px-1 flex items-center justify-center rounded-full border-2 border-white shadow-lg">
+                    {unreadAlertsCount}
                   </span>
                 )}
                 <div className="p-1 rounded-full bg-black/25 shrink-0">
@@ -3368,7 +3056,7 @@ export default function Home() {
                 <div className="text-left leading-none">
                   <span className="block font-black text-xs sm:text-sm tracking-wider text-white">BÁO</span>
                   <span className="block text-[8px] sm:text-[9px] font-bold text-amber-200 uppercase tracking-wider mt-0.5">
-                    {allSystemAlerts.length > 0 ? `${allSystemAlerts.length} TIN` : "CHUÔNG"}
+                    {unreadAlertsCount > 0 ? `${unreadAlertsCount} MỚI` : "CHUÔNG"}
                   </span>
                 </div>
               </button>
@@ -4956,11 +4644,11 @@ export default function Home() {
                 onClick={() => {
                   stopAllSounds();
                   setShowAlarmAlertModal(false);
-                  setActiveTab("reports");
+                  setActiveTab("home");
                 }}
                 className="w-full py-3.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-black text-sm shadow-lg shadow-amber-500/30 transition transform hover:scale-[1.02] cursor-pointer"
               >
-                📊 XEM BÁO CÁO & CHỐT SỔ NGAY ➔
+                📊 XEM CHI TIẾT THU CHI & CHỐT SỔ NGAY ➔
               </button>
               <button
                 type="button"
@@ -5291,14 +4979,14 @@ export default function Home() {
             <div className="flex items-center justify-between border-b pb-3">
               <div className="flex items-center space-x-3">
                 <div className="w-10 h-10 rounded-2xl bg-amber-100 flex items-center justify-center text-amber-800 shadow-2xs">
-                  <Bell className="w-5 h-5" />
+                  <Bell className="w-5 h-5 text-amber-700" />
                 </div>
                 <div>
                   <h3 className="text-base font-black text-[#0C2C47] uppercase tracking-wide">
                     Trung Tâm Thông Báo Hệ Thống
                   </h3>
                   <p className="text-xs text-slate-500 font-medium">
-                    Cảnh báo dự thu/chi, ngưỡng nợ, hạn mức kho & lịch báo cáo
+                    Cảnh báo dự thu/chi, ngưỡng nợ, hạn mức kho & lịch sử thu chi
                   </p>
                 </div>
               </div>
@@ -5310,67 +4998,156 @@ export default function Home() {
               </button>
             </div>
 
-            {/* Danh sách thông báo */}
+            {/* Chuyển Tab: Cảnh báo & Kế hoạch VS Lịch sử thu chi */}
+            <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
+              <div className="flex space-x-1.5">
+                <button
+                  type="button"
+                  onClick={() => setNotifCenterTab("alerts")}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                    notifCenterTab === "alerts"
+                      ? "bg-[#0C2C47] text-white shadow-xs"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  }`}
+                >
+                  🔔 Cảnh Báo ({allSystemAlerts.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setNotifCenterTab("history")}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                    notifCenterTab === "history"
+                      ? "bg-[#0C2C47] text-white shadow-xs"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  }`}
+                >
+                  📜 Lịch Sử Thu Chi
+                </button>
+              </div>
+
+              {notifCenterTab === "alerts" && allSystemAlerts.length > 0 && (
+                <button
+                  type="button"
+                  onClick={markAllAlertsAsRead}
+                  className="text-[11px] font-bold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                >
+                  ✓ Đã đọc tất cả
+                </button>
+              )}
+            </div>
+
+            {/* Nội dung theo Tab */}
             <div className="flex-1 overflow-y-auto space-y-2.5 pr-1">
-              {allSystemAlerts.length === 0 ? (
-                <div className="text-center py-12 text-slate-400 space-y-2.5">
-                  <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto" />
-                  <p className="font-bold text-sm text-slate-800">Tất cả chỉ số đều an toàn</p>
-                  <p className="text-xs text-slate-400">
-                    Không có cảnh báo vượt hạn mức hoặc nhắc nhở nào đang chờ xử lý.
-                  </p>
-                </div>
-              ) : (
-                allSystemAlerts.map((item) => (
-                  <div
-                    key={item.id}
-                    className={`p-3.5 rounded-2xl border flex items-start justify-between gap-3 text-xs shadow-2xs transition ${
-                      item.severity === "danger"
-                        ? "bg-rose-50/90 border-rose-200 text-rose-950"
-                        : item.severity === "warning"
-                        ? "bg-amber-50/90 border-amber-200 text-amber-950"
-                        : "bg-blue-50/90 border-blue-200 text-blue-950"
-                    }`}
-                  >
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-1.5">
-                        <span
-                          className={`w-2 h-2 rounded-full ${
-                            item.severity === "danger"
-                              ? "bg-rose-600 animate-pulse"
-                              : item.severity === "warning"
-                              ? "bg-amber-600"
-                              : "bg-blue-600"
-                          }`}
-                        />
-                        <span className="font-black text-xs">{item.title}</span>
-                      </div>
-                      <p className="text-[11px] opacity-90 leading-relaxed font-medium pl-3.5">
-                        {item.desc}
-                      </p>
-                    </div>
-                    {item.actionTab && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setActiveTab(item.actionTab as any);
-                          setShowNotificationCenterModal(false);
-                        }}
-                        className="px-3 py-1.5 rounded-xl bg-white border border-slate-200 hover:border-slate-400 shadow-xs font-black text-[11px] whitespace-nowrap hover:bg-slate-50 cursor-pointer text-slate-800 transition shrink-0"
-                      >
-                        Xem ngay ➔
-                      </button>
-                    )}
+              {notifCenterTab === "alerts" ? (
+                allSystemAlerts.length === 0 ? (
+                  <div className="text-center py-12 text-slate-400 space-y-2.5">
+                    <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto" />
+                    <p className="font-bold text-sm text-slate-800">Tất cả chỉ số đều an toàn</p>
+                    <p className="text-xs text-slate-400">
+                      Không có cảnh báo vượt hạn mức hoặc nhắc nhở nào đang chờ xử lý.
+                    </p>
                   </div>
-                ))
+                ) : (
+                  allSystemAlerts.map((item) => (
+                    <div
+                      key={item.id}
+                      className={`p-3.5 rounded-2xl border flex items-start justify-between gap-3 text-xs shadow-2xs transition ${
+                        item.severity === "danger"
+                          ? "bg-rose-50/90 border-rose-200 text-rose-950"
+                          : item.severity === "warning"
+                          ? "bg-amber-50/90 border-amber-200 text-amber-950"
+                          : "bg-blue-50/90 border-blue-200 text-blue-950"
+                      }`}
+                    >
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-1.5">
+                          <span
+                            className={`w-2 h-2 rounded-full ${
+                              item.severity === "danger"
+                                ? "bg-rose-600"
+                                : item.severity === "warning"
+                                ? "bg-amber-600"
+                                : "bg-blue-600"
+                            }`}
+                          />
+                          <span className="font-black text-xs">{item.title}</span>
+                        </div>
+                        <p className="text-[11px] opacity-90 leading-relaxed font-medium pl-3.5">
+                          {item.desc}
+                        </p>
+                      </div>
+                      {item.actionTab && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveTab(item.actionTab as any);
+                            setShowNotificationCenterModal(false);
+                          }}
+                          className="px-3 py-1.5 rounded-xl bg-white border border-slate-200 hover:border-slate-400 shadow-xs font-black text-[11px] whitespace-nowrap hover:bg-slate-50 cursor-pointer text-slate-800 transition shrink-0"
+                        >
+                          Xem ngay ➔
+                        </button>
+                      )}
+                    </div>
+                  ))
+                )
+              ) : (
+                /* TAB LỊCH SỬ THU CHI GẦN ĐÂY */
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-[11px] text-slate-500 font-bold px-1">
+                    <span>Giao dịch thực tế gần nhất:</span>
+                    <span>15 khoản mới nhất</span>
+                  </div>
+                  {flows.filter((f) => f.isActual).length === 0 ? (
+                    <div className="text-center py-10 text-slate-400 text-xs">
+                      Chưa có giao dịch thu chi nào được ghi nhận.
+                    </div>
+                  ) : (
+                    flows
+                      .filter((f) => f.isActual)
+                      .slice(0, 15)
+                      .map((flow) => (
+                        <div
+                          key={flow.id}
+                          className="p-3 rounded-xl border border-slate-100 bg-slate-50/70 hover:bg-slate-100/80 transition flex items-center justify-between text-xs"
+                        >
+                          <div className="space-y-0.5">
+                            <div className="flex items-center space-x-1.5">
+                              <span className="font-bold text-slate-900">{flow.title}</span>
+                              <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-slate-200 text-slate-700">
+                                {flow.tag}
+                              </span>
+                            </div>
+                            <span className="text-[11px] text-slate-500 block">
+                              {flow.from} ➔ {flow.to} • {flow.date || flow.rawDate}
+                            </span>
+                          </div>
+                          <span
+                            className={`font-black text-xs sm:text-sm ${
+                              flow.type === "income"
+                                ? "text-emerald-600"
+                                : flow.type === "expense"
+                                ? "text-rose-600"
+                                : "text-slate-800"
+                            }`}
+                          >
+                            {flow.type === "income" ? "+" : flow.type === "expense" ? "-" : ""}
+                            {flow.amount.toLocaleString("vi-VN")} ₫
+                          </span>
+                        </div>
+                      ))
+                  )}
+                </div>
               )}
             </div>
 
             <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
               <span className="text-xs text-slate-400 font-medium">
-                {allSystemAlerts.length > 0
-                  ? `Có ${allSystemAlerts.length} thông báo cần chú ý`
-                  : "Hệ thống trạng thái tốt"}
+                {notifCenterTab === "alerts"
+                  ? allSystemAlerts.length > 0
+                    ? `Có ${allSystemAlerts.length} thông báo cảnh báo`
+                    : "Hệ thống trạng thái tốt"
+                  : `Tổng ${flows.filter((f) => f.isActual).length} khoản thu chi`}
               </span>
               <button
                 type="button"
