@@ -106,6 +106,8 @@ interface ReminderConfig {
 interface FinancialSystemSettings {
   plannedAdvanceNoticeDays: number; // Số ngày nhắc trước sự kiện dự chi/thu (ví dụ: 3 ngày)
   enablePlannedNotice: boolean; // Bật/tắt thông báo sự kiện dự chi/thu
+  plannedNoticeScope: "all" | "selective"; // 'all': thông báo tất cả sự kiện; 'selective': chỉ thông báo các sự kiện được gán
+  plannedSelectedFlowIds: string[]; // Danh sách id sự kiện dự chi/thu được gán thông báo
   maxNegativeDebtAllowed: number; // Ngưỡng âm nợ cho phép (VNĐ, ví dụ: 50.000.000)
   minVaultBalanceAllowed: number; // Ngưỡng tiền tối thiểu trong mỗi kho (VNĐ, ví dụ: 2.000.000)
   savingsGoalAmount: number; // Mục tiêu tiết kiệm tích lũy (VNĐ, ví dụ: 200.000.000)
@@ -190,6 +192,8 @@ export default function Home() {
   const [systemSettings, setSystemSettings] = useState<FinancialSystemSettings>({
     plannedAdvanceNoticeDays: 3, // Báo trước 3 ngày trước khi đến hạn dự chi/thu
     enablePlannedNotice: true,
+    plannedNoticeScope: "all", // 'all' hoặc 'selective'
+    plannedSelectedFlowIds: [], // các id sự kiện dự chi/thu được gán thông báo
     maxNegativeDebtAllowed: 50000000, // 50 triệu VNĐ
     minVaultBalanceAllowed: 2000000, // 2 triệu VNĐ
     savingsGoalAmount: 200000000, // 200 triệu VNĐ
@@ -695,8 +699,19 @@ export default function Home() {
 
     const diffDays = Math.ceil((fDate.getTime() - todayDateObj.getTime()) / (24 * 60 * 60 * 1000));
     // Trong khoảng từ hôm nay đến X ngày nữa
-    return diffDays >= 0 && diffDays <= systemSettings.plannedAdvanceNoticeDays;
+    const isInNoticeWindow = diffDays >= 0 && diffDays <= systemSettings.plannedAdvanceNoticeDays;
+    if (!isInNoticeWindow) return false;
+
+    // Nếu chọn 'selective' (chọn theo sự kiện muốn thông báo)
+    if (systemSettings.plannedNoticeScope === "selective") {
+      return (systemSettings.plannedSelectedFlowIds || []).includes(f.id);
+    }
+    // Mặc định 'all' (tất cả sự kiện)
+    return true;
   });
+
+  // Toàn bộ các sự kiện dự chi / dự thu trong tương lai (để cấu hình gán thông báo)
+  const allFuturePlannedFlows = flows.filter((f) => !f.isActual);
 
   // 2. Ngưỡng âm nợ cho phép
   const isDebtExceeded = totalPayable > systemSettings.maxNegativeDebtAllowed;
@@ -1823,6 +1838,161 @@ export default function Home() {
                       </button>
                     ))}
                   </div>
+                </div>
+
+                {/* Bộ chọn phạm vi: Tất cả sự kiện vs Chọn theo sự kiện */}
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="font-bold text-slate-800 block text-xs">Phạm vi gán thông báo:</span>
+                      <span className="text-[11px] text-slate-500">
+                        {systemSettings.plannedNoticeScope === "all"
+                          ? "Tất cả các khoản dự thu/chi đến hạn đều được thông báo"
+                          : "Chỉ thông báo những sự kiện dự thu/chi được bạn tick chọn bên dưới"}
+                      </span>
+                    </div>
+                    <div className="flex items-center space-x-1">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleSaveSystemSettings({
+                            ...systemSettings,
+                            plannedNoticeScope: "all",
+                          })
+                        }
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                          systemSettings.plannedNoticeScope === "all"
+                            ? "bg-[#0C2C47] text-white shadow-xs"
+                            : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
+                        }`}
+                      >
+                        ✓ Tất cả sự kiện
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleSaveSystemSettings({
+                            ...systemSettings,
+                            plannedNoticeScope: "selective",
+                          })
+                        }
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                          systemSettings.plannedNoticeScope === "selective"
+                            ? "bg-amber-600 text-white shadow-xs"
+                            : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
+                        }`}
+                      >
+                        📌 Chọn theo sự kiện
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Khi chọn 'selective': Danh sách tick chọn các sự kiện dự chi/dự thu */}
+                  {systemSettings.plannedNoticeScope === "selective" && (
+                    <div className="pt-2 border-t border-slate-200 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-slate-700 uppercase">
+                          Danh sách gán thông báo ({systemSettings.plannedSelectedFlowIds?.length || 0} đã chọn):
+                        </span>
+                        <div className="flex space-x-2 text-[11px]">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleSaveSystemSettings({
+                                ...systemSettings,
+                                plannedSelectedFlowIds: allFuturePlannedFlows.map((f) => f.id),
+                              })
+                            }
+                            className="text-blue-600 hover:underline font-semibold cursor-pointer"
+                          >
+                            Chọn tất cả
+                          </button>
+                          <span>•</span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleSaveSystemSettings({
+                                ...systemSettings,
+                                plannedSelectedFlowIds: [],
+                              })
+                            }
+                            className="text-slate-500 hover:underline font-semibold cursor-pointer"
+                          >
+                            Bỏ chọn hết
+                          </button>
+                        </div>
+                      </div>
+
+                      {allFuturePlannedFlows.length > 0 ? (
+                        <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1">
+                          {allFuturePlannedFlows.map((f) => {
+                            const isSelected = (systemSettings.plannedSelectedFlowIds || []).includes(f.id);
+                            return (
+                              <label
+                                key={f.id}
+                                className={`flex items-center justify-between p-2 rounded-lg border transition cursor-pointer text-xs ${
+                                  isSelected
+                                    ? "bg-amber-50/80 border-amber-300"
+                                    : "bg-white border-slate-200 opacity-70 hover:opacity-100"
+                                }`}
+                              >
+                                <div className="flex items-center space-x-2.5">
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={(e) => {
+                                      const currentIds = systemSettings.plannedSelectedFlowIds || [];
+                                      const newIds = e.target.checked
+                                        ? [...currentIds, f.id]
+                                        : currentIds.filter((id) => id !== f.id);
+                                      handleSaveSystemSettings({
+                                        ...systemSettings,
+                                        plannedSelectedFlowIds: newIds,
+                                      });
+                                    }}
+                                    className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 cursor-pointer"
+                                  />
+                                  <div>
+                                    <div className="flex items-center space-x-1.5">
+                                      <span
+                                        className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
+                                          f.type === "income"
+                                            ? "bg-emerald-100 text-emerald-800"
+                                            : "bg-rose-100 text-rose-800"
+                                        }`}
+                                      >
+                                        {f.type === "income" ? "DỰ THU" : "DỰ CHI"}
+                                      </span>
+                                      <span className="font-bold text-slate-800">{f.title}</span>
+                                    </div>
+                                    <span className="text-[10px] text-slate-500">
+                                      Ngày: {f.date || f.rawDate || "Chưa rõ"}
+                                    </span>
+                                  </div>
+                                </div>
+                                <div className="text-right">
+                                  <span className="font-black text-slate-900 block">
+                                    {f.amount.toLocaleString("vi-VN")} ₫
+                                  </span>
+                                  <span
+                                    className={`text-[10px] font-bold ${
+                                      isSelected ? "text-amber-700" : "text-slate-400"
+                                    }`}
+                                  >
+                                    {isSelected ? "🔔 Nhận thông báo" : "Tắt nhắc"}
+                                  </span>
+                                </div>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="p-3 bg-white rounded-lg border border-slate-200 text-center text-slate-500 text-[11px]">
+                          Chưa có khoản dự chi hoặc dự thu nào được tạo.
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {upcomingPlannedFlows.length > 0 ? (
