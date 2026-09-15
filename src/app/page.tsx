@@ -1682,6 +1682,207 @@ export default function Home() {
                 ))}
               </div>
             </div>
+
+            {/* 7.2 CẤU HÌNH HẸN GIỜ BÁO CÁO & CHUÔNG ĐẶC QUYỀN */}
+            <div className="md:col-span-2 bg-gradient-to-b from-amber-50/50 to-white p-6 rounded-2xl border-2 border-amber-300 shadow-md space-y-5">
+              <div className="flex items-center justify-between border-b border-amber-200 pb-4">
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center shadow-md shadow-amber-500/30">
+                    <Bell className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h4 className="text-base font-black text-[#0C2C47]">7.2 Hẹn Giờ Nhắc Nhở & Chuông Tài Chính Đặc Quyền</h4>
+                    <p className="text-xs text-slate-500">Chuông báo kiểm tra tài sản & chốt sổ với âm thanh tiền tài chính</p>
+                  </div>
+                </div>
+
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={reminderConfig.enabled}
+                    onChange={(e) => handleSaveReminder({ ...reminderConfig, enabled: e.target.checked })}
+                    className="sr-only peer"
+                  />
+                  <div className="w-12 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
+                </label>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* CỘT 1: CHẾ ĐỘ HẸN GIỜ */}
+                <div className="space-y-3">
+                  <label className="block text-xs font-black text-slate-700 uppercase">Chế độ hẹn giờ</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleSaveReminder({ ...reminderConfig, mode: "daily" })}
+                      className={`p-3 rounded-xl border-2 text-left transition cursor-pointer ${
+                        reminderConfig.mode === "daily"
+                          ? "border-amber-500 bg-amber-100/60 shadow-sm"
+                          : "border-slate-200 hover:border-slate-300 bg-white"
+                      }`}
+                    >
+                      <span className="font-bold text-xs block text-slate-800">⏰ Cố định hàng ngày</span>
+                      <span className="text-[11px] text-slate-500">Chốt sổ mỗi ngày</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const target = Date.now() + reminderConfig.countdownMinutes * 60 * 1000;
+                        handleSaveReminder({ ...reminderConfig, mode: "countdown", countdownTarget: target });
+                      }}
+                      className={`p-3 rounded-xl border-2 text-left transition cursor-pointer ${
+                        reminderConfig.mode === "countdown"
+                          ? "border-amber-500 bg-amber-100/60 shadow-sm"
+                          : "border-slate-200 hover:border-slate-300 bg-white"
+                      }`}
+                    >
+                      <span className="font-bold text-xs block text-slate-800">⏳ Đếm ngược chu kỳ</span>
+                      <span className="text-[11px] text-slate-500">Nhắc sau X phút</span>
+                    </button>
+                  </div>
+
+                  {reminderConfig.mode === "daily" ? (
+                    <div className="p-3.5 bg-white rounded-xl border border-amber-200 flex items-center justify-between shadow-xs">
+                      <div>
+                        <span className="text-xs font-bold text-slate-800 block">Khung giờ nhắc hàng ngày</span>
+                        <span className="text-[11px] text-slate-500">Ví dụ: 20:00 (giờ kiểm kê cuối ngày)</span>
+                      </div>
+                      <input
+                        type="time"
+                        value={reminderConfig.dailyTime}
+                        onChange={(e) => handleSaveReminder({ ...reminderConfig, dailyTime: e.target.value })}
+                        className="p-2 rounded-lg border border-slate-300 text-base font-black text-[#0C2C47] bg-amber-50"
+                      />
+                    </div>
+                  ) : (
+                    <div className="p-3.5 bg-white rounded-xl border border-amber-200 space-y-2 shadow-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-slate-800">Đếm ngược còn lại:</span>
+                        <span className="text-sm font-black text-amber-700">{countdownText || `${reminderConfig.countdownMinutes} phút`}</span>
+                      </div>
+                      <div className="grid grid-cols-4 gap-2 text-xs font-bold">
+                        {[15, 30, 60, 120].map((mins) => (
+                          <button
+                            key={mins}
+                            type="button"
+                            onClick={() => {
+                              const target = Date.now() + mins * 60 * 1000;
+                              handleSaveReminder({
+                                ...reminderConfig,
+                                countdownMinutes: mins,
+                                countdownTarget: target,
+                              });
+                            }}
+                            className={`py-1.5 rounded-lg border transition cursor-pointer ${
+                              reminderConfig.countdownMinutes === mins
+                                ? "bg-amber-500 text-white border-amber-600"
+                                : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100"
+                            }`}
+                          >
+                            {mins < 60 ? `${mins}p` : `${mins / 60}h`}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* CỘT 2: KIỂU CHUÔNG ĐẶC QUYỀN */}
+                <div className="space-y-3">
+                  <label className="block text-xs font-black text-slate-700 uppercase">Kiểu chuông thông báo đặc quyền</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {/* LENG KENG TIỀN XU */}
+                    <div
+                      onClick={() => handleSaveReminder({ ...reminderConfig, soundType: "coin" })}
+                      className={`p-3 rounded-xl border-2 transition cursor-pointer flex flex-col justify-between ${
+                        reminderConfig.soundType === "coin"
+                          ? "border-amber-500 bg-amber-100/60 shadow-sm ring-1 ring-amber-400"
+                          : "border-slate-200 hover:border-slate-300 bg-white"
+                      }`}
+                    >
+                      <div>
+                        <div className="flex items-center space-x-1.5">
+                          <span className="text-base">🪙</span>
+                          <span className="font-bold text-xs text-slate-800">Leng Keng Tiền Xu</span>
+                        </div>
+                        <p className="text-[10px] text-slate-500 mt-1">
+                          Âm kim loại vàng/bạc va chạm trong trẻo ngân vang.
+                        </p>
+                      </div>
+                      <div className="mt-2.5 pt-1.5 border-t border-slate-100 flex justify-end">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            isPlayingSoundTest === "coin" ? handleStopSoundTest() : handleTestSound("coin");
+                          }}
+                          className="px-2 py-1 rounded bg-amber-500 hover:bg-amber-600 text-white text-[10px] font-bold flex items-center space-x-1"
+                        >
+                          {isPlayingSoundTest === "coin" ? <Square className="w-3 h-3 fill-white" /> : <Volume2 className="w-3 h-3" />}
+                          <span>{isPlayingSoundTest === "coin" ? "Dừng" : "Thử"}</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* MÁY ĐẾM TIỀN */}
+                    <div
+                      onClick={() => handleSaveReminder({ ...reminderConfig, soundType: "cash_counter" })}
+                      className={`p-3 rounded-xl border-2 transition cursor-pointer flex flex-col justify-between ${
+                        reminderConfig.soundType === "cash_counter"
+                          ? "border-amber-500 bg-amber-100/60 shadow-sm ring-1 ring-amber-400"
+                          : "border-slate-200 hover:border-slate-300 bg-white"
+                      }`}
+                    >
+                      <div>
+                        <div className="flex items-center space-x-1.5">
+                          <span className="text-base">💵</span>
+                          <span className="font-bold text-xs text-slate-800">Máy Đếm Tiền</span>
+                        </div>
+                        <p className="text-[10px] text-slate-500 mt-1">
+                          Nhịp rào rào tạch tạch của từng xấp tiền chạy qua lô đếm.
+                        </p>
+                      </div>
+                      <div className="mt-2.5 pt-1.5 border-t border-slate-100 flex justify-end">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            isPlayingSoundTest === "cash_counter" ? handleStopSoundTest() : handleTestSound("cash_counter");
+                          }}
+                          className="px-2 py-1 rounded bg-amber-500 hover:bg-amber-600 text-white text-[10px] font-bold flex items-center space-x-1"
+                        >
+                          {isPlayingSoundTest === "cash_counter" ? <Square className="w-3 h-3 fill-white" /> : <Volume2 className="w-3 h-3" />}
+                          <span>{isPlayingSoundTest === "cash_counter" ? "Dừng" : "Thử"}</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="p-3 bg-white rounded-xl border border-amber-200 flex items-center justify-between shadow-xs">
+                    <div>
+                      <span className="text-xs font-bold text-slate-800 block">Thời lượng chuông kêu</span>
+                      <span className="text-[11px] text-slate-500">Độ dài âm thanh khi nhắc</span>
+                    </div>
+                    <div className="flex items-center space-x-1.5">
+                      {[3, 5, 8, 10].map((sec) => (
+                        <button
+                          key={sec}
+                          type="button"
+                          onClick={() => handleSaveReminder({ ...reminderConfig, durationSeconds: sec })}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+                            reminderConfig.durationSeconds === sec
+                              ? "bg-[#0C2C47] text-white"
+                              : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                          }`}
+                        >
+                          {sec}s
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -1695,20 +1896,7 @@ export default function Home() {
         !selectedVaultDetail &&
         !showReminderModal &&
         !showAlarmAlertModal && (
-          <aside aria-label="Thanh nhập nhanh Thu Chi dọc màn hình" className="fixed bottom-6 right-3 sm:right-6 z-40 flex flex-col items-center gap-3 select-none">
-            {/* Nút Chuông Hẹn Giờ Nhắc Nhở Nhỏ Gọn */}
-            <button
-              onClick={() => setShowReminderModal(true)}
-              className={`w-11 h-11 rounded-full flex items-center justify-center shadow-lg border-2 border-white transition-all transform hover:scale-110 active:scale-95 cursor-pointer ${
-                reminderConfig.enabled
-                  ? "bg-amber-500 text-white shadow-amber-500/50 animate-bounce"
-                  : "bg-slate-700 text-slate-300 hover:bg-slate-600"
-              }`}
-              title="Cài đặt nhắc nhở & chuông báo tài chính"
-            >
-              <Bell className="w-5 h-5" />
-            </button>
-
+          <aside aria-label="Thanh nhập nhanh Thu Chi dọc màn hình" className="fixed bottom-8 right-3 sm:right-6 z-40 flex flex-col items-center gap-3.5 select-none">
             {/* NÚT THU: XANH LÁ TO RÕ RÀNG NỔI BẬT */}
             <button
               onClick={() => {
@@ -1717,13 +1905,13 @@ export default function Home() {
                 }
                 setShowQuickIncomeModal(true);
               }}
-              className="group w-16 h-24 sm:w-18 sm:h-28 rounded-2xl bg-gradient-to-b from-emerald-500 via-emerald-600 to-emerald-700 text-white shadow-[0_10px_25px_rgba(16,185,129,0.55)] border-2 border-white hover:border-emerald-200 flex flex-col items-center justify-center transition-all transform hover:scale-105 active:scale-95 cursor-pointer"
+              className="group w-16 h-28 sm:w-20 sm:h-32 rounded-2xl bg-gradient-to-b from-emerald-500 via-emerald-600 to-emerald-700 text-white shadow-[0_12px_28px_rgba(16,185,129,0.6)] border-2 border-white hover:border-emerald-200 flex flex-col items-center justify-center transition-all transform hover:scale-105 active:scale-95 cursor-pointer"
               title="Ghi nhận khoản THU tiền vào"
             >
-              <div className="p-1 rounded-full bg-white/20 group-hover:bg-white/30 transition-colors mb-0.5">
-                <ArrowDownLeft className="w-7 h-7 stroke-[3]" />
+              <div className="p-1.5 rounded-full bg-white/20 group-hover:bg-white/30 transition-colors mb-1">
+                <ArrowDownLeft className="w-7 h-7 sm:w-8 sm:h-8 stroke-[3]" />
               </div>
-              <span className="font-black text-base sm:text-lg tracking-wider">THU</span>
+              <span className="font-black text-base sm:text-xl tracking-wider">THU</span>
               <span className="text-[10px] font-bold text-emerald-100 uppercase tracking-widest">(+) VÀO</span>
             </button>
 
@@ -1735,13 +1923,13 @@ export default function Home() {
                 }
                 setShowQuickExpenseModal(true);
               }}
-              className="group w-16 h-24 sm:w-18 sm:h-28 rounded-2xl bg-gradient-to-b from-rose-500 via-rose-600 to-rose-700 text-white shadow-[0_10px_25px_rgba(244,63,94,0.55)] border-2 border-white hover:border-rose-200 flex flex-col items-center justify-center transition-all transform hover:scale-105 active:scale-95 cursor-pointer"
+              className="group w-16 h-28 sm:w-20 sm:h-32 rounded-2xl bg-gradient-to-b from-rose-500 via-rose-600 to-rose-700 text-white shadow-[0_12px_28px_rgba(244,63,94,0.6)] border-2 border-white hover:border-rose-200 flex flex-col items-center justify-center transition-all transform hover:scale-105 active:scale-95 cursor-pointer"
               title="Ghi nhận khoản CHI tiền ra"
             >
-              <div className="p-1 rounded-full bg-white/20 group-hover:bg-white/30 transition-colors mb-0.5">
-                <ArrowUpRight className="w-7 h-7 stroke-[3]" />
+              <div className="p-1.5 rounded-full bg-white/20 group-hover:bg-white/30 transition-colors mb-1">
+                <ArrowUpRight className="w-7 h-7 sm:w-8 sm:h-8 stroke-[3]" />
               </div>
-              <span className="font-black text-base sm:text-lg tracking-wider">CHI</span>
+              <span className="font-black text-base sm:text-xl tracking-wider">CHI</span>
               <span className="text-[10px] font-bold text-rose-100 uppercase tracking-widest">(-) RA</span>
             </button>
           </aside>
@@ -2077,12 +2265,12 @@ export default function Home() {
             </div>
 
             <form onSubmit={handleQuickIncomeSubmit} className="space-y-4">
-              {/* MÀN HÌNH SỐ TIỀN CỰC TO NỔI BẬT */}
-              <div className="bg-emerald-50/70 border-2 border-emerald-200 rounded-2xl p-4 text-center">
-                <span className="block text-[11px] font-bold text-emerald-800 uppercase tracking-wider mb-1">
-                  Số tiền thu nhận (VNĐ)
+              {/* MÀN HÌNH SỐ TIỀN CỰC TO NỀN TỐI CHỮ SÁNG TRÁNH NHẬP SAI */}
+              <div className="bg-[#08131d] border-2 border-emerald-500 rounded-2xl p-5 sm:p-6 text-center shadow-2xl shadow-emerald-950/60 ring-1 ring-emerald-500/30">
+                <span className="block text-xs font-black text-emerald-400 uppercase tracking-widest mb-2">
+                  SỐ TIỀN THU NHẬN (VNĐ)
                 </span>
-                <div className="flex items-center justify-center space-x-1">
+                <div className="flex items-center justify-center space-x-2 py-1">
                   <input
                     type="number"
                     inputMode="numeric"
@@ -2091,38 +2279,54 @@ export default function Home() {
                     placeholder="0"
                     value={quickIncomeForm.amount}
                     onChange={(e) => setQuickIncomeForm({ ...quickIncomeForm, amount: e.target.value })}
-                    className="w-full text-center text-3xl sm:text-4xl font-black text-emerald-700 bg-transparent focus:outline-none placeholder-emerald-300"
+                    className="w-full text-center text-4xl sm:text-5xl font-black text-emerald-300 bg-transparent focus:outline-none placeholder-slate-700 tracking-tight font-mono selection:bg-emerald-500 selection:text-black"
                   />
-                  <span className="text-2xl font-black text-emerald-600">₫</span>
+                  <span className="text-3xl sm:text-4xl font-black text-emerald-400">₫</span>
                 </div>
-                {quickIncomeForm.amount && !isNaN(parseFloat(quickIncomeForm.amount)) && (
-                  <p className="text-xs font-bold text-emerald-600 mt-1">
-                    = {parseFloat(quickIncomeForm.amount).toLocaleString("vi-VN")} Đồng
-                  </p>
+                {quickIncomeForm.amount && !isNaN(parseFloat(quickIncomeForm.amount)) ? (
+                  <div className="mt-3 pt-2.5 border-t border-slate-800 flex flex-col items-center">
+                    <span className="text-sm sm:text-base font-black text-amber-300 tracking-wide">
+                      = {parseFloat(quickIncomeForm.amount).toLocaleString("vi-VN")} Đồng
+                    </span>
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-500 mt-2">Chạm các nút mệnh giá 1k-500k hoặc gõ số</p>
                 )}
               </div>
 
-              {/* PHÍM TẮT SỐ TIỀN NHANH */}
+              {/* CÁC MỆNH GIÁ NHẬP NHANH: 1k - 2k - 3k - 10k - 20k - 50k - 100k - 200k - 500k + XÓA */}
               <div>
-                <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1.5">Phím nhanh số tiền</label>
-                <div className="grid grid-cols-4 gap-1.5 text-xs font-bold">
-                  {[100000, 200000, 500000, 1000000, 2000000, 5000000, 10000000].map((val) => (
+                <label className="block text-[11px] font-black text-slate-600 uppercase mb-1.5">
+                  Mệnh giá nhập nhanh (Cộng dồn)
+                </label>
+                <div className="grid grid-cols-5 gap-1.5 text-xs font-black">
+                  {[
+                    { label: "+1K", val: 1000 },
+                    { label: "+2K", val: 2000 },
+                    { label: "+3K", val: 3000 },
+                    { label: "+10K", val: 10000 },
+                    { label: "+20K", val: 20000 },
+                    { label: "+50K", val: 50000 },
+                    { label: "+100K", val: 100000 },
+                    { label: "+200K", val: 200000 },
+                    { label: "+500K", val: 500000 },
+                  ].map((item) => (
                     <button
-                      key={val}
+                      key={item.label}
                       type="button"
                       onClick={() => {
                         const cur = parseFloat(quickIncomeForm.amount) || 0;
-                        setQuickIncomeForm({ ...quickIncomeForm, amount: String(cur + val) });
+                        setQuickIncomeForm({ ...quickIncomeForm, amount: String(cur + item.val) });
                       }}
-                      className="py-2 px-1 rounded-lg bg-slate-100 hover:bg-emerald-100 hover:text-emerald-800 border border-slate-200 transition text-slate-700 active:scale-95"
+                      className="py-2.5 px-1 rounded-xl bg-slate-100 hover:bg-emerald-100 hover:text-emerald-800 border border-slate-300 transition text-slate-800 active:scale-95 shadow-xs cursor-pointer"
                     >
-                      +{val >= 1000000 ? `${val / 1000000}Tr` : `${val / 1000}K`}
+                      {item.label}
                     </button>
                   ))}
                   <button
                     type="button"
                     onClick={() => setQuickIncomeForm({ ...quickIncomeForm, amount: "" })}
-                    className="py-2 px-1 rounded-lg bg-rose-50 text-rose-600 hover:bg-rose-100 border border-rose-200 transition active:scale-95"
+                    className="py-2.5 px-1 rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-100 border border-rose-300 transition active:scale-95 font-black cursor-pointer"
                   >
                     Xóa
                   </button>
@@ -2231,12 +2435,12 @@ export default function Home() {
             </div>
 
             <form onSubmit={handleQuickExpenseSubmit} className="space-y-4">
-              {/* MÀN HÌNH SỐ TIỀN CỰC TO NỔI BẬT */}
-              <div className="bg-rose-50/70 border-2 border-rose-200 rounded-2xl p-4 text-center">
-                <span className="block text-[11px] font-bold text-rose-800 uppercase tracking-wider mb-1">
-                  Số tiền chi ra (VNĐ)
+              {/* MÀN HÌNH SỐ TIỀN CỰC TO NỀN TỐI CHỮ SÁNG TRÁNH NHẬP SAI */}
+              <div className="bg-[#180a0d] border-2 border-rose-500 rounded-2xl p-5 sm:p-6 text-center shadow-2xl shadow-rose-950/60 ring-1 ring-rose-500/30">
+                <span className="block text-xs font-black text-rose-400 uppercase tracking-widest mb-2">
+                  SỐ TIỀN CHI RA (VNĐ)
                 </span>
-                <div className="flex items-center justify-center space-x-1">
+                <div className="flex items-center justify-center space-x-2 py-1">
                   <input
                     type="number"
                     inputMode="numeric"
@@ -2245,38 +2449,54 @@ export default function Home() {
                     placeholder="0"
                     value={quickExpenseForm.amount}
                     onChange={(e) => setQuickExpenseForm({ ...quickExpenseForm, amount: e.target.value })}
-                    className="w-full text-center text-3xl sm:text-4xl font-black text-rose-700 bg-transparent focus:outline-none placeholder-rose-300"
+                    className="w-full text-center text-4xl sm:text-5xl font-black text-rose-300 bg-transparent focus:outline-none placeholder-slate-700 tracking-tight font-mono selection:bg-rose-500 selection:text-black"
                   />
-                  <span className="text-2xl font-black text-rose-600">₫</span>
+                  <span className="text-3xl sm:text-4xl font-black text-rose-400">₫</span>
                 </div>
-                {quickExpenseForm.amount && !isNaN(parseFloat(quickExpenseForm.amount)) && (
-                  <p className="text-xs font-bold text-rose-600 mt-1">
-                    = {parseFloat(quickExpenseForm.amount).toLocaleString("vi-VN")} Đồng
-                  </p>
+                {quickExpenseForm.amount && !isNaN(parseFloat(quickExpenseForm.amount)) ? (
+                  <div className="mt-3 pt-2.5 border-t border-slate-800 flex flex-col items-center">
+                    <span className="text-sm sm:text-base font-black text-amber-300 tracking-wide">
+                      = {parseFloat(quickExpenseForm.amount).toLocaleString("vi-VN")} Đồng
+                    </span>
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-500 mt-2">Chạm các nút mệnh giá 1k-500k hoặc gõ số</p>
                 )}
               </div>
 
-              {/* PHÍM TẮT SỐ TIỀN NHANH */}
+              {/* CÁC MỆNH GIÁ NHẬP NHANH: 1k - 2k - 3k - 10k - 20k - 50k - 100k - 200k - 500k + XÓA */}
               <div>
-                <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1.5">Phím nhanh số tiền</label>
-                <div className="grid grid-cols-4 gap-1.5 text-xs font-bold">
-                  {[50000, 100000, 200000, 500000, 1000000, 2000000, 5000000].map((val) => (
+                <label className="block text-[11px] font-black text-slate-600 uppercase mb-1.5">
+                  Mệnh giá nhập nhanh (Cộng dồn)
+                </label>
+                <div className="grid grid-cols-5 gap-1.5 text-xs font-black">
+                  {[
+                    { label: "+1K", val: 1000 },
+                    { label: "+2K", val: 2000 },
+                    { label: "+3K", val: 3000 },
+                    { label: "+10K", val: 10000 },
+                    { label: "+20K", val: 20000 },
+                    { label: "+50K", val: 50000 },
+                    { label: "+100K", val: 100000 },
+                    { label: "+200K", val: 200000 },
+                    { label: "+500K", val: 500000 },
+                  ].map((item) => (
                     <button
-                      key={val}
+                      key={item.label}
                       type="button"
                       onClick={() => {
                         const cur = parseFloat(quickExpenseForm.amount) || 0;
-                        setQuickExpenseForm({ ...quickExpenseForm, amount: String(cur + val) });
+                        setQuickExpenseForm({ ...quickExpenseForm, amount: String(cur + item.val) });
                       }}
-                      className="py-2 px-1 rounded-lg bg-slate-100 hover:bg-rose-100 hover:text-rose-800 border border-slate-200 transition text-slate-700 active:scale-95"
+                      className="py-2.5 px-1 rounded-xl bg-slate-100 hover:bg-rose-100 hover:text-rose-800 border border-slate-300 transition text-slate-800 active:scale-95 shadow-xs cursor-pointer"
                     >
-                      +{val >= 1000000 ? `${val / 1000000}Tr` : `${val / 1000}K`}
+                      {item.label}
                     </button>
                   ))}
                   <button
                     type="button"
                     onClick={() => setQuickExpenseForm({ ...quickExpenseForm, amount: "" })}
-                    className="py-2 px-1 rounded-lg bg-slate-200 text-slate-700 hover:bg-slate-300 border border-slate-300 transition active:scale-95"
+                    className="py-2.5 px-1 rounded-xl bg-slate-200 text-slate-700 hover:bg-slate-300 border border-slate-300 transition active:scale-95 font-black cursor-pointer"
                   >
                     Xóa
                   </button>
