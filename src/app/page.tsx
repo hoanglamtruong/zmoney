@@ -138,6 +138,8 @@ export default function Home() {
     toVaultId: "",
     tag: "Doanh thu",
     title: "",
+    isActual: true,
+    flowDate: new Date().toISOString().split("T")[0],
   });
 
   // Form Nhập Nhanh CHI (-)
@@ -146,6 +148,8 @@ export default function Home() {
     fromVaultId: "",
     tag: "Chi phí",
     title: "",
+    isActual: true,
+    flowDate: new Date().toISOString().split("T")[0],
   });
 
   // Cấu hình Chuông & Nhắc nhở Tài chính
@@ -387,12 +391,15 @@ export default function Home() {
     const vaultName = v ? v.name : "Kho nhận";
     const title = quickIncomeForm.title.trim() || `Thu: ${quickIncomeForm.tag} ➔ ${vaultName}`;
 
+    const isActual = quickIncomeForm.isActual ?? true;
+    const flowDate = quickIncomeForm.flowDate || new Date().toISOString().split("T")[0];
+
     try {
       const res = await fetch("/api/flows", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          title,
+          title: quickIncomeForm.isActual ? title : `[Dự kiến] ${title}`,
           amount,
           type: "income",
           fromVaultId: null,
@@ -400,15 +407,22 @@ export default function Home() {
           fromTitle: "Nguồn thu bên ngoài",
           toTitle: vaultName,
           tag: quickIncomeForm.tag,
-          isActual: true,
-          flowDate: new Date().toISOString().split("T")[0],
+          isActual,
+          flowDate,
         }),
       });
       const data = await res.json();
       if (data.success) {
         setShowQuickIncomeModal(false);
-        setQuickIncomeForm({ amount: "", toVaultId: vaults[0]?.id || "", tag: "Doanh thu", title: "" });
-        playCoinSound(1.2);
+        setQuickIncomeForm({
+          amount: "",
+          toVaultId: vaults[0]?.id || "",
+          tag: "Doanh thu",
+          title: "",
+          isActual: true,
+          flowDate: new Date().toISOString().split("T")[0],
+        });
+        if (isActual) playCoinSound(1.2);
         await fetchData();
       } else {
         alert("Lỗi: " + data.error);
@@ -433,12 +447,15 @@ export default function Home() {
     const vaultName = v ? v.name : "Kho chi";
     const title = quickExpenseForm.title.trim() || `Chi: ${quickExpenseForm.tag} từ ${vaultName}`;
 
+    const isActual = quickExpenseForm.isActual ?? true;
+    const flowDate = quickExpenseForm.flowDate || new Date().toISOString().split("T")[0];
+
     try {
       const res = await fetch("/api/flows", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          title,
+          title: quickExpenseForm.isActual ? title : `[Dự kiến] ${title}`,
           amount,
           type: "expense",
           fromVaultId: quickExpenseForm.fromVaultId,
@@ -446,15 +463,22 @@ export default function Home() {
           fromTitle: vaultName,
           toTitle: "Bên nhận chi",
           tag: quickExpenseForm.tag,
-          isActual: true,
-          flowDate: new Date().toISOString().split("T")[0],
+          isActual,
+          flowDate,
         }),
       });
       const data = await res.json();
       if (data.success) {
         setShowQuickExpenseModal(false);
-        setQuickExpenseForm({ amount: "", fromVaultId: vaults[0]?.id || "", tag: "Chi phí", title: "" });
-        playCashCounterSound(1.5);
+        setQuickExpenseForm({
+          amount: "",
+          fromVaultId: vaults[0]?.id || "",
+          tag: "Chi phí",
+          title: "",
+          isActual: true,
+          flowDate: new Date().toISOString().split("T")[0],
+        });
+        if (isActual) playCashCounterSound(1.5);
         await fetchData();
       } else {
         alert("Lỗi: " + data.error);
@@ -627,40 +651,7 @@ export default function Home() {
             <p className="mt-1 text-xs text-slate-300">
               Tài sản ròng = Tổng Kho ({totalBalance.toLocaleString("vi-VN")}₫) + Nợ phải thu (+{totalReceivable.toLocaleString("vi-VN")}₫) − Nợ phải trả (-{totalPayable.toLocaleString("vi-VN")}₫)
             </p>
-            {/* Nút Ghi Nhanh to rõ ngay trong thẻ Net Worth */}
-            <div className="mt-3.5 flex flex-wrap items-center gap-3">
-              <button
-                onClick={() => {
-                  if (!quickIncomeForm.toVaultId && vaults.length > 0) setQuickIncomeForm(p => ({ ...p, toVaultId: vaults[0].id }));
-                  setShowQuickIncomeModal(true);
-                }}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-black px-4 py-2.5 rounded-xl shadow-lg border border-white/20 flex items-center space-x-1.5 transition transform hover:scale-[1.02] cursor-pointer"
-              >
-                <ArrowDownLeft className="w-4 h-4 stroke-[3]" />
-                <span>+ THU VÀO</span>
-              </button>
-              <button
-                onClick={() => {
-                  if (!quickExpenseForm.fromVaultId && vaults.length > 0) setQuickExpenseForm(p => ({ ...p, fromVaultId: vaults[0].id }));
-                  setShowQuickExpenseModal(true);
-                }}
-                className="bg-rose-600 hover:bg-rose-700 text-white text-xs sm:text-sm font-black px-4 py-2.5 rounded-xl shadow-lg border border-white/20 flex items-center space-x-1.5 transition transform hover:scale-[1.02] cursor-pointer"
-              >
-                <ArrowUpRight className="w-4 h-4 stroke-[3]" />
-                <span>- CHI RA</span>
-              </button>
-              <button
-                onClick={() => setShowReminderModal(true)}
-                className={`text-xs font-bold px-3.5 py-2.5 rounded-xl border border-white/20 flex items-center space-x-1.5 transition cursor-pointer ${
-                  reminderConfig.enabled ? "bg-amber-500/30 text-amber-200 border-amber-300/40" : "bg-white/15 hover:bg-white/25 text-white"
-                }`}
-              >
-                <Bell className={`w-4 h-4 ${reminderConfig.enabled ? "text-amber-300 animate-pulse" : "text-white"}`} />
-                <span>{reminderConfig.enabled ? `Hẹn: ${reminderConfig.mode === "daily" ? reminderConfig.dailyTime : countdownText || `${reminderConfig.countdownMinutes}p`}` : "Nhắc nhở"}</span>
-              </button>
             </div>
-          </div>
-
           <div className="grid grid-cols-3 gap-2 sm:gap-4 bg-white/10 backdrop-blur-sm p-3 sm:p-4 rounded-xl border border-white/15">
             <div>
               <span className="text-[10px] text-slate-300 uppercase block font-semibold">Tổng Kho</span>
@@ -1887,7 +1878,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* THANH NHẬP NHANH DỌC MÀN HÌNH: 2 NÚT TO ĐỎ / XANH (THU - CHI) */}
+      {/* THANH NHẬP NHANH DỌC MÀN HÌNH: 2 NÚT TO ĐỎ / XANH (THU - CHI) - CHỐNG PHẢN QUANG */}
       {!showQuickIncomeModal &&
         !showQuickExpenseModal &&
         !showQuickRecordModal &&
@@ -1896,8 +1887,12 @@ export default function Home() {
         !selectedVaultDetail &&
         !showReminderModal &&
         !showAlarmAlertModal && (
-          <aside aria-label="Thanh nhập nhanh Thu Chi dọc màn hình" className="fixed bottom-8 right-3 sm:right-6 z-40 flex flex-col items-center gap-3.5 select-none">
-            {/* NÚT THU: XANH LÁ TO RÕ RÀNG NỔI BẬT */}
+          <aside
+            aria-label="Thanh nhập nhanh Thu Chi dọc màn hình"
+            className="fixed bottom-8 right-3 sm:right-6 z-40 flex flex-col items-center gap-3.5 select-none"
+            style={{ isolation: "isolate" }}
+          >
+            {/* NÚT THU: XANH ĐẬM CHỐNG PHẢN QUANG */}
             <button
               onClick={() => {
                 if (!quickIncomeForm.toVaultId && vaults.length > 0) {
@@ -1905,17 +1900,18 @@ export default function Home() {
                 }
                 setShowQuickIncomeModal(true);
               }}
-              className="group w-16 h-28 sm:w-20 sm:h-32 rounded-2xl bg-gradient-to-b from-emerald-500 via-emerald-600 to-emerald-700 text-white shadow-[0_12px_28px_rgba(16,185,129,0.6)] border-2 border-white hover:border-emerald-200 flex flex-col items-center justify-center transition-all transform hover:scale-105 active:scale-95 cursor-pointer"
+              style={{ backgroundColor: "#0e6b38", color: "#ffffff", borderColor: "#16a34a" }}
+              className="group w-16 h-28 sm:w-20 sm:h-32 rounded-2xl border-2 shadow-xl shadow-black/40 flex flex-col items-center justify-center transition-all transform hover:scale-105 active:scale-95 cursor-pointer"
               title="Ghi nhận khoản THU tiền vào"
             >
-              <div className="p-1.5 rounded-full bg-white/20 group-hover:bg-white/30 transition-colors mb-1">
-                <ArrowDownLeft className="w-7 h-7 sm:w-8 sm:h-8 stroke-[3]" />
+              <div className="p-1.5 rounded-full bg-black/25 mb-1">
+                <ArrowDownLeft className="w-7 h-7 sm:w-8 sm:h-8 text-white stroke-[3]" />
               </div>
-              <span className="font-black text-base sm:text-xl tracking-wider">THU</span>
+              <span className="font-black text-base sm:text-xl tracking-wider text-white">THU</span>
               <span className="text-[10px] font-bold text-emerald-100 uppercase tracking-widest">(+) VÀO</span>
             </button>
 
-            {/* NÚT CHI: ĐỎ TO RÕ RÀNG NỔI BẬT */}
+            {/* NÚT CHI: ĐỎ ĐẬM CHỐNG PHẢN QUANG */}
             <button
               onClick={() => {
                 if (!quickExpenseForm.fromVaultId && vaults.length > 0) {
@@ -1923,13 +1919,14 @@ export default function Home() {
                 }
                 setShowQuickExpenseModal(true);
               }}
-              className="group w-16 h-28 sm:w-20 sm:h-32 rounded-2xl bg-gradient-to-b from-rose-500 via-rose-600 to-rose-700 text-white shadow-[0_12px_28px_rgba(244,63,94,0.6)] border-2 border-white hover:border-rose-200 flex flex-col items-center justify-center transition-all transform hover:scale-105 active:scale-95 cursor-pointer"
+              style={{ backgroundColor: "#b91c1c", color: "#ffffff", borderColor: "#dc2626" }}
+              className="group w-16 h-28 sm:w-20 sm:h-32 rounded-2xl border-2 shadow-xl shadow-black/40 flex flex-col items-center justify-center transition-all transform hover:scale-105 active:scale-95 cursor-pointer"
               title="Ghi nhận khoản CHI tiền ra"
             >
-              <div className="p-1.5 rounded-full bg-white/20 group-hover:bg-white/30 transition-colors mb-1">
-                <ArrowUpRight className="w-7 h-7 sm:w-8 sm:h-8 stroke-[3]" />
+              <div className="p-1.5 rounded-full bg-black/25 mb-1">
+                <ArrowUpRight className="w-7 h-7 sm:w-8 sm:h-8 text-white stroke-[3]" />
               </div>
-              <span className="font-black text-base sm:text-xl tracking-wider">CHI</span>
+              <span className="font-black text-base sm:text-xl tracking-wider text-white">CHI</span>
               <span className="text-[10px] font-bold text-rose-100 uppercase tracking-widest">(-) RA</span>
             </button>
           </aside>
@@ -2365,6 +2362,53 @@ export default function Home() {
                 </div>
               </div>
 
+              {/* THỜI ĐIỂM PHÁT SINH: THỰC TẾ HOẶC DỰ KIẾN VÀO NGÀY */}
+              <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-black text-[#0C2C47] uppercase">Thời điểm phát sinh</span>
+                  <div className="flex items-center space-x-1 bg-slate-200 p-1 rounded-xl">
+                    <button
+                      type="button"
+                      onClick={() => setQuickIncomeForm({ ...quickIncomeForm, isActual: true, flowDate: new Date().toISOString().split("T")[0] })}
+                      className={`px-3 py-1 rounded-lg text-xs font-black transition cursor-pointer ${
+                        quickIncomeForm.isActual
+                          ? "bg-emerald-600 text-white shadow-xs"
+                          : "text-slate-600 hover:text-slate-900"
+                      }`}
+                    >
+                      ✓ Thực tế hôm nay
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setQuickIncomeForm({ ...quickIncomeForm, isActual: false })}
+                      className={`px-3 py-1 rounded-lg text-xs font-black transition cursor-pointer ${
+                        !quickIncomeForm.isActual
+                          ? "bg-amber-500 text-white shadow-xs"
+                          : "text-slate-600 hover:text-slate-900"
+                      }`}
+                    >
+                      ⏳ Dự kiến vào ngày
+                    </button>
+                  </div>
+                </div>
+
+                {!quickIncomeForm.isActual && (
+                  <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 flex items-center justify-between">
+                    <div>
+                      <span className="text-xs font-black text-amber-900 block">Dự kiến thu vào ngày:</span>
+                      <span className="text-[11px] text-amber-700">Chưa cộng tiền ngay, ghi vào kế hoạch dòng tiền</span>
+                    </div>
+                    <input
+                      type="date"
+                      required
+                      value={quickIncomeForm.flowDate}
+                      onChange={(e) => setQuickIncomeForm({ ...quickIncomeForm, flowDate: e.target.value })}
+                      className="p-2 rounded-lg border border-amber-300 text-xs font-black text-[#0C2C47] bg-white"
+                    />
+                  </div>
+                )}
+              </div>
+
               {/* NHÃN & MỤC ĐÍCH THU */}
               <div className="grid grid-cols-2 gap-2">
                 <div>
@@ -2407,7 +2451,7 @@ export default function Home() {
                   className="w-2/3 py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-black shadow-lg shadow-emerald-600/30 flex items-center justify-center space-x-2 transition transform active:scale-95"
                 >
                   <ArrowDownLeft className="w-5 h-5 stroke-[3]" />
-                  <span>XÁC NHẬN THU (+)</span>
+                  <span>{quickIncomeForm.isActual ? "XÁC NHẬN THU NGAY (+)" : "LƯU KẾ HOẠCH DỰ KIẾN THU (+)"}</span>
                 </button>
               </div>
             </form>
@@ -2540,6 +2584,53 @@ export default function Home() {
                 </div>
               </div>
 
+              {/* THỜI ĐIỂM PHÁT SINH: THỰC TẾ HOẶC DỰ KIẾN VÀO NGÀY */}
+              <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-black text-[#0C2C47] uppercase">Thời điểm phát sinh</span>
+                  <div className="flex items-center space-x-1 bg-slate-200 p-1 rounded-xl">
+                    <button
+                      type="button"
+                      onClick={() => setQuickExpenseForm({ ...quickExpenseForm, isActual: true, flowDate: new Date().toISOString().split("T")[0] })}
+                      className={`px-3 py-1 rounded-lg text-xs font-black transition cursor-pointer ${
+                        quickExpenseForm.isActual
+                          ? "bg-rose-600 text-white shadow-xs"
+                          : "text-slate-600 hover:text-slate-900"
+                      }`}
+                    >
+                      ✓ Thực tế hôm nay
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setQuickExpenseForm({ ...quickExpenseForm, isActual: false })}
+                      className={`px-3 py-1 rounded-lg text-xs font-black transition cursor-pointer ${
+                        !quickExpenseForm.isActual
+                          ? "bg-amber-500 text-white shadow-xs"
+                          : "text-slate-600 hover:text-slate-900"
+                      }`}
+                    >
+                      ⏳ Dự kiến vào ngày
+                    </button>
+                  </div>
+                </div>
+
+                {!quickExpenseForm.isActual && (
+                  <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 flex items-center justify-between">
+                    <div>
+                      <span className="text-xs font-black text-amber-900 block">Dự kiến chi vào ngày:</span>
+                      <span className="text-[11px] text-amber-700">Chưa trừ tiền ngay, ghi vào kế hoạch dòng tiền</span>
+                    </div>
+                    <input
+                      type="date"
+                      required
+                      value={quickExpenseForm.flowDate}
+                      onChange={(e) => setQuickExpenseForm({ ...quickExpenseForm, flowDate: e.target.value })}
+                      className="p-2 rounded-lg border border-amber-300 text-xs font-black text-[#0C2C47] bg-white"
+                    />
+                  </div>
+                )}
+              </div>
+
               {/* NHÃN & MỤC ĐÍCH CHI */}
               <div className="grid grid-cols-2 gap-2">
                 <div>
@@ -2583,7 +2674,7 @@ export default function Home() {
                   className="w-2/3 py-3.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-sm font-black shadow-lg shadow-rose-600/30 flex items-center justify-center space-x-2 transition transform active:scale-95"
                 >
                   <ArrowUpRight className="w-5 h-5 stroke-[3]" />
-                  <span>XÁC NHẬN CHI (-)</span>
+                  <span>{quickExpenseForm.isActual ? "XÁC NHẬN CHI NGAY (-)" : "LƯU KẾ HOẠCH DỰ KIẾN CHI (-)"}</span>
                 </button>
               </div>
             </form>
