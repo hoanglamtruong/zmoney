@@ -36,8 +36,18 @@ import {
   ShieldAlert,
   Printer,
   ChevronDown,
-  Info
+  Info,
+  Volume2,
+  VolumeX,
+  Play,
+  Square,
+  Minus,
+  Plus,
+  Coins,
+  ReceiptText,
+  Check
 } from "lucide-react";
+import { playCoinSound, playCashCounterSound, stopAllSounds } from "@/lib/sound";
 
 interface Vault {
   id: string;
@@ -80,6 +90,17 @@ interface Obligation {
   status: string;
 }
 
+interface ReminderConfig {
+  enabled: boolean;
+  mode: "daily" | "countdown";
+  dailyTime: string;
+  countdownMinutes: number;
+  soundType: "coin" | "cash_counter";
+  durationSeconds: number;
+  lastTriggeredDate?: string;
+  countdownTarget?: number;
+}
+
 interface Reconciliation {
   id: string;
   vaultId: string;
@@ -106,6 +127,39 @@ export default function Home() {
 
   // Modals
   const [showQuickRecordModal, setShowQuickRecordModal] = useState(false);
+  const [showQuickIncomeModal, setShowQuickIncomeModal] = useState(false);
+  const [showQuickExpenseModal, setShowQuickExpenseModal] = useState(false);
+  const [showReminderModal, setShowReminderModal] = useState(false);
+  const [showAlarmAlertModal, setShowAlarmAlertModal] = useState(false);
+
+  // Form Nhập Nhanh THU (+)
+  const [quickIncomeForm, setQuickIncomeForm] = useState({
+    amount: "",
+    toVaultId: "",
+    tag: "Doanh thu",
+    title: "",
+  });
+
+  // Form Nhập Nhanh CHI (-)
+  const [quickExpenseForm, setQuickExpenseForm] = useState({
+    amount: "",
+    fromVaultId: "",
+    tag: "Chi phí",
+    title: "",
+  });
+
+  // Cấu hình Chuông & Nhắc nhở Tài chính
+  const [reminderConfig, setReminderConfig] = useState<ReminderConfig>({
+    enabled: true,
+    mode: "daily",
+    dailyTime: "20:00",
+    countdownMinutes: 60,
+    soundType: "coin",
+    durationSeconds: 4,
+  });
+  const [countdownText, setCountdownText] = useState("");
+  const [isPlayingSoundTest, setIsPlayingSoundTest] = useState<"coin" | "cash_counter" | null>(null);
+  const [notificationPermission, setNotificationPermission] = useState<string>("default");
   const [showVaultModal, setShowVaultModal] = useState(false);
   const [showReconcileModal, setShowReconcileModal] = useState(false);
   const [selectedVaultForReconcile, setSelectedVaultForReconcile] = useState<Vault | null>(null);
@@ -205,6 +259,210 @@ export default function Home() {
   useEffect(() => {
     fetchData();
   }, [filterVault, filterTag, filterStatus, filterStartDate, filterEndDate]);
+
+  // Khởi tạo notification permission và load config từ localStorage
+  useEffect(() => {
+    if (typeof window !== "undefined" && "Notification" in window) {
+      setNotificationPermission(Notification.permission);
+    }
+    try {
+      const saved = localStorage.getItem("zmoney_reminder_config");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        setReminderConfig((prev) => ({ ...prev, ...parsed }));
+      }
+    } catch (_) {}
+  }, []);
+
+  // Vòng lặp Timer kiểm tra nhắc nhở
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (!reminderConfig.enabled) return;
+
+      const now = new Date();
+      const currentHHMM = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+      const todayStr = now.toISOString().split("T")[0];
+
+      if (reminderConfig.mode === "daily") {
+        if (currentHHMM === reminderConfig.dailyTime && reminderConfig.lastTriggeredDate !== todayStr) {
+          triggerAlarm(todayStr);
+        }
+      } else if (reminderConfig.mode === "countdown" && reminderConfig.countdownTarget) {
+        const diff = reminderConfig.countdownTarget - Date.now();
+        if (diff <= 0) {
+          triggerAlarm();
+          setReminderConfig((prev) => {
+            const upd = { ...prev, countdownTarget: undefined };
+            try { localStorage.setItem("zmoney_reminder_config", JSON.stringify(upd)); } catch (_) {}
+            return upd;
+          });
+          setCountdownText("");
+        } else {
+          const m = Math.floor(diff / 60000);
+          const s = Math.floor((diff % 60000) / 1000);
+          setCountdownText(`${m}p ${s}s`);
+        }
+      }
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [reminderConfig]);
+
+  const triggerAlarm = (todayStr?: string) => {
+    if (todayStr) {
+      setReminderConfig((prev) => {
+        const upd = { ...prev, lastTriggeredDate: todayStr };
+        try { localStorage.setItem("zmoney_reminder_config", JSON.stringify(upd)); } catch (_) {}
+        return upd;
+      });
+    }
+
+    if (reminderConfig.soundType === "cash_counter") {
+      playCashCounterSound(reminderConfig.durationSeconds || 4);
+    } else {
+      playCoinSound(reminderConfig.durationSeconds || 3);
+    }
+
+    setShowAlarmAlertModal(true);
+
+    if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
+      try {
+        new Notification("⏰ Zmoney: Đến giờ chốt sổ & xem tài chính!", {
+          body: "Chuông nhắc nhở kiểm tra dòng tiền và tài sản ròng hôm nay đã kích hoạt.",
+        });
+      } catch (_) {}
+    }
+  };
+
+  const handleTestSound = (type: "coin" | "cash_counter") => {
+    setIsPlayingSoundTest(type);
+    if (type === "cash_counter") {
+      playCashCounterSound(reminderConfig.durationSeconds || 4);
+    } else {
+      playCoinSound(reminderConfig.durationSeconds || 3);
+    }
+    setTimeout(() => {
+      setIsPlayingSoundTest((cur) => (cur === type ? null : cur));
+    }, (reminderConfig.durationSeconds || 4) * 1000 + 300);
+  };
+
+  const handleStopSoundTest = () => {
+    stopAllSounds();
+    setIsPlayingSoundTest(null);
+  };
+
+  const handleSaveReminder = (newConfig: ReminderConfig) => {
+    setReminderConfig(newConfig);
+    try {
+      localStorage.setItem("zmoney_reminder_config", JSON.stringify(newConfig));
+    } catch (_) {}
+  };
+
+  const requestNotifyPermission = async () => {
+    if (typeof window !== "undefined" && "Notification" in window) {
+      try {
+        const res = await Notification.requestPermission();
+        setNotificationPermission(res);
+        if (res === "granted") {
+          alert("Đã cấp quyền thông báo thành công!");
+        }
+      } catch (err: any) {
+        alert("Lỗi xin quyền: " + err.message);
+      }
+    }
+  };
+
+  // Submit Nhập Nhanh THU (+)
+  const handleQuickIncomeSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const amount = parseFloat(quickIncomeForm.amount);
+    if (isNaN(amount) || amount <= 0) {
+      return alert("Vui lòng nhập số tiền thu hợp lệ (> 0)");
+    }
+    if (!quickIncomeForm.toVaultId) {
+      return alert("Vui lòng chọn Kho nhận tiền");
+    }
+
+    const v = vaults.find((item) => item.id === quickIncomeForm.toVaultId);
+    const vaultName = v ? v.name : "Kho nhận";
+    const title = quickIncomeForm.title.trim() || `Thu: ${quickIncomeForm.tag} ➔ ${vaultName}`;
+
+    try {
+      const res = await fetch("/api/flows", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title,
+          amount,
+          type: "income",
+          fromVaultId: null,
+          toVaultId: quickIncomeForm.toVaultId,
+          fromTitle: "Nguồn thu bên ngoài",
+          toTitle: vaultName,
+          tag: quickIncomeForm.tag,
+          isActual: true,
+          flowDate: new Date().toISOString().split("T")[0],
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setShowQuickIncomeModal(false);
+        setQuickIncomeForm({ amount: "", toVaultId: vaults[0]?.id || "", tag: "Doanh thu", title: "" });
+        playCoinSound(1.2);
+        await fetchData();
+      } else {
+        alert("Lỗi: " + data.error);
+      }
+    } catch (err: any) {
+      alert("Lỗi ghi nhận thu: " + err.message);
+    }
+  };
+
+  // Submit Nhập Nhanh CHI (-)
+  const handleQuickExpenseSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const amount = parseFloat(quickExpenseForm.amount);
+    if (isNaN(amount) || amount <= 0) {
+      return alert("Vui lòng nhập số tiền chi hợp lệ (> 0)");
+    }
+    if (!quickExpenseForm.fromVaultId) {
+      return alert("Vui lòng chọn Kho xuất tiền chi");
+    }
+
+    const v = vaults.find((item) => item.id === quickExpenseForm.fromVaultId);
+    const vaultName = v ? v.name : "Kho chi";
+    const title = quickExpenseForm.title.trim() || `Chi: ${quickExpenseForm.tag} từ ${vaultName}`;
+
+    try {
+      const res = await fetch("/api/flows", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title,
+          amount,
+          type: "expense",
+          fromVaultId: quickExpenseForm.fromVaultId,
+          toVaultId: null,
+          fromTitle: vaultName,
+          toTitle: "Bên nhận chi",
+          tag: quickExpenseForm.tag,
+          isActual: true,
+          flowDate: new Date().toISOString().split("T")[0],
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setShowQuickExpenseModal(false);
+        setQuickExpenseForm({ amount: "", fromVaultId: vaults[0]?.id || "", tag: "Chi phí", title: "" });
+        playCashCounterSound(1.5);
+        await fetchData();
+      } else {
+        alert("Lỗi: " + data.error);
+      }
+    } catch (err: any) {
+      alert("Lỗi ghi nhận chi: " + err.message);
+    }
+  };
 
   // Submit Kho Chứa Mới
   const handleCreateVault = async (e: React.FormEvent) => {
@@ -372,18 +630,33 @@ export default function Home() {
             {/* Nút Ghi Nhanh to rõ ngay trong thẻ Net Worth */}
             <div className="mt-3.5 flex flex-wrap items-center gap-3">
               <button
-                onClick={() => setShowQuickRecordModal(true)}
-                className="bg-[#BF512C] hover:bg-[#BF512C]/90 text-white text-xs sm:text-sm font-black px-4 py-2.5 rounded-xl shadow-lg border border-white/20 flex items-center space-x-2 transition transform hover:scale-[1.02] cursor-pointer"
+                onClick={() => {
+                  if (!quickIncomeForm.toVaultId && vaults.length > 0) setQuickIncomeForm(p => ({ ...p, toVaultId: vaults[0].id }));
+                  setShowQuickIncomeModal(true);
+                }}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-black px-4 py-2.5 rounded-xl shadow-lg border border-white/20 flex items-center space-x-1.5 transition transform hover:scale-[1.02] cursor-pointer"
               >
-                <PlusCircle className="w-4 h-4" />
-                <span>+ GHI NHANH GIAO DỊCH</span>
+                <ArrowDownLeft className="w-4 h-4 stroke-[3]" />
+                <span>+ THU VÀO</span>
               </button>
               <button
-                onClick={() => setActiveTab("reconcile")}
-                className="bg-white/15 hover:bg-white/25 text-white text-xs font-bold px-3.5 py-2.5 rounded-xl border border-white/20 flex items-center space-x-1.5 transition"
+                onClick={() => {
+                  if (!quickExpenseForm.fromVaultId && vaults.length > 0) setQuickExpenseForm(p => ({ ...p, fromVaultId: vaults[0].id }));
+                  setShowQuickExpenseModal(true);
+                }}
+                className="bg-rose-600 hover:bg-rose-700 text-white text-xs sm:text-sm font-black px-4 py-2.5 rounded-xl shadow-lg border border-white/20 flex items-center space-x-1.5 transition transform hover:scale-[1.02] cursor-pointer"
               >
-                <CheckCircle2 className="w-4 h-4 text-[#ABCBCA]" />
-                <span>Đối chiếu số dư thực tế</span>
+                <ArrowUpRight className="w-4 h-4 stroke-[3]" />
+                <span>- CHI RA</span>
+              </button>
+              <button
+                onClick={() => setShowReminderModal(true)}
+                className={`text-xs font-bold px-3.5 py-2.5 rounded-xl border border-white/20 flex items-center space-x-1.5 transition cursor-pointer ${
+                  reminderConfig.enabled ? "bg-amber-500/30 text-amber-200 border-amber-300/40" : "bg-white/15 hover:bg-white/25 text-white"
+                }`}
+              >
+                <Bell className={`w-4 h-4 ${reminderConfig.enabled ? "text-amber-300 animate-pulse" : "text-white"}`} />
+                <span>{reminderConfig.enabled ? `Hẹn: ${reminderConfig.mode === "daily" ? reminderConfig.dailyTime : countdownText || `${reminderConfig.countdownMinutes}p`}` : "Nhắc nhở"}</span>
               </button>
             </div>
           </div>
@@ -1731,6 +2004,641 @@ export default function Home() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 1: NHẬP NHANH THU TIỀN VÀO (XANH LÁ - SỐ TO RÕ RÀNG) */}
+      {showQuickIncomeModal && (
+        <div className="fixed inset-0 z-50 bg-black/65 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="bg-white rounded-t-3xl sm:rounded-2xl max-w-lg w-full p-5 sm:p-6 shadow-2xl border-t-4 sm:border border-emerald-500 space-y-4 max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b pb-3">
+              <div className="flex items-center space-x-2">
+                <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700">
+                  <ArrowDownLeft className="w-5 h-5 stroke-[3]" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-emerald-800">GHI NHẬN TIỀN THU (+)</h3>
+                  <p className="text-[11px] text-slate-500">Tiền vào kho chứa thực tế</p>
+                </div>
+              </div>
+              <button onClick={() => setShowQuickIncomeModal(false)} className="text-slate-400 hover:text-slate-600 p-1">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <form onSubmit={handleQuickIncomeSubmit} className="space-y-4">
+              {/* MÀN HÌNH SỐ TIỀN CỰC TO NỔI BẬT */}
+              <div className="bg-emerald-50/70 border-2 border-emerald-200 rounded-2xl p-4 text-center">
+                <span className="block text-[11px] font-bold text-emerald-800 uppercase tracking-wider mb-1">
+                  Số tiền thu nhận (VNĐ)
+                </span>
+                <div className="flex items-center justify-center space-x-1">
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    autoFocus
+                    required
+                    placeholder="0"
+                    value={quickIncomeForm.amount}
+                    onChange={(e) => setQuickIncomeForm({ ...quickIncomeForm, amount: e.target.value })}
+                    className="w-full text-center text-3xl sm:text-4xl font-black text-emerald-700 bg-transparent focus:outline-none placeholder-emerald-300"
+                  />
+                  <span className="text-2xl font-black text-emerald-600">₫</span>
+                </div>
+                {quickIncomeForm.amount && !isNaN(parseFloat(quickIncomeForm.amount)) && (
+                  <p className="text-xs font-bold text-emerald-600 mt-1">
+                    = {parseFloat(quickIncomeForm.amount).toLocaleString("vi-VN")} Đồng
+                  </p>
+                )}
+              </div>
+
+              {/* PHÍM TẮT SỐ TIỀN NHANH */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1.5">Phím nhanh số tiền</label>
+                <div className="grid grid-cols-4 gap-1.5 text-xs font-bold">
+                  {[100000, 200000, 500000, 1000000, 2000000, 5000000, 10000000].map((val) => (
+                    <button
+                      key={val}
+                      type="button"
+                      onClick={() => {
+                        const cur = parseFloat(quickIncomeForm.amount) || 0;
+                        setQuickIncomeForm({ ...quickIncomeForm, amount: String(cur + val) });
+                      }}
+                      className="py-2 px-1 rounded-lg bg-slate-100 hover:bg-emerald-100 hover:text-emerald-800 border border-slate-200 transition text-slate-700 active:scale-95"
+                    >
+                      +{val >= 1000000 ? `${val / 1000000}Tr` : `${val / 1000}K`}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => setQuickIncomeForm({ ...quickIncomeForm, amount: "" })}
+                    className="py-2 px-1 rounded-lg bg-rose-50 text-rose-600 hover:bg-rose-100 border border-rose-200 transition active:scale-95"
+                  >
+                    Xóa
+                  </button>
+                </div>
+              </div>
+
+              {/* CHỌN KHO NHẬN TIỀN (NGUỒN ĐÍCH) */}
+              <div>
+                <label className="block text-xs font-black text-[#0C2C47] uppercase mb-1.5">
+                  Chọn Kho Nhận Tiền (Vào đâu?)
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {vaults.map((v) => {
+                    const isSelected = quickIncomeForm.toVaultId === v.id;
+                    return (
+                      <button
+                        key={v.id}
+                        type="button"
+                        onClick={() => setQuickIncomeForm({ ...quickIncomeForm, toVaultId: v.id })}
+                        className={`p-3 rounded-xl text-left border-2 transition cursor-pointer flex flex-col justify-between ${
+                          isSelected
+                            ? "border-emerald-600 bg-emerald-50/80 shadow-md ring-2 ring-emerald-400"
+                            : "border-slate-200 hover:border-emerald-300 bg-white"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-xs text-slate-800 truncate">{v.name}</span>
+                          {isSelected && <Check className="w-4 h-4 text-emerald-600 stroke-[3]" />}
+                        </div>
+                        <span className="text-xs font-black text-emerald-700 mt-1">
+                          {v.balance.toLocaleString("vi-VN")} ₫
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* NHÃN & MỤC ĐÍCH THU */}
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Nhãn giao dịch</label>
+                  <select
+                    value={quickIncomeForm.tag}
+                    onChange={(e) => setQuickIncomeForm({ ...quickIncomeForm, tag: e.target.value })}
+                    className="w-full p-2.5 rounded-lg border border-slate-300 text-xs bg-white font-bold text-slate-800"
+                  >
+                    <option value="Doanh thu">Doanh thu bán hàng</option>
+                    <option value="Thu nợ">Thu hồi nợ</option>
+                    <option value="Tiền thưởng">Thưởng / Thu nhập khác</option>
+                    <option value="Nội bộ">Chuyển nội bộ</option>
+                    <option value="Khác">Khoản thu khác</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Mô tả ngắn</label>
+                  <input
+                    type="text"
+                    placeholder="Vd: Khách trả tiền..."
+                    value={quickIncomeForm.title}
+                    onChange={(e) => setQuickIncomeForm({ ...quickIncomeForm, title: e.target.value })}
+                    className="w-full p-2.5 rounded-lg border border-slate-300 text-xs"
+                  />
+                </div>
+              </div>
+
+              {/* NÚT BẤM XÁC NHẬN TO RÕ */}
+              <div className="pt-2 flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowQuickIncomeModal(false)}
+                  className="w-1/3 py-3 rounded-xl border border-slate-300 text-xs font-bold text-slate-600 hover:bg-slate-100"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  className="w-2/3 py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-black shadow-lg shadow-emerald-600/30 flex items-center justify-center space-x-2 transition transform active:scale-95"
+                >
+                  <ArrowDownLeft className="w-5 h-5 stroke-[3]" />
+                  <span>XÁC NHẬN THU (+)</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 2: NHẬP NHANH CHI TIỀN RA (ĐỎ - SỐ TO RÕ RÀNG) */}
+      {showQuickExpenseModal && (
+        <div className="fixed inset-0 z-50 bg-black/65 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="bg-white rounded-t-3xl sm:rounded-2xl max-w-lg w-full p-5 sm:p-6 shadow-2xl border-t-4 sm:border border-rose-500 space-y-4 max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b pb-3">
+              <div className="flex items-center space-x-2">
+                <div className="w-8 h-8 rounded-full bg-rose-100 flex items-center justify-center text-rose-700">
+                  <ArrowUpRight className="w-5 h-5 stroke-[3]" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-rose-800">GHI NHẬN TIỀN CHI (-)</h3>
+                  <p className="text-[11px] text-slate-500">Rút tiền từ kho để chi trả</p>
+                </div>
+              </div>
+              <button onClick={() => setShowQuickExpenseModal(false)} className="text-slate-400 hover:text-slate-600 p-1">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <form onSubmit={handleQuickExpenseSubmit} className="space-y-4">
+              {/* MÀN HÌNH SỐ TIỀN CỰC TO NỔI BẬT */}
+              <div className="bg-rose-50/70 border-2 border-rose-200 rounded-2xl p-4 text-center">
+                <span className="block text-[11px] font-bold text-rose-800 uppercase tracking-wider mb-1">
+                  Số tiền chi ra (VNĐ)
+                </span>
+                <div className="flex items-center justify-center space-x-1">
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    autoFocus
+                    required
+                    placeholder="0"
+                    value={quickExpenseForm.amount}
+                    onChange={(e) => setQuickExpenseForm({ ...quickExpenseForm, amount: e.target.value })}
+                    className="w-full text-center text-3xl sm:text-4xl font-black text-rose-700 bg-transparent focus:outline-none placeholder-rose-300"
+                  />
+                  <span className="text-2xl font-black text-rose-600">₫</span>
+                </div>
+                {quickExpenseForm.amount && !isNaN(parseFloat(quickExpenseForm.amount)) && (
+                  <p className="text-xs font-bold text-rose-600 mt-1">
+                    = {parseFloat(quickExpenseForm.amount).toLocaleString("vi-VN")} Đồng
+                  </p>
+                )}
+              </div>
+
+              {/* PHÍM TẮT SỐ TIỀN NHANH */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1.5">Phím nhanh số tiền</label>
+                <div className="grid grid-cols-4 gap-1.5 text-xs font-bold">
+                  {[50000, 100000, 200000, 500000, 1000000, 2000000, 5000000].map((val) => (
+                    <button
+                      key={val}
+                      type="button"
+                      onClick={() => {
+                        const cur = parseFloat(quickExpenseForm.amount) || 0;
+                        setQuickExpenseForm({ ...quickExpenseForm, amount: String(cur + val) });
+                      }}
+                      className="py-2 px-1 rounded-lg bg-slate-100 hover:bg-rose-100 hover:text-rose-800 border border-slate-200 transition text-slate-700 active:scale-95"
+                    >
+                      +{val >= 1000000 ? `${val / 1000000}Tr` : `${val / 1000}K`}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => setQuickExpenseForm({ ...quickExpenseForm, amount: "" })}
+                    className="py-2 px-1 rounded-lg bg-slate-200 text-slate-700 hover:bg-slate-300 border border-slate-300 transition active:scale-95"
+                  >
+                    Xóa
+                  </button>
+                </div>
+              </div>
+
+              {/* CHỌN KHO CHI TIỀN (NGUỒN XUẤT) KÈM SỐ DƯ */}
+              <div>
+                <label className="block text-xs font-black text-[#0C2C47] uppercase mb-1.5">
+                  Chọn Kho Chi Tiền (Rút từ đâu?)
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {vaults.map((v) => {
+                    const isSelected = quickExpenseForm.fromVaultId === v.id;
+                    const reqAmount = parseFloat(quickExpenseForm.amount) || 0;
+                    const isLowBalance = v.balance < reqAmount;
+                    return (
+                      <button
+                        key={v.id}
+                        type="button"
+                        onClick={() => setQuickExpenseForm({ ...quickExpenseForm, fromVaultId: v.id })}
+                        className={`p-3 rounded-xl text-left border-2 transition cursor-pointer flex flex-col justify-between ${
+                          isSelected
+                            ? "border-rose-600 bg-rose-50/80 shadow-md ring-2 ring-rose-400"
+                            : "border-slate-200 hover:border-rose-300 bg-white"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-xs text-slate-800 truncate">{v.name}</span>
+                          {isSelected && <Check className="w-4 h-4 text-rose-600 stroke-[3]" />}
+                        </div>
+                        <div className="flex items-center justify-between mt-1">
+                          <span className={`text-xs font-black ${isLowBalance ? "text-amber-600" : "text-slate-700"}`}>
+                            {v.balance.toLocaleString("vi-VN")} ₫
+                          </span>
+                          {isLowBalance && <span className="text-[10px] text-amber-600 font-bold">Thấp</span>}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* NHÃN & MỤC ĐÍCH CHI */}
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Nhãn chi tiêu</label>
+                  <select
+                    value={quickExpenseForm.tag}
+                    onChange={(e) => setQuickExpenseForm({ ...quickExpenseForm, tag: e.target.value })}
+                    className="w-full p-2.5 rounded-lg border border-slate-300 text-xs bg-white font-bold text-slate-800"
+                  >
+                    <option value="Chi phí">Chi phí vận hành</option>
+                    <option value="Ăn uống">Ăn uống / Tiếp khách</option>
+                    <option value="Nhập hàng">Nhập hàng / Vật tư</option>
+                    <option value="Trả nợ">Trả nợ đối tác</option>
+                    <option value="Thuế">Nộp thuế</option>
+                    <option value="Khác">Chi tiêu khác</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Mô tả ngắn</label>
+                  <input
+                    type="text"
+                    placeholder="Vd: Mua đồ văn phòng, đổ xăng..."
+                    value={quickExpenseForm.title}
+                    onChange={(e) => setQuickExpenseForm({ ...quickExpenseForm, title: e.target.value })}
+                    className="w-full p-2.5 rounded-lg border border-slate-300 text-xs"
+                  />
+                </div>
+              </div>
+
+              {/* NÚT BẤM XÁC NHẬN TO RÕ */}
+              <div className="pt-2 flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowQuickExpenseModal(false)}
+                  className="w-1/3 py-3 rounded-xl border border-slate-300 text-xs font-bold text-slate-600 hover:bg-slate-100"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  className="w-2/3 py-3.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-sm font-black shadow-lg shadow-rose-600/30 flex items-center justify-center space-x-2 transition transform active:scale-95"
+                >
+                  <ArrowUpRight className="w-5 h-5 stroke-[3]" />
+                  <span>XÁC NHẬN CHI (-)</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 3: CẤU HÌNH NHẮC NHỞ & CHUÔNG ĐẶC QUYỀN */}
+      {showReminderModal && (
+        <div className="fixed inset-0 z-50 bg-black/65 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-amber-300 space-y-5 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b pb-3">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-9 h-9 rounded-full bg-amber-100 flex items-center justify-center text-amber-700">
+                  <Bell className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-[#0C2C47]">Nhắc Nhở & Chuông Tài Chính</h3>
+                  <p className="text-xs text-slate-500">Hẹn giờ xem báo cáo với chuông tiền đặc quyền</p>
+                </div>
+              </div>
+              <button onClick={() => setShowReminderModal(false)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            {/* BẬT / TẮT NHẮC NHỞ */}
+            <div className="flex items-center justify-between p-3.5 bg-slate-50 rounded-xl border border-slate-200">
+              <div>
+                <span className="text-sm font-bold text-slate-800 block">Kích hoạt chuông nhắc nhở</span>
+                <span className="text-xs text-slate-500">Tự động phát chuông và báo thức khi đến giờ</span>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={reminderConfig.enabled}
+                  onChange={(e) => handleSaveReminder({ ...reminderConfig, enabled: e.target.checked })}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
+              </label>
+            </div>
+
+            {/* CHẾ ĐỘ HẸN GIỜ */}
+            <div className="space-y-3">
+              <label className="block text-xs font-bold text-[#0C2C47] uppercase">1. Chế độ hẹn giờ</label>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => handleSaveReminder({ ...reminderConfig, mode: "daily" })}
+                  className={`p-3 rounded-xl border-2 text-left transition ${
+                    reminderConfig.mode === "daily"
+                      ? "border-amber-500 bg-amber-50/60 shadow-sm"
+                      : "border-slate-200 hover:border-slate-300"
+                  }`}
+                >
+                  <span className="font-bold text-xs block text-slate-800">⏰ Cố định hàng ngày</span>
+                  <span className="text-[11px] text-slate-500">Nhắc vào một khung giờ mỗi ngày</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const target = Date.now() + reminderConfig.countdownMinutes * 60 * 1000;
+                    handleSaveReminder({ ...reminderConfig, mode: "countdown", countdownTarget: target });
+                  }}
+                  className={`p-3 rounded-xl border-2 text-left transition ${
+                    reminderConfig.mode === "countdown"
+                      ? "border-amber-500 bg-amber-50/60 shadow-sm"
+                      : "border-slate-200 hover:border-slate-300"
+                  }`}
+                >
+                  <span className="font-bold text-xs block text-slate-800">⏳ Đếm ngược chu kỳ</span>
+                  <span className="text-[11px] text-slate-500">Nhắc sau X phút kể từ bây giờ</span>
+                </button>
+              </div>
+
+              {/* INPUT THEO CHẾ ĐỘ */}
+              {reminderConfig.mode === "daily" ? (
+                <div className="p-3 bg-amber-50/40 rounded-xl border border-amber-200 flex items-center justify-between">
+                  <div>
+                    <span className="text-xs font-bold text-slate-700 block">Giờ chốt sổ & xem tài chính</span>
+                    <span className="text-[11px] text-slate-500">Ví dụ: 20:00 hoặc 21:30 hàng ngày</span>
+                  </div>
+                  <input
+                    type="time"
+                    value={reminderConfig.dailyTime}
+                    onChange={(e) => handleSaveReminder({ ...reminderConfig, dailyTime: e.target.value })}
+                    className="p-2 rounded-lg border border-slate-300 text-base font-black text-[#0C2C47] bg-white"
+                  />
+                </div>
+              ) : (
+                <div className="p-3 bg-amber-50/40 rounded-xl border border-amber-200 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-700">Thời gian đếm ngược</span>
+                    <span className="text-xs font-black text-amber-700">{countdownText || `${reminderConfig.countdownMinutes} phút`}</span>
+                  </div>
+                  <div className="grid grid-cols-4 gap-2 text-xs font-bold">
+                    {[15, 30, 60, 120].map((mins) => (
+                      <button
+                        key={mins}
+                        type="button"
+                        onClick={() => {
+                          const target = Date.now() + mins * 60 * 1000;
+                          handleSaveReminder({
+                            ...reminderConfig,
+                            countdownMinutes: mins,
+                            countdownTarget: target,
+                          });
+                        }}
+                        className={`py-1.5 rounded-lg border transition ${
+                          reminderConfig.countdownMinutes === mins
+                            ? "bg-amber-500 text-white border-amber-600"
+                            : "bg-white text-slate-700 border-slate-300 hover:bg-slate-50"
+                        }`}
+                      >
+                        {mins < 60 ? `${mins}p` : `${mins / 60}h`}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* CHỌN KIỂU CHUÔNG THÔNG BÁO ĐẶC QUYỀN */}
+            <div className="space-y-3">
+              <label className="block text-xs font-bold text-[#0C2C47] uppercase">2. Kiểu chuông đặc quyền</label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* LENG KENG TIỀN XU */}
+                <div
+                  onClick={() => handleSaveReminder({ ...reminderConfig, soundType: "coin" })}
+                  className={`p-3.5 rounded-xl border-2 transition cursor-pointer flex flex-col justify-between ${
+                    reminderConfig.soundType === "coin"
+                      ? "border-amber-500 bg-amber-50/70 shadow-sm ring-2 ring-amber-300"
+                      : "border-slate-200 hover:border-slate-300 bg-white"
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-center space-x-2">
+                      <span className="text-xl">🪙</span>
+                      <span className="font-bold text-xs text-slate-800">Leng Keng Tiền Xu</span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      Âm kim loại vàng/bạc va chạm ngân vang, trong trẻo và kích tài lộc.
+                    </p>
+                  </div>
+                  <div className="mt-3 flex items-center justify-between pt-2 border-t border-slate-100">
+                    <span className="text-[10px] font-bold text-amber-700">Coin Clinking</span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        isPlayingSoundTest === "coin" ? handleStopSoundTest() : handleTestSound("coin");
+                      }}
+                      className="px-2.5 py-1 rounded-md bg-amber-500 hover:bg-amber-600 text-white text-[11px] font-bold flex items-center space-x-1"
+                    >
+                      {isPlayingSoundTest === "coin" ? (
+                        <>
+                          <Square className="w-3 h-3 fill-white" />
+                          <span>Dừng</span>
+                        </>
+                      ) : (
+                        <>
+                          <Volume2 className="w-3 h-3" />
+                          <span>Thử chuông</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                {/* MÁY ĐẾM TIỀN */}
+                <div
+                  onClick={() => handleSaveReminder({ ...reminderConfig, soundType: "cash_counter" })}
+                  className={`p-3.5 rounded-xl border-2 transition cursor-pointer flex flex-col justify-between ${
+                    reminderConfig.soundType === "cash_counter"
+                      ? "border-amber-500 bg-amber-50/70 shadow-sm ring-2 ring-amber-300"
+                      : "border-slate-200 hover:border-slate-300 bg-white"
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-center space-x-2">
+                      <span className="text-xl">💵</span>
+                      <span className="font-bold text-xs text-slate-800">Tiếng Máy Đếm Tiền</span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      Nhịp rào rào tạch tạch của từng xếp tiền polyme chạy qua lô đếm.
+                    </p>
+                  </div>
+                  <div className="mt-3 flex items-center justify-between pt-2 border-t border-slate-100">
+                    <span className="text-[10px] font-bold text-amber-700">Cash Counter</span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        isPlayingSoundTest === "cash_counter" ? handleStopSoundTest() : handleTestSound("cash_counter");
+                      }}
+                      className="px-2.5 py-1 rounded-md bg-amber-500 hover:bg-amber-600 text-white text-[11px] font-bold flex items-center space-x-1"
+                    >
+                      {isPlayingSoundTest === "cash_counter" ? (
+                        <>
+                          <Square className="w-3 h-3 fill-white" />
+                          <span>Dừng</span>
+                        </>
+                      ) : (
+                        <>
+                          <Volume2 className="w-3 h-3" />
+                          <span>Thử chuông</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* THỜI LƯỢNG CHUÔNG KÊU */}
+            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between">
+              <div>
+                <span className="text-xs font-bold text-slate-700 block">Thời lượng chuông kêu</span>
+                <span className="text-[11px] text-slate-500">Chuông phát liên tục trong bao lâu</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                {[3, 5, 8, 10].map((sec) => (
+                  <button
+                    key={sec}
+                    type="button"
+                    onClick={() => handleSaveReminder({ ...reminderConfig, durationSeconds: sec })}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition ${
+                      reminderConfig.durationSeconds === sec
+                        ? "bg-[#0C2C47] text-white"
+                        : "bg-white border border-slate-300 text-slate-600 hover:bg-slate-100"
+                    }`}
+                  >
+                    {sec}s
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* THÔNG BÁO TRÌNH DUYỆT (NOTIFICATION) */}
+            {notificationPermission !== "granted" && (
+              <div className="p-3 bg-blue-50 rounded-xl border border-blue-200 flex items-center justify-between">
+                <div className="pr-2">
+                  <span className="text-xs font-bold text-blue-900 block">Bật thông báo đẩy</span>
+                  <span className="text-[11px] text-blue-700">Nhận thông báo kể cả khi chuyển tab khác</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={requestNotifyPermission}
+                  className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 whitespace-nowrap"
+                >
+                  Cấp quyền
+                </button>
+              </div>
+            )}
+
+            <div className="pt-2 flex justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  stopAllSounds();
+                  setShowReminderModal(false);
+                }}
+                className="w-full py-3 rounded-xl bg-[#0C2C47] text-white text-xs font-black hover:bg-[#0C2C47]/90 shadow-md transition cursor-pointer"
+              >
+                ĐÃ LƯU CÀI ĐẶT NHẮC NHỞ ✓
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 4: BÁO THỨC / ĐẾN GIỜ XEM BÁO CÁO TÀI CHÍNH */}
+      {showAlarmAlertModal && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-300">
+          <div className="bg-gradient-to-b from-amber-50 to-white rounded-3xl max-w-md w-full p-6 shadow-2xl border-4 border-amber-400 text-center space-y-4">
+            <div className="w-16 h-16 rounded-full bg-amber-100 border-2 border-amber-300 mx-auto flex items-center justify-center shadow-lg text-amber-600 animate-bounce">
+              <Bell className="w-8 h-8" />
+            </div>
+
+            <div>
+              <span className="px-3 py-1 bg-amber-200 text-amber-900 rounded-full text-[10px] font-black uppercase tracking-widest">
+                Đến Giờ Chốt Sổ & Kiểm Tra
+              </span>
+              <h3 className="text-2xl font-black text-[#0C2C47] mt-2">ĐÃ ĐẾN GIỜ XEM TÀI CHÍNH!</h3>
+              <p className="text-xs text-slate-600 mt-1">
+                Dành 2 phút đối chiếu dòng tiền hôm nay để giữ tài sản luôn an toàn và sinh lời.
+              </p>
+            </div>
+
+            {/* TÓM TẮT NHANH TÀI SẢN RÒNG */}
+            <div className="p-3 bg-white rounded-2xl border border-amber-200 shadow-sm text-left">
+              <span className="text-[10px] uppercase font-bold text-slate-400 block">Tài sản ròng hiện tại</span>
+              <span className="text-xl font-black text-[#0C2C47]">{netWorth.toLocaleString("vi-VN")} ₫</span>
+              <div className="mt-2 pt-2 border-t border-slate-100 flex justify-between text-xs text-slate-600">
+                <span>Tổng tiền trong các kho:</span>
+                <span className="font-bold text-emerald-700">{totalBalance.toLocaleString("vi-VN")} ₫</span>
+              </div>
+            </div>
+
+            {/* NÚT THAO TÁC */}
+            <div className="space-y-2 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  stopAllSounds();
+                  setShowAlarmAlertModal(false);
+                  setActiveTab("reports");
+                }}
+                className="w-full py-3.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-black text-sm shadow-lg shadow-amber-500/30 transition transform hover:scale-[1.02] cursor-pointer"
+              >
+                📊 XEM BÁO CÁO & CHỐT SỔ NGAY ➔
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  stopAllSounds();
+                  setShowAlarmAlertModal(false);
+                }}
+                className="w-full py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition cursor-pointer"
+              >
+                Đã xem / Tắt chuông
+              </button>
+            </div>
           </div>
         </div>
       )}
