@@ -228,15 +228,32 @@ export default function Home() {
   const [selectedVaultForReconcile, setSelectedVaultForReconcile] = useState<Vault | null>(null);
   const [selectedVaultDetail, setSelectedVaultDetail] = useState<Vault | null>(null);
 
-  // Form Thêm Kho
+  // Form Thêm BoMo (BoxMoney)
   const [vaultForm, setVaultForm] = useState({
     name: "",
     type: "bank",
-    balance: "",
+    balanceUnits: "", // Quy ước 1 = 1.000 VNĐ
+    isNegativeDebt: false, // Ngữ cảnh đang vay nợ tại ngân hàng / thấu chi (-)
     description: "",
     isLocked: false,
-    lockedAmount: "",
+    lockedAmountUnits: "", // Quy ước 1 = 1.000 VNĐ
   });
+
+  // State Modal Sửa BoMo (BoxMoney)
+  const [editingVault, setEditingVault] = useState<Vault | null>(null);
+  const [editVaultForm, setEditVaultForm] = useState({
+    name: "",
+    type: "bank",
+    balanceUnits: "",
+    isNegativeDebt: false,
+    description: "",
+    isLocked: false,
+    lockedAmountUnits: "",
+  });
+
+  // State Modal Xóa BoMo (BoxMoney)
+  const [deletingVault, setDeletingVault] = useState<Vault | null>(null);
+  const [targetTransferVaultId, setTargetTransferVaultId] = useState<string>("");
 
   // Form Ghi Nhanh / Tạo Dòng Chảy
   const [flowForm, setFlowForm] = useState({
@@ -589,30 +606,145 @@ export default function Home() {
     }
   };
 
-  // Submit Kho Chứa Mới
+  // Submit BoMo (BoxMoney) Mới
   const handleCreateVault = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!vaultForm.name) return alert("Vui lòng nhập tên kho");
+    if (!vaultForm.name.trim()) return alert("Vui lòng nhập tên BoMo");
     try {
+      const units = parseFloat(vaultForm.balanceUnits) || 0;
+      let realBalance = Math.round(units * 1000);
+      if (vaultForm.isNegativeDebt) {
+        realBalance = -Math.abs(realBalance);
+      }
+      const lockedUnits = parseFloat(vaultForm.lockedAmountUnits) || 0;
+      const realLocked = Math.round(lockedUnits * 1000);
+
       const res = await fetch("/api/vaults", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ...vaultForm,
-          balance: parseFloat(vaultForm.balance) || 0,
-          lockedAmount: parseFloat(vaultForm.lockedAmount) || 0,
+          name: vaultForm.name.trim(),
+          type: vaultForm.type,
+          balance: realBalance,
+          description: vaultForm.description,
+          isLocked: vaultForm.isLocked,
+          lockedAmount: realLocked,
         }),
       });
       const data = await res.json();
       if (data.success) {
         setShowVaultModal(false);
-        setVaultForm({ name: "", type: "bank", balance: "", description: "", isLocked: false, lockedAmount: "" });
+        setVaultForm({
+          name: "",
+          type: "bank",
+          balanceUnits: "",
+          isNegativeDebt: false,
+          description: "",
+          isLocked: false,
+          lockedAmountUnits: "",
+        });
         await fetchData();
       } else {
         alert("Lỗi: " + data.error);
       }
     } catch (err: any) {
-      alert("Lỗi khi thêm kho: " + err.message);
+      alert("Lỗi khi thêm BoMo: " + err.message);
+    }
+  };
+
+  // Mở Modal Sửa BoMo
+  const openEditVaultModal = (vault: Vault) => {
+    setEditingVault(vault);
+    const isNegative = vault.balance < 0;
+    const balanceAbs = Math.abs(vault.balance);
+    const balanceUnits = balanceAbs > 0 ? (balanceAbs / 1000).toString() : "";
+    const lockedUnits = (vault.lockedAmount || 0) > 0 ? ((vault.lockedAmount || 0) / 1000).toString() : "";
+
+    setEditVaultForm({
+      name: vault.name,
+      type: vault.type,
+      balanceUnits,
+      isNegativeDebt: isNegative,
+      description: vault.desc || "",
+      isLocked: !!vault.isLocked,
+      lockedAmountUnits: lockedUnits,
+    });
+  };
+
+  // Submit Cập Nhật BoMo
+  const handleUpdateVault = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingVault) return;
+    if (!editVaultForm.name.trim()) return alert("Vui lòng nhập tên BoMo");
+
+    try {
+      const units = parseFloat(editVaultForm.balanceUnits) || 0;
+      let realBalance = Math.round(units * 1000);
+      if (editVaultForm.isNegativeDebt) {
+        realBalance = -Math.abs(realBalance);
+      }
+      const lockedUnits = parseFloat(editVaultForm.lockedAmountUnits) || 0;
+      const realLocked = Math.round(lockedUnits * 1000);
+
+      const res = await fetch("/api/vaults", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: editingVault.id,
+          name: editVaultForm.name.trim(),
+          type: editVaultForm.type,
+          balance: realBalance,
+          description: editVaultForm.description,
+          isLocked: editVaultForm.isLocked,
+          lockedAmount: realLocked,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setEditingVault(null);
+        await fetchData();
+      } else {
+        alert("Lỗi cập nhật BoMo: " + data.error);
+      }
+    } catch (err: any) {
+      alert("Lỗi: " + err.message);
+    }
+  };
+
+  // Mở Modal Xóa BoMo (bắt buộc balance = 0 hoặc kết chuyển)
+  const openDeleteVaultModal = (vault: Vault) => {
+    setDeletingVault(vault);
+    const otherVaults = vaults.filter((v) => v.id !== vault.id);
+    setTargetTransferVaultId(otherVaults[0]?.id || "");
+  };
+
+  // Xác nhận Xóa BoMo
+  const handleDeleteVaultConfirm = async () => {
+    if (!deletingVault) return;
+
+    const hasBalance = Math.abs(deletingVault.balance) > 0.001;
+    if (hasBalance && !targetTransferVaultId) {
+      return alert("Vui lòng chọn BoMo đích để kết chuyển số dư (+/-) trước khi xóa!");
+    }
+
+    try {
+      const res = await fetch("/api/vaults", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: deletingVault.id,
+          targetVaultId: hasBalance ? targetTransferVaultId : undefined,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setDeletingVault(null);
+        await fetchData();
+      } else {
+        alert("Không thể xóa BoMo: " + data.error);
+      }
+    } catch (err: any) {
+      alert("Lỗi khi xóa BoMo: " + err.message);
     }
   };
 
@@ -1026,20 +1158,20 @@ export default function Home() {
           <div>
             <div className="flex items-center space-x-2 text-xs uppercase tracking-widest text-[#ABCBCA] font-bold">
               <Scale className="w-4 h-4 text-[#BF512C]" />
-              <span>Chỉ số cốt lõi · Toàn hệ sinh thái Zmoney</span>
+              <span>Chỉ số cốt lõi · Toàn hệ sinh thái BoMo (BoxMoney)</span>
             </div>
             <div className="mt-1 text-2xl sm:text-4xl font-black tracking-tight text-white">
               {netWorth.toLocaleString("vi-VN")} ₫
             </div>
             <p className="mt-1 text-xs text-slate-300">
-              Tài sản ròng = Tổng Kho ({totalBalance.toLocaleString("vi-VN")}₫) + Nợ phải thu (+{totalReceivable.toLocaleString("vi-VN")}₫) − Nợ phải trả (-{totalPayable.toLocaleString("vi-VN")}₫)
+              Tài sản ròng = Tổng BoMo ({totalBalance.toLocaleString("vi-VN")}₫) + Nợ phải thu (+{totalReceivable.toLocaleString("vi-VN")}₫) − Nợ phải trả (-{totalPayable.toLocaleString("vi-VN")}₫)
             </p>
           </div>
 
           <div className="flex items-center gap-3">
             <div className="grid grid-cols-3 gap-2 sm:gap-4 bg-white/10 backdrop-blur-sm p-3 sm:p-4 rounded-xl border border-white/15">
               <div>
-                <span className="text-[10px] text-slate-300 uppercase block font-semibold">Tổng Kho</span>
+                <span className="text-[10px] text-slate-300 uppercase block font-semibold">Tổng BoMo</span>
                 <span className="text-sm sm:text-base font-bold text-white truncate block">
                   {totalBalance.toLocaleString("vi-VN")}₫
                 </span>
@@ -1137,7 +1269,7 @@ export default function Home() {
           }`}
         >
           <Wallet className="w-4 h-4" />
-          <span>1. Kho Chứa ({vaults.length})</span>
+          <span>1. BoMo (BoxMoney) ({vaults.length})</span>
         </button>
 
         <button
@@ -1311,20 +1443,43 @@ export default function Home() {
               <div className="flex items-center justify-between border-b pb-2">
                 <h4 className="font-bold text-[#0C2C47] text-sm flex items-center space-x-1.5">
                   <Wallet className="w-4 h-4" />
-                  <span>Kho Chứa ({vaults.length})</span>
+                  <span>BoMo (BoxMoney) ({vaults.length})</span>
                 </h4>
-                <button onClick={() => setActiveTab("vaults")} className="text-xs text-[#BF512C] font-semibold hover:underline">
+                <button onClick={() => setActiveTab("vaults")} className="text-xs text-[#BF512C] font-semibold hover:underline cursor-pointer">
                   Xem tất cả ➔
                 </button>
               </div>
               <div className="space-y-2 flex-1">
                 {vaults.slice(0, 4).map((v) => (
-                  <div key={v.id} className="p-2.5 bg-slate-50 rounded border border-slate-100 flex justify-between text-xs items-center">
+                  <div
+                    key={v.id}
+                    className={`p-2.5 rounded-xl border flex justify-between text-xs items-center ${
+                      v.balance < 0
+                        ? "bg-rose-50/50 border-rose-200"
+                        : "bg-slate-50 border-slate-100"
+                    }`}
+                  >
                     <div>
                       <span className="font-bold text-slate-700 block">{v.name}</span>
-                      <span className="text-[10px] text-slate-400 capitalize">{v.type}</span>
+                      <span className="text-[10px] text-slate-400 capitalize">
+                        {v.type === "bank"
+                          ? "Ngân hàng"
+                          : v.type === "cash"
+                          ? "Tiền mặt"
+                          : v.type === "ewallet"
+                          ? "Ví điện tử"
+                          : v.type === "reserve"
+                          ? "Quỹ dự phòng"
+                          : v.type === "credit"
+                          ? "Vay nợ / Thấu chi"
+                          : v.type}
+                      </span>
                     </div>
-                    <span className="font-black text-[#0C2C47]">{v.balance.toLocaleString("vi-VN")}₫</span>
+                    <span className={`font-black ${v.balance < 0 ? "text-rose-600" : "text-[#0C2C47]"}`}>
+                      {v.balance < 0
+                        ? `-${Math.abs(v.balance).toLocaleString("vi-VN")}₫`
+                        : `${v.balance.toLocaleString("vi-VN")}₫`}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -1385,114 +1540,223 @@ export default function Home() {
         </div>
       )}
 
-      {/* TAB 2: MỤC 1. KHO CHỨA (POOLS) */}
+      {/* TAB 2: MỤC 1. BOMO (BOXMONEY) */}
       {activeTab === "vaults" && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
             <div>
-              <h3 className="font-black text-lg text-[#0C2C47]">1. Kho Chứa — Điểm Chứa Tiền</h3>
-              <p className="text-xs text-slate-500">Ví cá nhân, quỹ kinh doanh, tài khoản ngân hàng, quỹ dự phòng thuế</p>
+              <h3 className="font-black text-lg text-[#0C2C47]">1. BoMo (BoxMoney) — Điểm Chứa Tiền & Dư Nợ</h3>
+              <p className="text-xs text-slate-500">Ví cá nhân, quỹ kinh doanh, tài khoản ngân hàng, quỹ dự phòng thuế, tài khoản vay nợ</p>
             </div>
             <button
               onClick={() => setShowVaultModal(true)}
-              className="bg-[#0C2C47] text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-[#0C2C47]/90 flex items-center space-x-1.5"
+              className="bg-[#0C2C47] text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-[#0C2C47]/90 flex items-center space-x-1.5 shadow-sm self-start sm:self-auto cursor-pointer"
             >
               <PlusCircle className="w-4 h-4" />
-              <span>+ Tạo Kho Mới</span>
+              <span>+ Tạo BoMo Mới</span>
             </button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {vaults.map((vault) => (
-              <div key={vault.id} className="bg-white p-5 rounded-xl border border-[#ABCBCA] shadow-sm space-y-3">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <div className="flex items-center space-x-2">
-                      <span className="font-bold text-slate-900 text-base">{vault.name}</span>
-                      {vault.isLocked && (
-                        <span className="bg-[#DA9B2B]/20 text-[#DA9B2B] text-[10px] font-bold px-2 py-0.5 rounded flex items-center space-x-1">
-                          <Lock className="w-3 h-3" />
-                          <span>Khóa quỹ thuế</span>
-                        </span>
-                      )}
-                    </div>
-                    <span className="text-xs text-slate-500 mt-0.5 block">{vault.desc || "Không có mô tả"}</span>
-                  </div>
-                  <span className="capitalize text-xs font-bold px-2.5 py-1 rounded bg-[#ABCBCA]/30 text-[#0C2C47]">
-                    {vault.type}
-                  </span>
-                </div>
+          {/* BANNER TỔNG QUAN BOMO (BOXMONEY) */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+              <span className="text-[11px] font-bold text-slate-500 uppercase block">Tổng BoMo Khả Dụng (+)</span>
+              <span className="text-xl font-black text-emerald-600 mt-1 block">
+                +{vaults.filter((v) => v.balance > 0).reduce((acc, v) => acc + v.balance, 0).toLocaleString("vi-VN")} ₫
+              </span>
+              <span className="text-[10px] text-slate-400">
+                {vaults.filter((v) => v.balance > 0).length} BoMo có tiền dương
+              </span>
+            </div>
 
-                <div className="flex items-baseline justify-between pt-2 border-t border-slate-100">
-                  <span className="text-xs text-slate-500">Số dư hệ thống tính:</span>
-                  <span className="text-xl font-black text-[#0C2C47]">
-                    {vault.balance.toLocaleString("vi-VN")} ₫
-                  </span>
-                </div>
+            <div className="bg-white p-4 rounded-2xl border border-rose-200 shadow-sm bg-rose-50/20">
+              <span className="text-[11px] font-bold text-rose-700 uppercase block">Tổng Dư Nợ Ngân Hàng (−)</span>
+              <span className="text-xl font-black text-rose-600 mt-1 block">
+                {vaults.filter((v) => v.balance < 0).length > 0
+                  ? `-${Math.abs(vaults.filter((v) => v.balance < 0).reduce((acc, v) => acc + v.balance, 0)).toLocaleString("vi-VN")} ₫`
+                  : "0 ₫"}
+              </span>
+              <span className="text-[10px] text-rose-400">
+                {vaults.filter((v) => v.balance < 0).length} BoMo dư nợ âm
+              </span>
+            </div>
 
-                {vault.isLocked && (
-                  <div className="text-xs text-slate-500 flex justify-between bg-slate-50 p-2.5 rounded border border-slate-200">
-                    <span>Số tiền khóa dự phòng thuế:</span>
-                    <span className="font-bold text-[#BF512C]">
-                      {(vault.lockedAmount || 0).toLocaleString("vi-VN")} ₫
-                    </span>
-                  </div>
-                )}
-
-                <div className="flex items-center justify-between pt-2">
-                  <span className="text-[11px] text-slate-400">
-                    Cập nhật: {vault.lastRecordedAt || "Chưa có"}
-                  </span>
-                  <div className="flex items-center space-x-2">
-                    <button
-                      onClick={() => setSelectedVaultDetail(vault)}
-                      className="text-xs font-semibold text-[#0C2C47] hover:underline"
-                    >
-                      Chi tiết ➔
-                    </button>
-                    <button
-                      onClick={() => {
-                        setSelectedVaultForReconcile(vault);
-                        setReconcileForm({
-                          actualBalance: vault.balance.toString(),
-                          reason: "Đối chiếu kiểm đếm định kỳ",
-                          assignAsFlow: false,
-                          flowTag: "Chênh lệch đối chiếu",
-                        });
-                        setShowReconcileModal(true);
-                      }}
-                      className="text-xs font-bold text-[#BF512C] hover:underline flex items-center space-x-1 bg-slate-50 px-2 py-1 rounded border border-slate-200"
-                    >
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      <span>Đối chiếu số dư</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))}
+            <div className="bg-white p-4 rounded-2xl border border-[#0C2C47]/20 shadow-sm bg-[#0C2C47]/5">
+              <span className="text-[11px] font-bold text-[#0C2C47] uppercase block">Số Dư Ròng BoMo</span>
+              <span className={`text-xl font-black mt-1 block ${totalBalance < 0 ? "text-rose-600" : "text-[#0C2C47]"}`}>
+                {totalBalance < 0
+                  ? `-${Math.abs(totalBalance).toLocaleString("vi-VN")} ₫`
+                  : `${totalBalance.toLocaleString("vi-VN")} ₫`}
+              </span>
+              <span className="text-[10px] text-slate-500">
+                Tổng cộng {vaults.length} BoMo (Tiền − Nợ)
+              </span>
+            </div>
           </div>
 
-          {/* Modal Chi tiết Một Kho Chứa (Mục 1.2) */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {vaults.map((vault) => {
+              const isNegative = vault.balance < 0;
+              return (
+                <div
+                  key={vault.id}
+                  className={`p-5 rounded-2xl border shadow-sm space-y-3 transition-all ${
+                    isNegative
+                      ? "bg-rose-50/30 border-rose-300 ring-1 ring-rose-200"
+                      : "bg-white border-[#ABCBCA]"
+                  }`}
+                >
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                        <span className="font-black text-slate-900 text-base">{vault.name}</span>
+                        {isNegative && (
+                          <span className="bg-rose-100 text-rose-700 text-[10px] font-black px-2 py-0.5 rounded-md border border-rose-300">
+                            🔴 Dư nợ vay
+                          </span>
+                        )}
+                        {vault.isLocked && (
+                          <span className="bg-[#DA9B2B]/20 text-[#DA9B2B] text-[10px] font-bold px-2 py-0.5 rounded flex items-center space-x-1">
+                            <Lock className="w-3 h-3" />
+                            <span>Khóa quỹ thuế</span>
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-xs text-slate-500 mt-0.5 block">{vault.desc || "Không có mô tả"}</span>
+                    </div>
+
+                    <div className="flex items-center space-x-1.5">
+                      <span className="capitalize text-[11px] font-bold px-2.5 py-1 rounded bg-slate-100 text-slate-700 border border-slate-200">
+                        {vault.type === "bank"
+                          ? "Ngân hàng"
+                          : vault.type === "cash"
+                          ? "Tiền mặt"
+                          : vault.type === "ewallet"
+                          ? "Ví điện tử"
+                          : vault.type === "reserve"
+                          ? "Quỹ dự phòng"
+                          : vault.type === "credit"
+                          ? "Vay nợ / Thấu chi"
+                          : vault.type}
+                      </span>
+                      {/* Nút Sửa */}
+                      <button
+                        onClick={() => openEditVaultModal(vault)}
+                        title="Sửa BoMo"
+                        className="p-1.5 rounded-lg text-slate-600 hover:text-blue-600 hover:bg-blue-50 transition cursor-pointer"
+                      >
+                        <Edit className="w-4 h-4" />
+                      </button>
+                      {/* Nút Xóa */}
+                      <button
+                        onClick={() => openDeleteVaultModal(vault)}
+                        title="Xóa BoMo"
+                        className="p-1.5 rounded-lg text-slate-600 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex items-baseline justify-between pt-2 border-t border-slate-100">
+                    <span className="text-xs text-slate-500">
+                      {isNegative ? "Dư nợ ngân hàng:" : "Số dư hệ thống tính:"}
+                    </span>
+                    <span className={`text-xl font-black ${isNegative ? "text-rose-600" : "text-[#0C2C47]"}`}>
+                      {isNegative
+                        ? `-${Math.abs(vault.balance).toLocaleString("vi-VN")} ₫`
+                        : `${vault.balance.toLocaleString("vi-VN")} ₫`}
+                    </span>
+                  </div>
+
+                  {vault.isLocked && (
+                    <div className="text-xs text-slate-500 flex justify-between bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                      <span>Số tiền khóa dự phòng thuế:</span>
+                      <span className="font-bold text-[#BF512C]">
+                        {(vault.lockedAmount || 0).toLocaleString("vi-VN")} ₫
+                      </span>
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between pt-2">
+                    <span className="text-[11px] text-slate-400">
+                      Cập nhật: {vault.lastRecordedAt || "Chưa có"}
+                    </span>
+                    <div className="flex items-center space-x-2">
+                      <button
+                        onClick={() => setSelectedVaultDetail(vault)}
+                        className="text-xs font-semibold text-[#0C2C47] hover:underline cursor-pointer"
+                      >
+                        Chi tiết ➔
+                      </button>
+                      <button
+                        onClick={() => {
+                          setSelectedVaultForReconcile(vault);
+                          setReconcileForm({
+                            actualBalance: vault.balance.toString(),
+                            reason: "Đối chiếu kiểm đếm định kỳ",
+                            assignAsFlow: false,
+                            flowTag: "Chênh lệch đối chiếu",
+                          });
+                          setShowReconcileModal(true);
+                        }}
+                        className="text-xs font-bold text-[#BF512C] hover:underline flex items-center space-x-1 bg-white px-2.5 py-1 rounded-lg border border-slate-200 shadow-xs cursor-pointer"
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        <span>Đối chiếu</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Modal Chi tiết BoMo (BoxMoney) */}
           {selectedVaultDetail && (
-            <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-              <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-[#ABCBCA] space-y-4">
+            <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-[#ABCBCA] space-y-4">
                 <div className="flex items-center justify-between border-b pb-3">
                   <div>
                     <h3 className="text-lg font-black text-[#0C2C47]">{selectedVaultDetail.name}</h3>
-                    <span className="text-xs text-slate-500">Chi tiết số dư & Dòng chảy liên quan</span>
+                    <span className="text-xs text-slate-500">Chi tiết số dư & Dòng chảy BoMo</span>
                   </div>
-                  <button onClick={() => setSelectedVaultDetail(null)} className="text-slate-400 hover:text-slate-600">
+                  <button onClick={() => setSelectedVaultDetail(null)} className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer">
                     <X className="w-5 h-5" />
                   </button>
                 </div>
                 <div className="space-y-3 text-xs">
-                  <div className="flex justify-between p-3 bg-slate-50 rounded-lg">
-                    <span className="text-slate-600">Số dư hiện tại:</span>
-                    <span className="font-bold text-sm text-[#0C2C47]">{selectedVaultDetail.balance.toLocaleString("vi-VN")} ₫</span>
+                  <div className={`flex justify-between p-3 rounded-xl border ${
+                    selectedVaultDetail.balance < 0
+                      ? "bg-rose-50 border-rose-200"
+                      : "bg-slate-50 border-slate-100"
+                  }`}>
+                    <span className="text-slate-600 font-bold">
+                      {selectedVaultDetail.balance < 0 ? "Dư nợ hiện tại:" : "Số dư hiện tại:"}
+                    </span>
+                    <span className={`font-black text-base ${
+                      selectedVaultDetail.balance < 0 ? "text-rose-600" : "text-[#0C2C47]"
+                    }`}>
+                      {selectedVaultDetail.balance < 0
+                        ? `-${Math.abs(selectedVaultDetail.balance).toLocaleString("vi-VN")} ₫ (Nợ)`
+                        : `${selectedVaultDetail.balance.toLocaleString("vi-VN")} ₫`}
+                    </span>
                   </div>
-                  <div className="flex justify-between p-3 bg-slate-50 rounded-lg">
-                    <span className="text-slate-600">Loại kho:</span>
-                    <span className="font-semibold capitalize text-slate-800">{selectedVaultDetail.type}</span>
+                  <div className="flex justify-between p-3 bg-slate-50 rounded-xl">
+                    <span className="text-slate-600 font-bold">Phân loại BoMo:</span>
+                    <span className="font-semibold capitalize text-slate-800">
+                      {selectedVaultDetail.type === "bank"
+                        ? "Ngân hàng"
+                        : selectedVaultDetail.type === "cash"
+                        ? "Tiền mặt"
+                        : selectedVaultDetail.type === "ewallet"
+                        ? "Ví điện tử"
+                        : selectedVaultDetail.type === "reserve"
+                        ? "Quỹ dự phòng"
+                        : selectedVaultDetail.type === "credit"
+                        ? "Vay nợ / Thấu chi"
+                        : selectedVaultDetail.type}
+                    </span>
                   </div>
                   <div className="p-3 bg-slate-50 rounded-lg space-y-1">
                     <span className="text-slate-600 font-semibold block">Dòng chảy gần đây của kho này:</span>
@@ -3361,88 +3625,586 @@ export default function Home() {
         </div>
       )}
 
-      {/* MODAL THÊM KHO MỚI (Mục 1.3) */}
+      {/* MODAL 1: TẠO BOMO (BOXMONEY) MỚI */}
       {showVaultModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-[#ABCBCA] space-y-4">
+        <div className="fixed inset-0 z-50 bg-black/65 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border-2 border-[#0C2C47] space-y-4 max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b pb-3">
-              <h3 className="text-lg font-black text-[#0C2C47]">Thêm Kho Chứa Tiền Mới</h3>
-              <button onClick={() => setShowVaultModal(false)} className="text-slate-400 hover:text-slate-600">
+              <div className="flex items-center space-x-2">
+                <div className="w-9 h-9 rounded-xl bg-blue-100 flex items-center justify-center text-[#0C2C47] font-black">
+                  <Wallet className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-[#0C2C47]">TẠO BOMO (BOXMONEY) MỚI</h3>
+                  <p className="text-[11px] text-slate-500">Ví tiền, tài khoản ngân hàng hoặc tài khoản nợ vay</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowVaultModal(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
+
             <form onSubmit={handleCreateVault} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tên Kho</label>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tên BoMo (BoxMoney) *</label>
                 <input
                   type="text"
                   required
-                  placeholder="Vd: Tài khoản ACB, Ví két sắt..."
+                  placeholder="Vd: Tài khoản ACB, Thẻ tín dụng VCB, Két tiền mặt..."
                   value={vaultForm.name}
                   onChange={(e) => setVaultForm({ ...vaultForm, name: e.target.value })}
-                  className="w-full p-2.5 rounded-lg border border-slate-300 text-sm"
+                  className="w-full p-2.5 rounded-xl border border-slate-300 text-sm font-semibold focus:ring-2 focus:ring-[#0C2C47]"
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Loại</label>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Phân Loại BoMo</label>
                   <select
                     value={vaultForm.type}
-                    onChange={(e) => setVaultForm({ ...vaultForm, type: e.target.value })}
-                    className="w-full p-2.5 rounded-lg border border-slate-300 text-sm"
+                    onChange={(e) => {
+                      const newType = e.target.value;
+                      const isCredit = newType === "credit";
+                      setVaultForm({
+                        ...vaultForm,
+                        type: newType,
+                        isNegativeDebt: isCredit ? true : vaultForm.isNegativeDebt,
+                      });
+                    }}
+                    className="w-full p-2.5 rounded-xl border border-slate-300 text-sm bg-white font-medium"
                   >
                     <option value="bank">Ngân hàng (Bank)</option>
                     <option value="cash">Tiền mặt (Cash)</option>
                     <option value="ewallet">Ví điện tử (eWallet)</option>
                     <option value="reserve">Quỹ dự phòng (Reserve)</option>
+                    <option value="credit">Vay nợ / Thấu chi ngân hàng</option>
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Số dư ban đầu</label>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Mô tả / Ghi chú</label>
                   <input
-                    type="number"
-                    placeholder="0"
-                    value={vaultForm.balance}
-                    onChange={(e) => setVaultForm({ ...vaultForm, balance: e.target.value })}
-                    className="w-full p-2.5 rounded-lg border border-slate-300 text-sm"
+                    type="text"
+                    placeholder="Mục đích sử dụng..."
+                    value={vaultForm.description}
+                    onChange={(e) => setVaultForm({ ...vaultForm, description: e.target.value })}
+                    className="w-full p-2.5 rounded-xl border border-slate-300 text-sm"
                   />
                 </div>
               </div>
 
-              <div className="flex items-center space-x-2 pt-1">
-                <input
-                  type="checkbox"
-                  id="isLocked"
-                  checked={vaultForm.isLocked}
-                  onChange={(e) => setVaultForm({ ...vaultForm, isLocked: e.target.checked })}
-                  className="rounded border-slate-300"
-                />
-                <label htmlFor="isLocked" className="text-xs text-slate-700 font-semibold">
-                  1.4 Cấu hình đặc biệt: Khóa một phần cho quỹ thuế
-                </label>
+              {/* Ngữ cảnh vay nợ tại ngân hàng / Thấu chi (Số dư âm) */}
+              <div
+                className={`p-3 rounded-2xl border transition-all ${
+                  vaultForm.isNegativeDebt
+                    ? "bg-rose-50 border-rose-300 ring-1 ring-rose-200"
+                    : "bg-slate-50 border-slate-200"
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="checkbox"
+                      id="isNegativeDebtCreate"
+                      checked={vaultForm.isNegativeDebt}
+                      onChange={(e) => setVaultForm({ ...vaultForm, isNegativeDebt: e.target.checked })}
+                      className="w-4 h-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500 cursor-pointer"
+                    />
+                    <label htmlFor="isNegativeDebtCreate" className="text-xs font-bold text-slate-800 cursor-pointer">
+                      Ngữ cảnh đang vay nợ tại ngân hàng / Thấu chi (Hiển thị số âm -)
+                    </label>
+                  </div>
+                  {vaultForm.isNegativeDebt && (
+                    <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-rose-200 text-rose-800">
+                      Số dư âm (-)
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1 pl-6">
+                  {vaultForm.isNegativeDebt
+                    ? "Số tiền nhập dưới đây sẽ được ghi nhận là khoản nợ ngân hàng (mang giá trị âm), trừ vào tổng tài sản BoMo."
+                    : "Đánh dấu nếu đây là tài khoản thẻ tín dụng, khoản vay ngân hàng hoặc tài khoản đang thấu chi."}
+                </p>
               </div>
 
-              <div className="pt-2 flex items-center justify-end space-x-2">
+              {/* Màn hình nhập số cực to nền tối chữ sáng quy ước 1 = 1.000 VNĐ */}
+              <div
+                className={`bg-[#091522] border-2 rounded-2xl p-4 sm:p-5 text-center shadow-xl transition-all ${
+                  vaultForm.isNegativeDebt
+                    ? "border-rose-500 ring-2 ring-rose-500/30"
+                    : "border-blue-500 ring-1 ring-blue-500/30"
+                }`}
+              >
+                <div className="flex items-center justify-between text-xs font-black uppercase tracking-wider mb-2">
+                  <span className={vaultForm.isNegativeDebt ? "text-rose-400" : "text-blue-400"}>
+                    {vaultForm.isNegativeDebt ? "SỐ TIỀN VAY NỢ BAN ĐẦU" : "SỐ DƯ BAN ĐẦU"}
+                  </span>
+                  <span className="text-[10px] text-amber-300 font-bold">QUY ƯỚC 1 = 1.000Đ</span>
+                </div>
+                <div className="flex items-center justify-center space-x-2 py-1">
+                  {vaultForm.isNegativeDebt && (
+                    <span className="text-3xl sm:text-4xl font-black text-rose-400 font-mono">−</span>
+                  )}
+                  <input
+                    type="number"
+                    step="any"
+                    inputMode="decimal"
+                    placeholder="0"
+                    value={vaultForm.balanceUnits}
+                    onChange={(e) => setVaultForm({ ...vaultForm, balanceUnits: e.target.value })}
+                    className={`w-full text-center text-4xl sm:text-5xl font-black bg-transparent focus:outline-none placeholder-slate-700 font-mono cursor-pointer ${
+                      vaultForm.isNegativeDebt ? "text-rose-300" : "text-blue-300"
+                    }`}
+                  />
+                  <span
+                    className={`text-2xl sm:text-3xl font-black ${
+                      vaultForm.isNegativeDebt ? "text-rose-400" : "text-blue-400"
+                    }`}
+                  >
+                    k
+                  </span>
+                </div>
+                {vaultForm.balanceUnits && !isNaN(parseFloat(vaultForm.balanceUnits)) ? (
+                  <div className="mt-3 pt-2.5 border-t border-slate-800 flex flex-col items-center">
+                    <span className="text-[11px] text-slate-400">Thành tiền thực tế:</span>
+                    <span
+                      className={`text-base sm:text-lg font-black tracking-wide ${
+                        vaultForm.isNegativeDebt ? "text-rose-400" : "text-amber-300"
+                      }`}
+                    >
+                      {vaultForm.isNegativeDebt ? "− " : "+ "}
+                      {(Math.round(Math.abs(parseFloat(vaultForm.balanceUnits)) * 1000)).toLocaleString("vi-VN")} Đồng
+                      {vaultForm.isNegativeDebt && " (DƯ NỢ VAY NGÂN HÀNG)"}
+                    </span>
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-slate-500 mt-2">
+                    Ví dụ: Nhập 50000 = {vaultForm.isNegativeDebt ? "−50.000.000đ nợ" : "50.000.000đ số dư"}
+                  </p>
+                )}
+              </div>
+
+              {/* Khóa quỹ thuế */}
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    id="isLockedCreate"
+                    checked={vaultForm.isLocked}
+                    onChange={(e) => setVaultForm({ ...vaultForm, isLocked: e.target.checked })}
+                    className="rounded border-slate-300 cursor-pointer"
+                  />
+                  <label htmlFor="isLockedCreate" className="text-xs text-slate-700 font-bold cursor-pointer flex items-center space-x-1">
+                    <Lock className="w-3.5 h-3.5 text-amber-600" />
+                    <span>Cấu hình đặc biệt: Khóa một phần cho quỹ thuế</span>
+                  </label>
+                </div>
+                {vaultForm.isLocked && (
+                  <div className="pt-2 pl-6">
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                      Số tiền khóa (Quy ước 1 = 1.000 VNĐ):
+                    </label>
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="number"
+                        step="any"
+                        placeholder="0"
+                        value={vaultForm.lockedAmountUnits}
+                        onChange={(e) => setVaultForm({ ...vaultForm, lockedAmountUnits: e.target.value })}
+                        className="w-40 p-2 rounded-lg border border-slate-300 text-sm font-bold"
+                      />
+                      <span className="text-xs font-bold text-slate-500">k</span>
+                      {vaultForm.lockedAmountUnits && (
+                        <span className="text-xs font-black text-rose-600">
+                          = {(Math.round(parseFloat(vaultForm.lockedAmountUnits) * 1000)).toLocaleString("vi-VN")} ₫
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="pt-2 flex items-center justify-end space-x-3">
                 <button
                   type="button"
                   onClick={() => setShowVaultModal(false)}
-                  className="px-4 py-2 rounded-lg border text-xs text-slate-600"
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 text-xs font-bold text-slate-600 hover:bg-slate-100 cursor-pointer"
                 >
-                  Hủy
+                  Hủy Bỏ
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2.5 rounded-lg bg-[#0C2C47] text-white text-xs font-black"
+                  className="px-6 py-2.5 rounded-xl bg-[#0C2C47] hover:bg-[#0C2C47]/90 text-white text-xs font-black shadow-md cursor-pointer"
                 >
-                  Tạo Kho Chứa
+                  Tạo BoMo Mới
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
+
+      {/* MODAL 2: SỬA BOMO (BOXMONEY) */}
+      {editingVault && (
+        <div className="fixed inset-0 z-50 bg-black/65 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border-2 border-[#0C2C47] space-y-4 max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b pb-3">
+              <div className="flex items-center space-x-2">
+                <div className="w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center text-amber-900 font-black">
+                  <Edit className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-[#0C2C47]">SỬA THÔNG TIN BOMO</h3>
+                  <p className="text-[11px] text-slate-500">Cập nhật tên, phân loại, số dư hoặc quỹ khóa</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setEditingVault(null)}
+                className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateVault} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tên BoMo (BoxMoney) *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Tên BoMo..."
+                  value={editVaultForm.name}
+                  onChange={(e) => setEditVaultForm({ ...editVaultForm, name: e.target.value })}
+                  className="w-full p-2.5 rounded-xl border border-slate-300 text-sm font-semibold focus:ring-2 focus:ring-[#0C2C47]"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Phân Loại BoMo</label>
+                  <select
+                    value={editVaultForm.type}
+                    onChange={(e) => {
+                      const newType = e.target.value;
+                      const isCredit = newType === "credit";
+                      setEditVaultForm({
+                        ...editVaultForm,
+                        type: newType,
+                        isNegativeDebt: isCredit ? true : editVaultForm.isNegativeDebt,
+                      });
+                    }}
+                    className="w-full p-2.5 rounded-xl border border-slate-300 text-sm bg-white font-medium"
+                  >
+                    <option value="bank">Ngân hàng (Bank)</option>
+                    <option value="cash">Tiền mặt (Cash)</option>
+                    <option value="ewallet">Ví điện tử (eWallet)</option>
+                    <option value="reserve">Quỹ dự phòng (Reserve)</option>
+                    <option value="credit">Vay nợ / Thấu chi ngân hàng</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Mô tả / Ghi chú</label>
+                  <input
+                    type="text"
+                    placeholder="Mục đích sử dụng..."
+                    value={editVaultForm.description}
+                    onChange={(e) => setEditVaultForm({ ...editVaultForm, description: e.target.value })}
+                    className="w-full p-2.5 rounded-xl border border-slate-300 text-sm"
+                  />
+                </div>
+              </div>
+
+              {/* Ngữ cảnh vay nợ tại ngân hàng / Thấu chi (Số dư âm) */}
+              <div
+                className={`p-3 rounded-2xl border transition-all ${
+                  editVaultForm.isNegativeDebt
+                    ? "bg-rose-50 border-rose-300 ring-1 ring-rose-200"
+                    : "bg-slate-50 border-slate-200"
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="checkbox"
+                      id="isNegativeDebtEdit"
+                      checked={editVaultForm.isNegativeDebt}
+                      onChange={(e) => setEditVaultForm({ ...editVaultForm, isNegativeDebt: e.target.checked })}
+                      className="w-4 h-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500 cursor-pointer"
+                    />
+                    <label htmlFor="isNegativeDebtEdit" className="text-xs font-bold text-slate-800 cursor-pointer">
+                      Ngữ cảnh đang vay nợ tại ngân hàng / Thấu chi (Hiển thị số âm -)
+                    </label>
+                  </div>
+                  {editVaultForm.isNegativeDebt && (
+                    <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-rose-200 text-rose-800">
+                      Số dư âm (-)
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Màn hình nhập số cực to nền tối chữ sáng quy ước 1 = 1.000 VNĐ */}
+              <div
+                className={`bg-[#091522] border-2 rounded-2xl p-4 sm:p-5 text-center shadow-xl transition-all ${
+                  editVaultForm.isNegativeDebt
+                    ? "border-rose-500 ring-2 ring-rose-500/30"
+                    : "border-blue-500 ring-1 ring-blue-500/30"
+                }`}
+              >
+                <div className="flex items-center justify-between text-xs font-black uppercase tracking-wider mb-2">
+                  <span className={editVaultForm.isNegativeDebt ? "text-rose-400" : "text-blue-400"}>
+                    {editVaultForm.isNegativeDebt ? "ĐIỀU CHỈNH DƯ NỢ VAY" : "ĐIỀU CHỈNH SỐ DƯ"}
+                  </span>
+                  <span className="text-[10px] text-amber-300 font-bold">QUY ƯỚC 1 = 1.000Đ</span>
+                </div>
+                <div className="flex items-center justify-center space-x-2 py-1">
+                  {editVaultForm.isNegativeDebt && (
+                    <span className="text-3xl sm:text-4xl font-black text-rose-400 font-mono">−</span>
+                  )}
+                  <input
+                    type="number"
+                    step="any"
+                    inputMode="decimal"
+                    placeholder="0"
+                    value={editVaultForm.balanceUnits}
+                    onChange={(e) => setEditVaultForm({ ...editVaultForm, balanceUnits: e.target.value })}
+                    className={`w-full text-center text-4xl sm:text-5xl font-black bg-transparent focus:outline-none placeholder-slate-700 font-mono cursor-pointer ${
+                      editVaultForm.isNegativeDebt ? "text-rose-300" : "text-blue-300"
+                    }`}
+                  />
+                  <span
+                    className={`text-2xl sm:text-3xl font-black ${
+                      editVaultForm.isNegativeDebt ? "text-rose-400" : "text-blue-400"
+                    }`}
+                  >
+                    k
+                  </span>
+                </div>
+                {editVaultForm.balanceUnits && !isNaN(parseFloat(editVaultForm.balanceUnits)) ? (
+                  <div className="mt-3 pt-2.5 border-t border-slate-800 flex flex-col items-center">
+                    <span className="text-[11px] text-slate-400">Thành tiền thực tế:</span>
+                    <span
+                      className={`text-base sm:text-lg font-black tracking-wide ${
+                        editVaultForm.isNegativeDebt ? "text-rose-400" : "text-amber-300"
+                      }`}
+                    >
+                      {editVaultForm.isNegativeDebt ? "− " : "+ "}
+                      {(Math.round(Math.abs(parseFloat(editVaultForm.balanceUnits)) * 1000)).toLocaleString("vi-VN")} Đồng
+                      {editVaultForm.isNegativeDebt && " (DƯ NỢ VAY NGÂN HÀNG)"}
+                    </span>
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-slate-500 mt-2">
+                    Nhập số đơn vị: 1 = 1.000 VNĐ
+                  </p>
+                )}
+              </div>
+
+              {/* Khóa quỹ thuế */}
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    id="isLockedEdit"
+                    checked={editVaultForm.isLocked}
+                    onChange={(e) => setEditVaultForm({ ...editVaultForm, isLocked: e.target.checked })}
+                    className="rounded border-slate-300 cursor-pointer"
+                  />
+                  <label htmlFor="isLockedEdit" className="text-xs text-slate-700 font-bold cursor-pointer flex items-center space-x-1">
+                    <Lock className="w-3.5 h-3.5 text-amber-600" />
+                    <span>Khóa một phần cho quỹ thuế</span>
+                  </label>
+                </div>
+                {editVaultForm.isLocked && (
+                  <div className="pt-2 pl-6">
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                      Số tiền khóa (Quy ước 1 = 1.000 VNĐ):
+                    </label>
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="number"
+                        step="any"
+                        placeholder="0"
+                        value={editVaultForm.lockedAmountUnits}
+                        onChange={(e) => setEditVaultForm({ ...editVaultForm, lockedAmountUnits: e.target.value })}
+                        className="w-40 p-2 rounded-lg border border-slate-300 text-sm font-bold"
+                      />
+                      <span className="text-xs font-bold text-slate-500">k</span>
+                      {editVaultForm.lockedAmountUnits && (
+                        <span className="text-xs font-black text-rose-600">
+                          = {(Math.round(parseFloat(editVaultForm.lockedAmountUnits) * 1000)).toLocaleString("vi-VN")} ₫
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="pt-2 flex items-center justify-end space-x-3">
+                <button
+                  type="button"
+                  onClick={() => setEditingVault(null)}
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 text-xs font-bold text-slate-600 hover:bg-slate-100 cursor-pointer"
+                >
+                  Hủy Bỏ
+                </button>
+                <button
+                  type="submit"
+                  className="px-6 py-2.5 rounded-xl bg-[#0C2C47] hover:bg-[#0C2C47]/90 text-white text-xs font-black shadow-md cursor-pointer"
+                >
+                  Lưu Thay Đổi
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 3: XÓA BOMO (BẮT BUỘC SỐ DƯ = 0 Đ, CHUYỂN +/- SANG BOMO KHÁC) */}
+      {deletingVault && (() => {
+        const isZeroBalance = Math.abs(deletingVault.balance) < 0.001;
+        const isPositive = deletingVault.balance > 0;
+        const otherVaults = vaults.filter((v) => v.id !== deletingVault.id);
+        const selectedTarget = otherVaults.find((v) => v.id === targetTransferVaultId) || otherVaults[0];
+
+        return (
+          <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+            <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border-2 border-rose-600 space-y-4">
+              <div className="flex items-center justify-between border-b pb-3">
+                <div className="flex items-center space-x-2">
+                  <div className="w-10 h-10 rounded-2xl bg-rose-100 flex items-center justify-center text-rose-700">
+                    <Trash2 className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-black text-slate-900 uppercase">
+                      XÓA BOMO: {deletingVault.name}
+                    </h3>
+                    <p className="text-[11px] text-slate-500">Quy chuẩn an toàn: Bắt buộc số dư phải về 0 đ</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setDeletingVault(null)}
+                  className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Thông tin số dư hiện tại */}
+              <div
+                className={`p-4 rounded-2xl border text-xs space-y-2 ${
+                  isZeroBalance
+                    ? "bg-emerald-50 border-emerald-300 text-emerald-900"
+                    : "bg-amber-50 border-amber-300 text-amber-900"
+                }`}
+              >
+                <div className="flex justify-between items-center">
+                  <span className="font-semibold">Số dư BoMo hiện tại:</span>
+                  <span
+                    className={`text-base font-black ${
+                      isZeroBalance
+                        ? "text-emerald-700"
+                        : deletingVault.balance < 0
+                        ? "text-rose-700"
+                        : "text-amber-800"
+                    }`}
+                  >
+                    {deletingVault.balance < 0
+                      ? `-${Math.abs(deletingVault.balance).toLocaleString("vi-VN")} ₫ (Nợ vay)`
+                      : `${deletingVault.balance.toLocaleString("vi-VN")} ₫`}
+                  </span>
+                </div>
+
+                {isZeroBalance ? (
+                  <div className="flex items-center space-x-2 text-emerald-800 font-bold pt-1 border-t border-emerald-200">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>BoMo có số dư đúng bằng 0 đ. Đủ điều kiện xóa an toàn khỏi hệ thống!</span>
+                  </div>
+                ) : (
+                  <div className="space-y-1 pt-1 border-t border-amber-200">
+                    <div className="flex items-center space-x-1.5 font-black text-rose-700">
+                      <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                      <span>Số dư khác 0 đ! Bắt buộc chuyển toàn bộ sang BoMo khác trước khi xóa.</span>
+                    </div>
+                    <p className="text-[11px] text-slate-600">
+                      Để tránh thất thoát sổ sách kế toán, bạn có quyền chuyển toàn bộ số tiền (+) hoặc dư nợ (−) của BoMo này sang một BoMo chỉ định.
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Nếu số dư khác 0: Form chọn BoMo tiếp nhận kết chuyển */}
+              {!isZeroBalance && (
+                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
+                  <label className="block text-xs font-black text-slate-800 uppercase">
+                    CHỌN BOMO TIẾP NHẬN SỐ DƯ ({isPositive ? "TIỀN DƯƠNG +" : "DƯ NỢ VAY −"}) *
+                  </label>
+
+                  {otherVaults.length === 0 ? (
+                    <p className="text-xs text-rose-600 font-bold">
+                      Không còn BoMo nào khác để chuyển giao số dư. Vui lòng tạo thêm một BoMo khác hoặc đưa số dư về 0 đ trước khi xóa.
+                    </p>
+                  ) : (
+                    <>
+                      <select
+                        value={targetTransferVaultId}
+                        onChange={(e) => setTargetTransferVaultId(e.target.value)}
+                        className="w-full p-2.5 rounded-xl border border-slate-300 text-sm font-bold bg-white focus:ring-2 focus:ring-[#0C2C47]"
+                      >
+                        {otherVaults.map((ov) => (
+                          <option key={ov.id} value={ov.id}>
+                            {ov.name} (Hiện có: {ov.balance.toLocaleString("vi-VN")} ₫)
+                          </option>
+                        ))}
+                      </select>
+
+                      {selectedTarget && (
+                        <div className="p-3 bg-blue-50/80 rounded-xl border border-blue-200 text-xs text-blue-950 space-y-1">
+                          <span className="font-bold block">Tác động kết chuyển tự động:</span>
+                          {isPositive ? (
+                            <p className="text-[11px]">
+                              Toàn bộ <b>+{deletingVault.balance.toLocaleString("vi-VN")} ₫</b> sẽ chuyển sang BoMo <b>"{selectedTarget.name}"</b> (Số dư mới: {(selectedTarget.balance + deletingVault.balance).toLocaleString("vi-VN")} ₫). BoMo <b>"{deletingVault.name}"</b> sẽ về 0 đ và được xóa vĩnh viễn.
+                            </p>
+                          ) : (
+                            <p className="text-[11px]">
+                              Toàn bộ khoản nợ <b>{deletingVault.balance.toLocaleString("vi-VN")} ₫</b> sẽ chuyển sang gánh bởi BoMo <b>"{selectedTarget.name}"</b> (Số dư mới: {(selectedTarget.balance + deletingVault.balance).toLocaleString("vi-VN")} ₫). BoMo <b>"{deletingVault.name}"</b> sẽ về 0 đ và được xóa vĩnh viễn.
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setDeletingVault(null)}
+                  className="py-2.5 rounded-xl border border-slate-300 text-xs font-bold text-slate-600 hover:bg-slate-100 cursor-pointer"
+                >
+                  Hủy Bỏ
+                </button>
+                <button
+                  type="button"
+                  disabled={!isZeroBalance && otherVaults.length === 0}
+                  onClick={handleDeleteVaultConfirm}
+                  className="py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-xs font-black shadow-md cursor-pointer flex items-center justify-center space-x-1.5"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>
+                    {isZeroBalance ? "Xác Nhận Xóa BoMo" : "Chuyển Giao Số Dư & Xóa"}
+                  </span>
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* MODAL 1: NHẬP NHANH THU TIỀN VÀO (XANH LÁ - SỐ TO RÕ RÀNG) */}
       {showQuickIncomeModal && (
