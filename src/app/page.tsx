@@ -2271,12 +2271,11 @@ export default function Home() {
                   <input
                     type="number"
                     inputMode="numeric"
-                    autoFocus
                     required
                     placeholder="0"
                     value={quickIncomeForm.amount}
                     onChange={(e) => setQuickIncomeForm({ ...quickIncomeForm, amount: e.target.value })}
-                    className="w-full text-center text-4xl sm:text-5xl font-black text-emerald-300 bg-transparent focus:outline-none placeholder-slate-700 tracking-tight font-mono selection:bg-emerald-500 selection:text-black"
+                    className="w-full text-center text-4xl sm:text-5xl font-black text-emerald-300 bg-transparent focus:outline-none placeholder-slate-700 tracking-tight font-mono selection:bg-emerald-500 selection:text-black cursor-pointer"
                   />
                   <span className="text-3xl sm:text-4xl font-black text-emerald-400">₫</span>
                 </div>
@@ -2287,11 +2286,11 @@ export default function Home() {
                     </span>
                   </div>
                 ) : (
-                  <p className="text-xs text-slate-500 mt-2">Chạm các nút mệnh giá 1k-500k hoặc gõ số</p>
+                  <p className="text-xs text-slate-500 mt-2">Chạm các nút mệnh giá hoặc bấm vào ô số để gõ</p>
                 )}
               </div>
 
-              {/* CÁC MỆNH GIÁ NHẬP NHANH: 1k - 2k - 3k - 10k - 20k - 50k - 100k - 200k - 500k + XÓA */}
+              {/* CÁC MỆNH GIÁ NHẬP NHANH: 1k - 2k - 10k - 20k - 50k - 100k - 200k - 500k + XÓA (ĐÃ BỎ 3K) */}
               <div>
                 <label className="block text-[11px] font-black text-slate-600 uppercase mb-1.5">
                   Mệnh giá nhập nhanh (Cộng dồn)
@@ -2300,7 +2299,6 @@ export default function Home() {
                   {[
                     { label: "+1K", val: 1000 },
                     { label: "+2K", val: 2000 },
-                    { label: "+3K", val: 3000 },
                     { label: "+10K", val: 10000 },
                     { label: "+20K", val: 20000 },
                     { label: "+50K", val: 50000 },
@@ -2323,9 +2321,9 @@ export default function Home() {
                   <button
                     type="button"
                     onClick={() => setQuickIncomeForm({ ...quickIncomeForm, amount: "" })}
-                    className="py-2.5 px-1 rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-100 border border-rose-300 transition active:scale-95 font-black cursor-pointer"
+                    className="col-span-2 py-2.5 px-1 rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-100 border border-rose-300 transition active:scale-95 font-black cursor-pointer"
                   >
-                    Xóa
+                    Xóa số
                   </button>
                 </div>
               </div>
@@ -2362,53 +2360,6 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* THỜI ĐIỂM PHÁT SINH: THỰC TẾ HOẶC DỰ KIẾN VÀO NGÀY */}
-              <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-black text-[#0C2C47] uppercase">Thời điểm phát sinh</span>
-                  <div className="flex items-center space-x-1 bg-slate-200 p-1 rounded-xl">
-                    <button
-                      type="button"
-                      onClick={() => setQuickIncomeForm({ ...quickIncomeForm, isActual: true, flowDate: new Date().toISOString().split("T")[0] })}
-                      className={`px-3 py-1 rounded-lg text-xs font-black transition cursor-pointer ${
-                        quickIncomeForm.isActual
-                          ? "bg-emerald-600 text-white shadow-xs"
-                          : "text-slate-600 hover:text-slate-900"
-                      }`}
-                    >
-                      ✓ Thực tế hôm nay
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setQuickIncomeForm({ ...quickIncomeForm, isActual: false })}
-                      className={`px-3 py-1 rounded-lg text-xs font-black transition cursor-pointer ${
-                        !quickIncomeForm.isActual
-                          ? "bg-amber-500 text-white shadow-xs"
-                          : "text-slate-600 hover:text-slate-900"
-                      }`}
-                    >
-                      ⏳ Dự kiến vào ngày
-                    </button>
-                  </div>
-                </div>
-
-                {!quickIncomeForm.isActual && (
-                  <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 flex items-center justify-between">
-                    <div>
-                      <span className="text-xs font-black text-amber-900 block">Dự kiến thu vào ngày:</span>
-                      <span className="text-[11px] text-amber-700">Chưa cộng tiền ngay, ghi vào kế hoạch dòng tiền</span>
-                    </div>
-                    <input
-                      type="date"
-                      required
-                      value={quickIncomeForm.flowDate}
-                      onChange={(e) => setQuickIncomeForm({ ...quickIncomeForm, flowDate: e.target.value })}
-                      className="p-2 rounded-lg border border-amber-300 text-xs font-black text-[#0C2C47] bg-white"
-                    />
-                  </div>
-                )}
-              </div>
-
               {/* NHÃN & MỤC ĐÍCH THU */}
               <div className="grid grid-cols-2 gap-2">
                 <div>
@@ -2437,18 +2388,46 @@ export default function Home() {
                 </div>
               </div>
 
+              {/* TRƯỜNG DỰ KIẾN NGÀY Ở BOTTOM: ƯU TIÊN NHẬP NHANH, KHÔNG CẦN GẠT CẦN */}
+              <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center space-x-2">
+                    <span className="text-xs font-black text-slate-700">Dự kiến ngày:</span>
+                    {quickIncomeForm.flowDate !== new Date().toISOString().split("T")[0] && (
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">
+                        Kế hoạch tương lai
+                      </span>
+                    )}
+                  </div>
+                  <input
+                    type="date"
+                    value={quickIncomeForm.flowDate}
+                    onChange={(e) => {
+                      const selected = e.target.value;
+                      const today = new Date().toISOString().split("T")[0];
+                      setQuickIncomeForm({
+                        ...quickIncomeForm,
+                        flowDate: selected,
+                        isActual: selected <= today,
+                      });
+                    }}
+                    className="p-2 rounded-xl border border-slate-300 text-xs font-bold text-[#0C2C47] bg-white cursor-pointer"
+                  />
+                </div>
+              </div>
+
               {/* NÚT BẤM XÁC NHẬN TO RÕ */}
               <div className="pt-2 flex items-center gap-3">
                 <button
                   type="button"
                   onClick={() => setShowQuickIncomeModal(false)}
-                  className="w-1/3 py-3 rounded-xl border border-slate-300 text-xs font-bold text-slate-600 hover:bg-slate-100"
+                  className="w-1/3 py-3 rounded-xl border border-slate-300 text-xs font-bold text-slate-600 hover:bg-slate-100 cursor-pointer"
                 >
                   Hủy
                 </button>
                 <button
                   type="submit"
-                  className="w-2/3 py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-black shadow-lg shadow-emerald-600/30 flex items-center justify-center space-x-2 transition transform active:scale-95"
+                  className="w-2/3 py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-black shadow-lg shadow-emerald-600/30 flex items-center justify-center space-x-2 transition transform active:scale-95 cursor-pointer"
                 >
                   <ArrowDownLeft className="w-5 h-5 stroke-[3]" />
                   <span>{quickIncomeForm.isActual ? "XÁC NHẬN THU NGAY (+)" : "LƯU KẾ HOẠCH DỰ KIẾN THU (+)"}</span>
@@ -2473,7 +2452,7 @@ export default function Home() {
                   <p className="text-[11px] text-slate-500">Rút tiền từ kho để chi trả</p>
                 </div>
               </div>
-              <button onClick={() => setShowQuickExpenseModal(false)} className="text-slate-400 hover:text-slate-600 p-1">
+              <button onClick={() => setShowQuickExpenseModal(false)} className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer">
                 <X className="w-6 h-6" />
               </button>
             </div>
@@ -2488,12 +2467,11 @@ export default function Home() {
                   <input
                     type="number"
                     inputMode="numeric"
-                    autoFocus
                     required
                     placeholder="0"
                     value={quickExpenseForm.amount}
                     onChange={(e) => setQuickExpenseForm({ ...quickExpenseForm, amount: e.target.value })}
-                    className="w-full text-center text-4xl sm:text-5xl font-black text-rose-300 bg-transparent focus:outline-none placeholder-slate-700 tracking-tight font-mono selection:bg-rose-500 selection:text-black"
+                    className="w-full text-center text-4xl sm:text-5xl font-black text-rose-300 bg-transparent focus:outline-none placeholder-slate-700 tracking-tight font-mono selection:bg-rose-500 selection:text-black cursor-pointer"
                   />
                   <span className="text-3xl sm:text-4xl font-black text-rose-400">₫</span>
                 </div>
@@ -2504,11 +2482,11 @@ export default function Home() {
                     </span>
                   </div>
                 ) : (
-                  <p className="text-xs text-slate-500 mt-2">Chạm các nút mệnh giá 1k-500k hoặc gõ số</p>
+                  <p className="text-xs text-slate-500 mt-2">Chạm các nút mệnh giá hoặc bấm vào ô số để gõ</p>
                 )}
               </div>
 
-              {/* CÁC MỆNH GIÁ NHẬP NHANH: 1k - 2k - 3k - 10k - 20k - 50k - 100k - 200k - 500k + XÓA */}
+              {/* CÁC MỆNH GIÁ NHẬP NHANH: 1k - 2k - 10k - 20k - 50k - 100k - 200k - 500k + XÓA (ĐÃ BỎ 3K) */}
               <div>
                 <label className="block text-[11px] font-black text-slate-600 uppercase mb-1.5">
                   Mệnh giá nhập nhanh (Cộng dồn)
@@ -2517,7 +2495,6 @@ export default function Home() {
                   {[
                     { label: "+1K", val: 1000 },
                     { label: "+2K", val: 2000 },
-                    { label: "+3K", val: 3000 },
                     { label: "+10K", val: 10000 },
                     { label: "+20K", val: 20000 },
                     { label: "+50K", val: 50000 },
@@ -2540,9 +2517,9 @@ export default function Home() {
                   <button
                     type="button"
                     onClick={() => setQuickExpenseForm({ ...quickExpenseForm, amount: "" })}
-                    className="py-2.5 px-1 rounded-xl bg-slate-200 text-slate-700 hover:bg-slate-300 border border-slate-300 transition active:scale-95 font-black cursor-pointer"
+                    className="col-span-2 py-2.5 px-1 rounded-xl bg-slate-200 text-slate-700 hover:bg-slate-300 border border-slate-300 transition active:scale-95 font-black cursor-pointer"
                   >
-                    Xóa
+                    Xóa số
                   </button>
                 </div>
               </div>
@@ -2584,53 +2561,6 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* THỜI ĐIỂM PHÁT SINH: THỰC TẾ HOẶC DỰ KIẾN VÀO NGÀY */}
-              <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-black text-[#0C2C47] uppercase">Thời điểm phát sinh</span>
-                  <div className="flex items-center space-x-1 bg-slate-200 p-1 rounded-xl">
-                    <button
-                      type="button"
-                      onClick={() => setQuickExpenseForm({ ...quickExpenseForm, isActual: true, flowDate: new Date().toISOString().split("T")[0] })}
-                      className={`px-3 py-1 rounded-lg text-xs font-black transition cursor-pointer ${
-                        quickExpenseForm.isActual
-                          ? "bg-rose-600 text-white shadow-xs"
-                          : "text-slate-600 hover:text-slate-900"
-                      }`}
-                    >
-                      ✓ Thực tế hôm nay
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setQuickExpenseForm({ ...quickExpenseForm, isActual: false })}
-                      className={`px-3 py-1 rounded-lg text-xs font-black transition cursor-pointer ${
-                        !quickExpenseForm.isActual
-                          ? "bg-amber-500 text-white shadow-xs"
-                          : "text-slate-600 hover:text-slate-900"
-                      }`}
-                    >
-                      ⏳ Dự kiến vào ngày
-                    </button>
-                  </div>
-                </div>
-
-                {!quickExpenseForm.isActual && (
-                  <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 flex items-center justify-between">
-                    <div>
-                      <span className="text-xs font-black text-amber-900 block">Dự kiến chi vào ngày:</span>
-                      <span className="text-[11px] text-amber-700">Chưa trừ tiền ngay, ghi vào kế hoạch dòng tiền</span>
-                    </div>
-                    <input
-                      type="date"
-                      required
-                      value={quickExpenseForm.flowDate}
-                      onChange={(e) => setQuickExpenseForm({ ...quickExpenseForm, flowDate: e.target.value })}
-                      className="p-2 rounded-lg border border-amber-300 text-xs font-black text-[#0C2C47] bg-white"
-                    />
-                  </div>
-                )}
-              </div>
-
               {/* NHÃN & MỤC ĐÍCH CHI */}
               <div className="grid grid-cols-2 gap-2">
                 <div>
@@ -2660,18 +2590,46 @@ export default function Home() {
                 </div>
               </div>
 
+              {/* TRƯỜNG DỰ KIẾN NGÀY Ở BOTTOM: ƯU TIÊN NHẬP NHANH, KHÔNG CẦN GẠT CẦN */}
+              <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center space-x-2">
+                    <span className="text-xs font-black text-slate-700">Dự kiến ngày:</span>
+                    {quickExpenseForm.flowDate !== new Date().toISOString().split("T")[0] && (
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">
+                        Kế hoạch tương lai
+                      </span>
+                    )}
+                  </div>
+                  <input
+                    type="date"
+                    value={quickExpenseForm.flowDate}
+                    onChange={(e) => {
+                      const selected = e.target.value;
+                      const today = new Date().toISOString().split("T")[0];
+                      setQuickExpenseForm({
+                        ...quickExpenseForm,
+                        flowDate: selected,
+                        isActual: selected <= today,
+                      });
+                    }}
+                    className="p-2 rounded-xl border border-slate-300 text-xs font-bold text-[#0C2C47] bg-white cursor-pointer"
+                  />
+                </div>
+              </div>
+
               {/* NÚT BẤM XÁC NHẬN TO RÕ */}
               <div className="pt-2 flex items-center gap-3">
                 <button
                   type="button"
                   onClick={() => setShowQuickExpenseModal(false)}
-                  className="w-1/3 py-3 rounded-xl border border-slate-300 text-xs font-bold text-slate-600 hover:bg-slate-100"
+                  className="w-1/3 py-3 rounded-xl border border-slate-300 text-xs font-bold text-slate-600 hover:bg-slate-100 cursor-pointer"
                 >
                   Hủy
                 </button>
                 <button
                   type="submit"
-                  className="w-2/3 py-3.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-sm font-black shadow-lg shadow-rose-600/30 flex items-center justify-center space-x-2 transition transform active:scale-95"
+                  className="w-2/3 py-3.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-sm font-black shadow-lg shadow-rose-600/30 flex items-center justify-center space-x-2 transition transform active:scale-95 cursor-pointer"
                 >
                   <ArrowUpRight className="w-5 h-5 stroke-[3]" />
                   <span>{quickExpenseForm.isActual ? "XÁC NHẬN CHI NGAY (-)" : "LƯU KẾ HOẠCH DỰ KIẾN CHI (-)"}</span>
