@@ -132,12 +132,22 @@ export default function Home() {
   const [showReminderModal, setShowReminderModal] = useState(false);
   const [showAlarmAlertModal, setShowAlarmAlertModal] = useState(false);
 
+  // Helper lấy chuỗi ngày giờ hiện tại theo chuẩn Việt Nam (YYYY-MM-DD và HH:mm)
+  const getCurrentDateTime = () => {
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const dateStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+    const timeStr = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+    return { dateStr, timeStr };
+  };
+
   // Form Nhập Nhanh THU (+)
   const [quickIncomeForm, setQuickIncomeForm] = useState({
     amount: "",
     toVaultId: "",
     tag: "Doanh thu",
     title: "",
+    isExpected: false, // true = người dùng tick chọn Dự kiến ngày, false = mặc định ngày hôm nay
     isActual: true,
     flowDate: new Date().toISOString().split("T")[0],
   });
@@ -148,6 +158,7 @@ export default function Home() {
     fromVaultId: "",
     tag: "Chi phí",
     title: "",
+    isExpected: false, // true = người dùng tick chọn Dự kiến ngày, false = mặc định ngày hôm nay
     isActual: true,
     flowDate: new Date().toISOString().split("T")[0],
   });
@@ -391,15 +402,17 @@ export default function Home() {
     const vaultName = v ? v.name : "Kho nhận";
     const title = quickIncomeForm.title.trim() || `Thu: ${quickIncomeForm.tag} ➔ ${vaultName}`;
 
-    const isActual = quickIncomeForm.isActual ?? true;
-    const flowDate = quickIncomeForm.flowDate || new Date().toISOString().split("T")[0];
+    const isActual = quickIncomeForm.isExpected ? false : true;
+    const flowDate = quickIncomeForm.isExpected 
+      ? (quickIncomeForm.flowDate || new Date().toISOString().split("T")[0])
+      : new Date().toISOString().split("T")[0];
 
     try {
       const res = await fetch("/api/flows", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          title: quickIncomeForm.isActual ? title : `[Dự kiến] ${title}`,
+          title: isActual ? title : `[Dự kiến] ${title}`,
           amount,
           type: "income",
           fromVaultId: null,
@@ -419,6 +432,7 @@ export default function Home() {
           toVaultId: vaults[0]?.id || "",
           tag: "Doanh thu",
           title: "",
+          isExpected: false,
           isActual: true,
           flowDate: new Date().toISOString().split("T")[0],
         });
@@ -447,15 +461,17 @@ export default function Home() {
     const vaultName = v ? v.name : "Kho chi";
     const title = quickExpenseForm.title.trim() || `Chi: ${quickExpenseForm.tag} từ ${vaultName}`;
 
-    const isActual = quickExpenseForm.isActual ?? true;
-    const flowDate = quickExpenseForm.flowDate || new Date().toISOString().split("T")[0];
+    const isActual = quickExpenseForm.isExpected ? false : true;
+    const flowDate = quickExpenseForm.isExpected 
+      ? (quickExpenseForm.flowDate || new Date().toISOString().split("T")[0])
+      : new Date().toISOString().split("T")[0];
 
     try {
       const res = await fetch("/api/flows", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          title: quickExpenseForm.isActual ? title : `[Dự kiến] ${title}`,
+          title: isActual ? title : `[Dự kiến] ${title}`,
           amount,
           type: "expense",
           fromVaultId: quickExpenseForm.fromVaultId,
@@ -475,6 +491,7 @@ export default function Home() {
           fromVaultId: vaults[0]?.id || "",
           tag: "Chi phí",
           title: "",
+          isExpected: false,
           isActual: true,
           flowDate: new Date().toISOString().split("T")[0],
         });
@@ -2388,32 +2405,58 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* TRƯỜNG DỰ KIẾN NGÀY Ở BOTTOM: ƯU TIÊN NHẬP NHANH, KHÔNG CẦN GẠT CẦN */}
-              <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center space-x-2">
-                    <span className="text-xs font-black text-slate-700">Dự kiến ngày:</span>
-                    {quickIncomeForm.flowDate !== new Date().toISOString().split("T")[0] && (
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">
-                        Kế hoạch tương lai
-                      </span>
-                    )}
-                  </div>
-                  <input
-                    type="date"
-                    value={quickIncomeForm.flowDate}
-                    onChange={(e) => {
-                      const selected = e.target.value;
-                      const today = new Date().toISOString().split("T")[0];
-                      setQuickIncomeForm({
-                        ...quickIncomeForm,
-                        flowDate: selected,
-                        isActual: selected <= today,
-                      });
-                    }}
-                    className="p-2 rounded-xl border border-slate-300 text-xs font-bold text-[#0C2C47] bg-white cursor-pointer"
-                  />
+              {/* TRƯỜNG DỰ KIẾN NGÀY Ở BOTTOM: NÚT TICK DỰ KIẾN, KHÔNG TICK THÌ MẶC ĐỊNH LÀ HÔM NAY HIỂN THỊ GIỜ PHÚT */}
+              <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="flex items-center space-x-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={quickIncomeForm.isExpected}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setQuickIncomeForm({
+                          ...quickIncomeForm,
+                          isExpected: checked,
+                          isActual: !checked,
+                          flowDate: checked ? quickIncomeForm.flowDate : new Date().toISOString().split("T")[0],
+                        });
+                      }}
+                      className="w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500 cursor-pointer"
+                    />
+                    <span className="text-xs font-black text-slate-800">Dự kiến ngày (kế hoạch)</span>
+                  </label>
+
+                  {/* Khi KHÔNG tick: hiển thị mặc định là hôm nay + giờ phút */}
+                  {!quickIncomeForm.isExpected ? (
+                    <div className="flex items-center space-x-1.5 text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-lg">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                      <span className="text-xs font-black">Hôm nay</span>
+                      <span className="text-xs font-mono font-bold text-slate-600">{getCurrentDateTime().timeStr}</span>
+                    </div>
+                  ) : (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+                      Chưa cộng tiền
+                    </span>
+                  )}
                 </div>
+
+                {/* Khi CÓ tick: cho phép chọn ngày dự kiến cụ thể */}
+                {quickIncomeForm.isExpected && (
+                  <div className="flex items-center justify-between pt-1 border-t border-slate-200">
+                    <span className="text-xs text-slate-500">Chọn ngày dự kiến thu:</span>
+                    <input
+                      type="date"
+                      value={quickIncomeForm.flowDate}
+                      onChange={(e) => {
+                        setQuickIncomeForm({
+                          ...quickIncomeForm,
+                          flowDate: e.target.value,
+                        });
+                      }}
+                      className="p-1.5 rounded-xl border border-amber-300 text-xs font-bold text-[#0C2C47] bg-white cursor-pointer shadow-2xs"
+                    />
+                  </div>
+                )}
               </div>
 
               {/* NÚT BẤM XÁC NHẬN TO RÕ */}
@@ -2430,7 +2473,7 @@ export default function Home() {
                   className="w-2/3 py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-black shadow-lg shadow-emerald-600/30 flex items-center justify-center space-x-2 transition transform active:scale-95 cursor-pointer"
                 >
                   <ArrowDownLeft className="w-5 h-5 stroke-[3]" />
-                  <span>{quickIncomeForm.isActual ? "XÁC NHẬN THU NGAY (+)" : "LƯU KẾ HOẠCH DỰ KIẾN THU (+)"}</span>
+                  <span>{!quickIncomeForm.isExpected ? "XÁC NHẬN THU NGAY (+)" : "LƯU KẾ HOẠCH DỰ KIẾN THU (+)"}</span>
                 </button>
               </div>
             </form>
@@ -2590,32 +2633,58 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* TRƯỜNG DỰ KIẾN NGÀY Ở BOTTOM: ƯU TIÊN NHẬP NHANH, KHÔNG CẦN GẠT CẦN */}
-              <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center space-x-2">
-                    <span className="text-xs font-black text-slate-700">Dự kiến ngày:</span>
-                    {quickExpenseForm.flowDate !== new Date().toISOString().split("T")[0] && (
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">
-                        Kế hoạch tương lai
-                      </span>
-                    )}
-                  </div>
-                  <input
-                    type="date"
-                    value={quickExpenseForm.flowDate}
-                    onChange={(e) => {
-                      const selected = e.target.value;
-                      const today = new Date().toISOString().split("T")[0];
-                      setQuickExpenseForm({
-                        ...quickExpenseForm,
-                        flowDate: selected,
-                        isActual: selected <= today,
-                      });
-                    }}
-                    className="p-2 rounded-xl border border-slate-300 text-xs font-bold text-[#0C2C47] bg-white cursor-pointer"
-                  />
+              {/* TRƯỜNG DỰ KIẾN NGÀY Ở BOTTOM: NÚT TICK DỰ KIẾN, KHÔNG TICK THÌ MẶC ĐỊNH LÀ HÔM NAY HIỂN THỊ GIỜ PHÚT */}
+              <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="flex items-center space-x-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={quickExpenseForm.isExpected}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setQuickExpenseForm({
+                          ...quickExpenseForm,
+                          isExpected: checked,
+                          isActual: !checked,
+                          flowDate: checked ? quickExpenseForm.flowDate : new Date().toISOString().split("T")[0],
+                        });
+                      }}
+                      className="w-4 h-4 text-rose-600 rounded border-slate-300 focus:ring-rose-500 cursor-pointer"
+                    />
+                    <span className="text-xs font-black text-slate-800">Dự kiến ngày (kế hoạch)</span>
+                  </label>
+
+                  {/* Khi KHÔNG tick: hiển thị mặc định là hôm nay + giờ phút */}
+                  {!quickExpenseForm.isExpected ? (
+                    <div className="flex items-center space-x-1.5 text-rose-700 bg-rose-50 border border-rose-200 px-2.5 py-1 rounded-lg">
+                      <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span>
+                      <span className="text-xs font-black">Hôm nay</span>
+                      <span className="text-xs font-mono font-bold text-slate-600">{getCurrentDateTime().timeStr}</span>
+                    </div>
+                  ) : (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+                      Chưa trừ tiền
+                    </span>
+                  )}
                 </div>
+
+                {/* Khi CÓ tick: cho phép chọn ngày dự kiến cụ thể */}
+                {quickExpenseForm.isExpected && (
+                  <div className="flex items-center justify-between pt-1 border-t border-slate-200">
+                    <span className="text-xs text-slate-500">Chọn ngày dự kiến chi:</span>
+                    <input
+                      type="date"
+                      value={quickExpenseForm.flowDate}
+                      onChange={(e) => {
+                        setQuickExpenseForm({
+                          ...quickExpenseForm,
+                          flowDate: e.target.value,
+                        });
+                      }}
+                      className="p-1.5 rounded-xl border border-amber-300 text-xs font-bold text-[#0C2C47] bg-white cursor-pointer shadow-2xs"
+                    />
+                  </div>
+                )}
               </div>
 
               {/* NÚT BẤM XÁC NHẬN TO RÕ */}
@@ -2632,7 +2701,7 @@ export default function Home() {
                   className="w-2/3 py-3.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-sm font-black shadow-lg shadow-rose-600/30 flex items-center justify-center space-x-2 transition transform active:scale-95 cursor-pointer"
                 >
                   <ArrowUpRight className="w-5 h-5 stroke-[3]" />
-                  <span>{quickExpenseForm.isActual ? "XÁC NHẬN CHI NGAY (-)" : "LƯU KẾ HOẠCH DỰ KIẾN CHI (-)"}</span>
+                  <span>{!quickExpenseForm.isExpected ? "XÁC NHẬN CHI NGAY (-)" : "LƯU KẾ HOẠCH DỰ KIẾN CHI (-)"}</span>
                 </button>
               </div>
             </form>
