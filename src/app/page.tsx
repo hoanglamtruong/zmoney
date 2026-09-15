@@ -1686,17 +1686,66 @@ export default function Home() {
         </div>
       )}
 
-      {/* NÚT GHI NHANH NỔI (FLOATING ACTION BUTTON - FAB) TOÀN CỤC: Tự động ẩn khi có Modal mở */}
-      {!showQuickRecordModal && !showVaultModal && !showReconcileModal && !selectedVaultDetail && (
-        <button
-          onClick={() => setShowQuickRecordModal(true)}
-          className="fixed bottom-6 right-6 z-40 bg-[#BF512C] text-white px-5 py-3.5 rounded-full shadow-[0_10px_25px_rgba(191,81,44,0.5)] border-2 border-white hover:bg-[#BF512C]/90 flex items-center space-x-2.5 transition-all transform hover:scale-105 active:scale-95 cursor-pointer"
-          title="Ghi nhanh giao dịch dòng chảy mới"
-        >
-          <PlusCircle className="w-6 h-6 animate-pulse" />
-          <span className="font-black text-sm tracking-wide">Ghi Nhanh</span>
-        </button>
-      )}
+      {/* THANH NHẬP NHANH DỌC MÀN HÌNH: 2 NÚT TO ĐỎ / XANH (THU - CHI) */}
+      {!showQuickIncomeModal &&
+        !showQuickExpenseModal &&
+        !showQuickRecordModal &&
+        !showVaultModal &&
+        !showReconcileModal &&
+        !selectedVaultDetail &&
+        !showReminderModal &&
+        !showAlarmAlertModal && (
+          <aside aria-label="Thanh nhập nhanh Thu Chi dọc màn hình" className="fixed bottom-6 right-3 sm:right-6 z-40 flex flex-col items-center gap-3 select-none">
+            {/* Nút Chuông Hẹn Giờ Nhắc Nhở Nhỏ Gọn */}
+            <button
+              onClick={() => setShowReminderModal(true)}
+              className={`w-11 h-11 rounded-full flex items-center justify-center shadow-lg border-2 border-white transition-all transform hover:scale-110 active:scale-95 cursor-pointer ${
+                reminderConfig.enabled
+                  ? "bg-amber-500 text-white shadow-amber-500/50 animate-bounce"
+                  : "bg-slate-700 text-slate-300 hover:bg-slate-600"
+              }`}
+              title="Cài đặt nhắc nhở & chuông báo tài chính"
+            >
+              <Bell className="w-5 h-5" />
+            </button>
+
+            {/* NÚT THU: XANH LÁ TO RÕ RÀNG NỔI BẬT */}
+            <button
+              onClick={() => {
+                if (!quickIncomeForm.toVaultId && vaults.length > 0) {
+                  setQuickIncomeForm((prev) => ({ ...prev, toVaultId: vaults[0].id }));
+                }
+                setShowQuickIncomeModal(true);
+              }}
+              className="group w-16 h-24 sm:w-18 sm:h-28 rounded-2xl bg-gradient-to-b from-emerald-500 via-emerald-600 to-emerald-700 text-white shadow-[0_10px_25px_rgba(16,185,129,0.55)] border-2 border-white hover:border-emerald-200 flex flex-col items-center justify-center transition-all transform hover:scale-105 active:scale-95 cursor-pointer"
+              title="Ghi nhận khoản THU tiền vào"
+            >
+              <div className="p-1 rounded-full bg-white/20 group-hover:bg-white/30 transition-colors mb-0.5">
+                <ArrowDownLeft className="w-7 h-7 stroke-[3]" />
+              </div>
+              <span className="font-black text-base sm:text-lg tracking-wider">THU</span>
+              <span className="text-[10px] font-bold text-emerald-100 uppercase tracking-widest">(+) VÀO</span>
+            </button>
+
+            {/* NÚT CHI: ĐỎ TO RÕ RÀNG NỔI BẬT */}
+            <button
+              onClick={() => {
+                if (!quickExpenseForm.fromVaultId && vaults.length > 0) {
+                  setQuickExpenseForm((prev) => ({ ...prev, fromVaultId: vaults[0].id }));
+                }
+                setShowQuickExpenseModal(true);
+              }}
+              className="group w-16 h-24 sm:w-18 sm:h-28 rounded-2xl bg-gradient-to-b from-rose-500 via-rose-600 to-rose-700 text-white shadow-[0_10px_25px_rgba(244,63,94,0.55)] border-2 border-white hover:border-rose-200 flex flex-col items-center justify-center transition-all transform hover:scale-105 active:scale-95 cursor-pointer"
+              title="Ghi nhận khoản CHI tiền ra"
+            >
+              <div className="p-1 rounded-full bg-white/20 group-hover:bg-white/30 transition-colors mb-0.5">
+                <ArrowUpRight className="w-7 h-7 stroke-[3]" />
+              </div>
+              <span className="font-black text-base sm:text-lg tracking-wider">CHI</span>
+              <span className="text-[10px] font-bold text-rose-100 uppercase tracking-widest">(-) RA</span>
+            </button>
+          </aside>
+        )}
 
       {/* MODAL GHI NHANH GIAO DỊCH (Mục 2.1) */}
       {showQuickRecordModal && (
