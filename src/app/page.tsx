@@ -45,7 +45,9 @@ import {
   Plus,
   Coins,
   ReceiptText,
-  Check
+  Check,
+  Target,
+  PiggyBank
 } from "lucide-react";
 import { playCoinSound, playCashCounterSound, stopAllSounds } from "@/lib/sound";
 
@@ -99,6 +101,15 @@ interface ReminderConfig {
   durationSeconds: number;
   lastTriggeredDate?: string;
   countdownTarget?: number;
+}
+
+interface FinancialSystemSettings {
+  plannedAdvanceNoticeDays: number; // Số ngày nhắc trước sự kiện dự chi/thu (ví dụ: 3 ngày)
+  enablePlannedNotice: boolean; // Bật/tắt thông báo sự kiện dự chi/thu
+  maxNegativeDebtAllowed: number; // Ngưỡng âm nợ cho phép (VNĐ, ví dụ: 50.000.000)
+  minVaultBalanceAllowed: number; // Ngưỡng tiền tối thiểu trong mỗi kho (VNĐ, ví dụ: 2.000.000)
+  savingsGoalAmount: number; // Mục tiêu tiết kiệm tích lũy (VNĐ, ví dụ: 200.000.000)
+  savingsGoalDeadline: string; // Hạn chót mục tiêu tiết kiệm
 }
 
 interface Reconciliation {
@@ -174,6 +185,24 @@ export default function Home() {
   });
   const [countdownText, setCountdownText] = useState("");
   const [isPlayingSoundTest, setIsPlayingSoundTest] = useState<"coin" | "cash_counter" | null>(null);
+
+  // Cấu hình Hệ thống & Ngưỡng kiểm soát tài chính
+  const [systemSettings, setSystemSettings] = useState<FinancialSystemSettings>({
+    plannedAdvanceNoticeDays: 3, // Báo trước 3 ngày trước khi đến hạn dự chi/thu
+    enablePlannedNotice: true,
+    maxNegativeDebtAllowed: 50000000, // 50 triệu VNĐ
+    minVaultBalanceAllowed: 2000000, // 2 triệu VNĐ
+    savingsGoalAmount: 200000000, // 200 triệu VNĐ
+    savingsGoalDeadline: "2026-12-31",
+  });
+
+  const handleSaveSystemSettings = (newSettings: FinancialSystemSettings) => {
+    setSystemSettings(newSettings);
+    try {
+      localStorage.setItem("zmoney_system_settings", JSON.stringify(newSettings));
+    } catch (_) {}
+  };
+
   const [notificationPermission, setNotificationPermission] = useState<string>("default");
   const [showVaultModal, setShowVaultModal] = useState(false);
   const [showReconcileModal, setShowReconcileModal] = useState(false);
@@ -285,6 +314,14 @@ export default function Home() {
       if (saved) {
         const parsed = JSON.parse(saved);
         setReminderConfig((prev) => ({ ...prev, ...parsed }));
+      }
+    } catch (_) {}
+
+    try {
+      const savedSettings = localStorage.getItem("zmoney_system_settings");
+      if (savedSettings) {
+        const parsedSettings = JSON.parse(savedSettings);
+        setSystemSettings((prev) => ({ ...prev, ...parsedSettings }));
       }
     } catch (_) {}
   }, []);
@@ -636,6 +673,42 @@ export default function Home() {
   
   const netWorth = totalBalance + totalReceivable - totalPayable;
 
+  // Tính toán kiểm soát theo Ngưỡng Cài Đặt (Mục 7)
+  // 1. Kiểm tra sự kiện dự chi/thu sắp diễn ra trong vòng X ngày (mặc định 3 ngày)
+  const todayDateObj = new Date();
+  todayDateObj.setHours(0, 0, 0, 0);
+  const noticeHorizonDateObj = new Date(todayDateObj.getTime() + systemSettings.plannedAdvanceNoticeDays * 24 * 60 * 60 * 1000);
+  
+  const upcomingPlannedFlows = flows.filter((f) => {
+    if (f.isActual) return false;
+    if (!f.rawDate && !f.date) return false;
+    // Chuẩn hóa rawDate hoặc date
+    let fDate: Date | null = null;
+    if (f.rawDate) {
+      fDate = new Date(f.rawDate);
+    } else if (f.date && f.date.includes("/")) {
+      const parts = f.date.split("/");
+      fDate = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
+    }
+    if (!fDate || isNaN(fDate.getTime())) return false;
+    fDate.setHours(0, 0, 0, 0);
+
+    const diffDays = Math.ceil((fDate.getTime() - todayDateObj.getTime()) / (24 * 60 * 60 * 1000));
+    // Trong khoảng từ hôm nay đến X ngày nữa
+    return diffDays >= 0 && diffDays <= systemSettings.plannedAdvanceNoticeDays;
+  });
+
+  // 2. Ngưỡng âm nợ cho phép
+  const isDebtExceeded = totalPayable > systemSettings.maxNegativeDebtAllowed;
+
+  // 3. Ngưỡng tiền kho cho phép (cảnh báo kho nào có số dư dưới ngưỡng)
+  const lowBalanceVaults = vaults.filter((v) => v.balance < systemSettings.minVaultBalanceAllowed);
+
+  // 4. Mục tiêu tiết kiệm (Tính theo tổng tiền kho hoặc tài sản ròng)
+  const savingsProgressPct = systemSettings.savingsGoalAmount > 0 
+    ? Math.min(100, Math.round((totalBalance / systemSettings.savingsGoalAmount) * 100))
+    : 0;
+
   // Cảnh báo ưu tiên (Mục Trang chủ)
   const nearDueObligations = obligations.filter((o) => o.status === "urgent");
   const unverifiedReconciliations = reconciles.filter((r) => r.actionTaken.includes("chưa rõ"));
@@ -691,9 +764,42 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Thanh Cảnh báo ưu tiên */}
-        {(nearDueObligations.length > 0 || unverifiedReconciliations.length > 0 || isTaxFundShort) && (
+        {/* Thanh Cảnh báo ưu tiên & Ngưỡng kiểm soát hệ thống */}
+        {(nearDueObligations.length > 0 || unverifiedReconciliations.length > 0 || isTaxFundShort || (systemSettings.enablePlannedNotice && upcomingPlannedFlows.length > 0) || isDebtExceeded || lowBalanceVaults.length > 0) && (
           <div className="mt-4 pt-3 border-t border-white/10 flex flex-wrap gap-2 text-xs">
+            {/* Cảnh báo sự kiện dự chi/thu sắp diễn ra trong X ngày */}
+            {systemSettings.enablePlannedNotice && upcomingPlannedFlows.map((f) => (
+              <span
+                key={f.id}
+                className="bg-amber-400 text-amber-950 font-black px-2.5 py-1 rounded-full flex items-center space-x-1 shadow-xs"
+              >
+                <Clock className="w-3.5 h-3.5 text-amber-900" />
+                <span>
+                  Nhắc sự kiện: {f.title} ({f.amount.toLocaleString("vi-VN")}₫) - Ngày {f.date || f.rawDate}
+                </span>
+              </span>
+            ))}
+
+            {/* Cảnh báo vượt ngưỡng âm nợ */}
+            {isDebtExceeded && (
+              <span className="bg-rose-500 text-white font-black px-2.5 py-1 rounded-full flex items-center space-x-1 shadow-xs">
+                <AlertTriangle className="w-3.5 h-3.5 text-white" />
+                <span>
+                  VƯỢT NGƯỠNG ÂM NỢ ({totalPayable.toLocaleString("vi-VN")}₫ &gt; {systemSettings.maxNegativeDebtAllowed.toLocaleString("vi-VN")}₫)
+                </span>
+              </span>
+            )}
+
+            {/* Cảnh báo kho dưới ngưỡng tiền tối thiểu */}
+            {lowBalanceVaults.map((v) => (
+              <span key={v.id} className="bg-orange-500 text-white font-bold px-2.5 py-1 rounded-full flex items-center space-x-1">
+                <AlertTriangle className="w-3.5 h-3.5 text-white" />
+                <span>
+                  Kho "{v.name}" dưới ngưỡng an toàn ({v.balance.toLocaleString("vi-VN")}₫ &lt; {systemSettings.minVaultBalanceAllowed.toLocaleString("vi-VN")}₫)
+                </span>
+              </span>
+            ))}
+
             {nearDueObligations.map((o) => (
               <span key={o.id} className="bg-[#DA9B2B] text-slate-900 font-bold px-2.5 py-1 rounded-full flex items-center space-x-1">
                 <AlertTriangle className="w-3.5 h-3.5" />
@@ -1660,33 +1766,243 @@ export default function Home() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="bg-white p-5 rounded-xl border border-[#ABCBCA] shadow-sm space-y-3">
-              <h4 className="font-bold text-[#0C2C47] text-sm flex items-center space-x-2">
-                <Bell className="w-4 h-4 text-[#BF512C]" />
-                <span>7.6 Thông báo & Ngưỡng khoảng trống dữ liệu</span>
-              </h4>
-              <div className="space-y-2 text-xs text-slate-600">
-                <div className="flex justify-between items-center p-2 bg-slate-50 rounded">
-                  <span>Ngưỡng cảnh báo Đỏ (ngày im lặng):</span>
-                  <span className="font-bold text-[#BF512C]">&gt; 3 ngày</span>
+            {/* 7.3 THÔNG BÁO SỰ KIỆN DỰ CHI & DỰ THU TRƯỚC X NGÀY */}
+            <div className="bg-white p-5 rounded-2xl border-2 border-amber-300 shadow-sm space-y-4">
+              <div className="flex items-center justify-between border-b pb-3 border-amber-100">
+                <div className="flex items-center space-x-2">
+                  <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center text-amber-700">
+                    <Clock className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-[#0C2C47] text-sm">7.3 Thông Báo Sự Kiện Dự Chi / Thu</h4>
+                    <p className="text-[11px] text-slate-500">Nhắc nhở người dùng còn X ngày đến ngày thực hiện</p>
+                  </div>
                 </div>
-                <div className="flex justify-between items-center p-2 bg-slate-50 rounded">
-                  <span>Chu kỳ đối chiếu số dư bắt buộc:</span>
-                  <span className="font-bold text-[#0C2C47]">Hàng tuần (Chủ nhật)</span>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={systemSettings.enablePlannedNotice}
+                    onChange={(e) =>
+                      handleSaveSystemSettings({
+                        ...systemSettings,
+                        enablePlannedNotice: e.target.checked,
+                      })
+                    }
+                    className="sr-only peer"
+                  />
+                  <div className="w-10 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500"></div>
+                </label>
+              </div>
+
+              <div className="space-y-3 text-xs">
+                <div className="flex items-center justify-between p-3 bg-amber-50/70 rounded-xl border border-amber-200">
+                  <div>
+                    <span className="font-bold text-amber-950 block">Nhắc trước số ngày:</span>
+                    <span className="text-[11px] text-amber-800">
+                      Ví dụ: Dự chi ngày 8/10, trước 3 ngày hệ thống sẽ phát cảnh báo
+                    </span>
+                  </div>
+                  <div className="flex items-center space-x-1">
+                    {[1, 2, 3, 5, 7].map((d) => (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() =>
+                          handleSaveSystemSettings({
+                            ...systemSettings,
+                            plannedAdvanceNoticeDays: d,
+                          })
+                        }
+                        className={`px-2.5 py-1.5 rounded-lg font-black transition cursor-pointer ${
+                          systemSettings.plannedAdvanceNoticeDays === d
+                            ? "bg-amber-600 text-white shadow-xs"
+                            : "bg-white text-slate-700 border border-amber-200 hover:bg-amber-100"
+                        }`}
+                      >
+                        {d} ngày
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {upcomingPlannedFlows.length > 0 ? (
+                  <div className="p-3 bg-white rounded-xl border border-slate-200 space-y-2">
+                    <span className="text-[11px] font-bold text-slate-500 uppercase block">
+                      Các sự kiện sắp đến hạn trong {systemSettings.plannedAdvanceNoticeDays} ngày tới ({upcomingPlannedFlows.length}):
+                    </span>
+                    <div className="space-y-1.5 max-h-36 overflow-y-auto">
+                      {upcomingPlannedFlows.map((f) => (
+                        <div
+                          key={f.id}
+                          className="flex items-center justify-between p-2 rounded-lg bg-slate-50 border border-slate-200 text-xs"
+                        >
+                          <div className="flex items-center space-x-2">
+                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                              f.type === "income" ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800"
+                            }`}>
+                              {f.type === "income" ? "DỰ THU" : "DỰ CHI"}
+                            </span>
+                            <span className="font-bold text-slate-800 truncate max-w-[160px]">{f.title}</span>
+                          </div>
+                          <div className="text-right">
+                            <span className="font-black text-slate-900 block">{f.amount.toLocaleString("vi-VN")} ₫</span>
+                            <span className="text-[10px] text-amber-700 font-semibold">{f.date || f.rawDate}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-2.5 bg-slate-50 rounded-xl text-center text-slate-500 text-[11px]">
+                    ✓ Không có sự kiện dự chi/thu nào trong {systemSettings.plannedAdvanceNoticeDays} ngày tới
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* 7.4 NGƯỠNG ÂM NỢ CHO PHÉP & NGƯỠNG TIỀN KHO */}
+            <div className="bg-white p-5 rounded-2xl border border-[#ABCBCA] shadow-sm space-y-4">
+              <div className="flex items-center space-x-2 border-b pb-3">
+                <div className="w-8 h-8 rounded-lg bg-rose-100 flex items-center justify-center text-rose-700">
+                  <ShieldAlert className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="font-bold text-[#0C2C47] text-sm">7.4 Ngưỡng Âm Nợ & Tiền Kho Cho Phép</h4>
+                  <p className="text-[11px] text-slate-500">Thiết lập các giới hạn bảo vệ an toàn vốn</p>
+                </div>
+              </div>
+
+              <div className="space-y-3.5 text-xs">
+                {/* Ngưỡng âm nợ */}
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
+                  <div className="flex justify-between items-center">
+                    <span className="font-bold text-slate-700">Ngưỡng âm nợ cho phép tối đa:</span>
+                    <span className="font-black text-rose-700 text-sm">
+                      {systemSettings.maxNegativeDebtAllowed.toLocaleString("vi-VN")} ₫
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-4 gap-1.5 pt-1">
+                    {[20000000, 50000000, 100000000, 200000000].map((val) => (
+                      <button
+                        key={val}
+                        type="button"
+                        onClick={() =>
+                          handleSaveSystemSettings({
+                            ...systemSettings,
+                            maxNegativeDebtAllowed: val,
+                          })
+                        }
+                        className={`py-1 rounded-lg text-[11px] font-bold border transition cursor-pointer ${
+                          systemSettings.maxNegativeDebtAllowed === val
+                            ? "bg-rose-600 text-white border-rose-700"
+                            : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100"
+                        }`}
+                      >
+                        {val >= 1000000000 ? `${val / 1000000000} Tỷ` : `${val / 1000000} Tr`}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-slate-500">
+                    Hiện tại nợ phải trả: <b className="text-slate-800">{totalPayable.toLocaleString("vi-VN")} ₫</b>
+                    {isDebtExceeded ? (
+                      <span className="text-rose-600 font-bold ml-1">⚠️ Đang vượt ngưỡng!</span>
+                    ) : (
+                      <span className="text-emerald-600 font-bold ml-1">✓ Đang trong mức an toàn</span>
+                    )}
+                  </p>
+                </div>
+
+                {/* Ngưỡng tiền kho tối thiểu */}
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
+                  <div className="flex justify-between items-center">
+                    <span className="font-bold text-slate-700">Ngưỡng số dư tối thiểu mỗi kho:</span>
+                    <span className="font-black text-[#0C2C47] text-sm">
+                      {systemSettings.minVaultBalanceAllowed.toLocaleString("vi-VN")} ₫
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-4 gap-1.5 pt-1">
+                    {[1000000, 2000000, 5000000, 10000000].map((val) => (
+                      <button
+                        key={val}
+                        type="button"
+                        onClick={() =>
+                          handleSaveSystemSettings({
+                            ...systemSettings,
+                            minVaultBalanceAllowed: val,
+                          })
+                        }
+                        className={`py-1 rounded-lg text-[11px] font-bold border transition cursor-pointer ${
+                          systemSettings.minVaultBalanceAllowed === val
+                            ? "bg-[#0C2C47] text-white border-[#0C2C47]"
+                            : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100"
+                        }`}
+                      >
+                        {val / 1000000} Tr
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-slate-500">
+                    Kho dưới ngưỡng: <b className={lowBalanceVaults.length > 0 ? "text-amber-600" : "text-emerald-600"}>
+                      {lowBalanceVaults.length > 0 ? `${lowBalanceVaults.length} kho cần nạp thêm` : "Tất cả kho an toàn"}
+                    </b>
+                  </p>
                 </div>
               </div>
             </div>
 
-            <div className="bg-white p-5 rounded-xl border border-[#ABCBCA] shadow-sm space-y-3">
-              <h4 className="font-bold text-[#0C2C47] text-sm flex items-center space-x-2">
-                <Tag className="w-4 h-4 text-[#0C2C47]" />
-                <span>7.1 Quản lý danh mục nhãn</span>
-              </h4>
-              <div className="flex flex-wrap gap-2 text-xs">
-                {["Doanh thu", "Chi phí", "Vận hành", "Nội bộ", "Thu nợ", "Trả nợ", "Thuế", "Dự phòng"].map((t) => (
-                  <span key={t} className="px-2.5 py-1 bg-slate-100 rounded-full border border-slate-200 text-slate-700">
-                    {t}
-                  </span>
+            {/* 7.5 MỤC TIÊU TIẾT KIỆM TÍCH LŨY */}
+            <div className="md:col-span-2 bg-gradient-to-r from-emerald-50 via-teal-50 to-white p-5 rounded-2xl border-2 border-emerald-300 shadow-sm space-y-4">
+              <div className="flex items-center justify-between border-b border-emerald-200 pb-3">
+                <div className="flex items-center space-x-2">
+                  <div className="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center shadow-xs">
+                    <PiggyBank className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="font-black text-[#0C2C47] text-base">7.5 Mục Tiêu Tiết Kiệm & Quỹ Tích Lũy</h4>
+                    <p className="text-[11px] text-slate-500">Kế hoạch tài chính dài hạn hướng tới tự do tài chính</p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <span className="text-[10px] uppercase font-bold text-slate-500 block">Tiến độ đạt được</span>
+                  <span className="text-lg font-black text-emerald-700">{savingsProgressPct}%</span>
+                </div>
+              </div>
+
+              {/* Progress bar */}
+              <div className="space-y-1.5">
+                <div className="w-full bg-slate-200 h-3 rounded-full overflow-hidden shadow-inner">
+                  <div
+                    className="bg-gradient-to-r from-emerald-500 to-teal-500 h-full rounded-full transition-all duration-500"
+                    style={{ width: `${savingsProgressPct}%` }}
+                  ></div>
+                </div>
+                <div className="flex justify-between text-[11px] text-slate-600">
+                  <span>Hiện có: <b>{totalBalance.toLocaleString("vi-VN")} ₫</b></span>
+                  <span>Mục tiêu: <b>{systemSettings.savingsGoalAmount.toLocaleString("vi-VN")} ₫</b></span>
+                </div>
+              </div>
+
+              {/* Chọn mức mục tiêu nhanh */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 pt-1">
+                {[50000000, 100000000, 200000000, 500000000].map((goal) => (
+                  <button
+                    key={goal}
+                    type="button"
+                    onClick={() =>
+                      handleSaveSystemSettings({
+                        ...systemSettings,
+                        savingsGoalAmount: goal,
+                      })
+                    }
+                    className={`p-2.5 rounded-xl border text-center transition cursor-pointer ${
+                      systemSettings.savingsGoalAmount === goal
+                        ? "border-emerald-600 bg-emerald-100/70 font-black text-emerald-900 ring-2 ring-emerald-400"
+                        : "border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-bold"
+                    }`}
+                  >
+                    <span className="text-xs block">{goal >= 1000000000 ? `${goal / 1000000000} Tỷ` : `${goal / 1000000} Triệu`} ₫</span>
+                    <span className="text-[10px] text-slate-500">Mục tiêu</span>
+                  </button>
                 ))}
               </div>
             </div>
