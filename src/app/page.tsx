@@ -1217,84 +1217,48 @@ export default function Home() {
 
   return (
     <div className="space-y-6 pb-32 sm:pb-36 relative">
-      {/* HEADER: TÀI SẢN RÒNG & TỔNG QUAN XUYÊN SUỐT */}
-      <div className="bg-gradient-to-r from-[#0C2C47] to-[#163e63] rounded-2xl p-5 sm:p-7 text-white shadow-lg border border-[#ABCBCA]/40">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div>
-            <div className="flex items-center space-x-2 text-xs uppercase tracking-widest text-[#ABCBCA] font-bold">
-              <Scale className="w-4 h-4 text-[#BF512C]" />
-              <span>Chỉ số cốt lõi · Toàn hệ sinh thái BoMo (BoxMoney)</span>
-            </div>
-            <div className="mt-1 text-2xl sm:text-4xl font-black tracking-tight text-white">
-              {netWorth < 0 ? `-${Math.abs(netWorth).toLocaleString("vi-VN")} ₫` : `${netWorth.toLocaleString("vi-VN")} ₫`}
-            </div>
-            <p className="mt-1 text-xs text-slate-300">
-              Tài sản ròng = Tổng BoMo khả dụng (+{positiveBalance.toLocaleString("vi-VN")}₫) − Tổng dư nợ vay (-{negativeDebt.toLocaleString("vi-VN")}₫)
-            </p>
+      {/* THANH CẢNH BÁO ƯU TIÊN HỆ THỐNG (HIỂN THỊ KHI CÓ CẢNH BÁO CHƯA ĐỌC) */}
+      {unreadAlertsCount > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3 sm:p-4 shadow-xs flex flex-wrap items-center gap-2 text-xs">
+          <div className="flex items-center space-x-1.5 text-amber-900 font-black mr-1">
+            <AlertTriangle className="w-4 h-4 text-amber-600" />
+            <span>Cảnh báo cần chú ý ({unreadAlertsCount}):</span>
           </div>
 
-          <div className="flex items-center gap-3">
-            <div className="grid grid-cols-3 gap-2 sm:gap-4 bg-white/10 backdrop-blur-sm p-3 sm:p-4 rounded-xl border border-white/15">
-              <div>
-                <span className="text-[10px] text-slate-300 uppercase block font-semibold">Tài sản ròng</span>
-                <span className="text-sm sm:text-base font-bold text-white truncate block">
-                  {netWorth < 0 ? `-${Math.abs(netWorth).toLocaleString("vi-VN")}₫` : `${netWorth.toLocaleString("vi-VN")}₫`}
-                </span>
-              </div>
-              <div>
-                <span className="text-[10px] text-[#2E5749] bg-white/80 px-1 rounded uppercase font-bold inline-block">BoMo khả dụng (+)</span>
-                <span className="text-sm sm:text-base font-bold text-[#ABCBCA] truncate block">
-                  +{positiveBalance.toLocaleString("vi-VN")}₫
-                </span>
-              </div>
-              <div>
-                <span className="text-[10px] text-[#BF512C] bg-white/80 px-1 rounded uppercase font-bold inline-block">Dư nợ vay (-)</span>
-                <span className="text-sm sm:text-base font-bold text-rose-300 truncate block">
-                  -{negativeDebt.toLocaleString("vi-VN")}₫
-                </span>
-              </div>
-            </div>
-          </div>
+          {/* Cảnh báo sự kiện dự chi/thu sắp diễn ra trong X ngày */}
+          {systemSettings.enablePlannedNotice && upcomingPlannedFlows.map((f) => (
+            <span
+              key={f.id}
+              className="bg-amber-400 text-amber-950 font-black px-2.5 py-1 rounded-full flex items-center space-x-1 shadow-xs"
+            >
+              <Clock className="w-3.5 h-3.5 text-amber-900" />
+              <span>
+                Nhắc sự kiện: {f.title} ({f.amount.toLocaleString("vi-VN")}₫) - Ngày {f.date || f.rawDate}
+              </span>
+            </span>
+          ))}
+
+          {/* Cảnh báo vượt ngưỡng âm nợ */}
+          {isDebtExceeded && (
+            <span className="bg-rose-500 text-white font-black px-2.5 py-1 rounded-full flex items-center space-x-1 shadow-xs">
+              <AlertTriangle className="w-3.5 h-3.5 text-white" />
+              <span>
+                VƯỢT NGƯỠNG ÂM NỢ ({negativeDebt.toLocaleString("vi-VN")}₫ &gt; {systemSettings.maxNegativeDebtAllowed.toLocaleString("vi-VN")}₫)
+              </span>
+            </span>
+          )}
+
+          {/* Cảnh báo kho dưới ngưỡng tiền tối thiểu */}
+          {lowBalanceVaults.map((v) => (
+            <span key={v.id} className="bg-orange-500 text-white font-bold px-2.5 py-1 rounded-full flex items-center space-x-1">
+              <AlertTriangle className="w-3.5 h-3.5 text-white" />
+              <span>
+                BoMo "{v.name}" dưới ngưỡng an toàn ({v.balance.toLocaleString("vi-VN")}₫ &lt; {systemSettings.minVaultBalanceAllowed.toLocaleString("vi-VN")}₫)
+              </span>
+            </span>
+          ))}
         </div>
-
-        {/* Thanh Cảnh báo ưu tiên & Ngưỡng kiểm soát hệ thống */}
-        {(unreadAlertsCount > 0) && (
-          <div className="mt-4 pt-3 border-t border-white/10 flex flex-wrap gap-2 text-xs">
-            {/* Cảnh báo sự kiện dự chi/thu sắp diễn ra trong X ngày */}
-            {systemSettings.enablePlannedNotice && upcomingPlannedFlows.map((f) => (
-              <span
-                key={f.id}
-                className="bg-amber-400 text-amber-950 font-black px-2.5 py-1 rounded-full flex items-center space-x-1 shadow-xs"
-              >
-                <Clock className="w-3.5 h-3.5 text-amber-900" />
-                <span>
-                  Nhắc sự kiện: {f.title} ({f.amount.toLocaleString("vi-VN")}₫) - Ngày {f.date || f.rawDate}
-                </span>
-              </span>
-            ))}
-
-            {/* Cảnh báo vượt ngưỡng âm nợ */}
-            {isDebtExceeded && (
-              <span className="bg-rose-500 text-white font-black px-2.5 py-1 rounded-full flex items-center space-x-1 shadow-xs">
-                <AlertTriangle className="w-3.5 h-3.5 text-white" />
-                <span>
-                  VƯỢT NGƯỠNG ÂM NỢ ({negativeDebt.toLocaleString("vi-VN")}₫ &gt; {systemSettings.maxNegativeDebtAllowed.toLocaleString("vi-VN")}₫)
-                </span>
-              </span>
-            )}
-
-            {/* Cảnh báo kho dưới ngưỡng tiền tối thiểu */}
-            {lowBalanceVaults.map((v) => (
-              <span key={v.id} className="bg-orange-500 text-white font-bold px-2.5 py-1 rounded-full flex items-center space-x-1">
-                <AlertTriangle className="w-3.5 h-3.5 text-white" />
-                <span>
-                  BoMo "{v.name}" dưới ngưỡng an toàn ({v.balance.toLocaleString("vi-VN")}₫ &lt; {systemSettings.minVaultBalanceAllowed.toLocaleString("vi-VN")}₫)
-                </span>
-              </span>
-            ))}
-          </div>
-        )}
-      </div>
+      )}
 
       {/* THANH ĐIỀU HƯỚNG CHÍNH (Đã tinh gọn chỉ còn Trang Chủ & Cài Đặt) */}
       <div className="flex space-x-2 border-b border-slate-200 pb-3 text-xs sm:text-sm font-black">
