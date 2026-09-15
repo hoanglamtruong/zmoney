@@ -248,6 +248,9 @@ export default function Home() {
     flowTag: "Chênh lệch đối chiếu",
   });
 
+  // State Modal Trung Tâm Thông Báo Hệ Thống (Xem tất cả cảnh báo: Dự chi/thu, Ngưỡng nợ, Hạn mức kho, Miss báo cáo...)
+  const [showNotificationCenterModal, setShowNotificationCenterModal] = useState(false);
+
   // State Modal Sửa / Xóa Dòng Chảy & Sự Kiện Dự Chi / Thu
   const [editingFlow, setEditingFlow] = useState<Flow | null>(null);
   const [editFlowForm, setEditFlowForm] = useState({
@@ -898,6 +901,115 @@ export default function Home() {
   const unitContribution = priceByMargin - pricingCalc.variableCost;
   const breakEvenUnits = unitContribution > 0 ? Math.ceil(pricingCalc.fixedCostAlloc / unitContribution) : 0;
 
+  // Kiểm tra miss thời gian nhập báo cáo / chốt sổ hàng ngày
+  const now = new Date();
+  const currentHHMM = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+  const todayStr = now.toISOString().split("T")[0];
+  const isMissedDailyReport =
+    reminderConfig.enabled &&
+    reminderConfig.mode === "daily" &&
+    currentHHMM > reminderConfig.dailyTime &&
+    reminderConfig.lastTriggeredDate !== todayStr;
+
+  // Tổng hợp tất cả các thông báo hệ thống (Notification Center)
+  interface SystemNotificationItem {
+    id: string;
+    type: "planned" | "debt" | "vault" | "missed_report" | "urgent_debt" | "reconcile" | "tax";
+    title: string;
+    desc: string;
+    severity: "danger" | "warning" | "info";
+    actionTab?: string;
+    timestamp?: string;
+  }
+
+  const allSystemAlerts: SystemNotificationItem[] = [];
+
+  // 1. Dự chi / Dự thu sắp đến hạn
+  if (systemSettings.enablePlannedNotice) {
+    upcomingPlannedFlows.forEach((f) => {
+      allSystemAlerts.push({
+        id: `planned_${f.id}`,
+        type: "planned",
+        title: f.type === "income" ? `Sắp đến ngày DỰ THU (+)` : `Sắp đến ngày DỰ CHI (-)`,
+        desc: `${f.title} (${f.amount.toLocaleString("vi-VN")} ₫) vào ngày ${f.date || f.rawDate || "sắp tới"}`,
+        severity: f.type === "income" ? "info" : "warning",
+        actionTab: "settings",
+      });
+    });
+  }
+
+  // 2. Vượt ngưỡng âm nợ cho phép
+  if (isDebtExceeded) {
+    allSystemAlerts.push({
+      id: "debt_exceeded",
+      type: "debt",
+      title: "CẢNH BÁO: Vượt ngưỡng âm nợ an toàn!",
+      desc: `Tổng nợ phải trả là ${totalPayable.toLocaleString("vi-VN")} ₫ (vượt mức cho phép tối đa ${systemSettings.maxNegativeDebtAllowed.toLocaleString("vi-VN")} ₫)`,
+      severity: "danger",
+      actionTab: "obligations",
+    });
+  }
+
+  // 3. Kho dưới ngưỡng tiền tối thiểu (hạn mức kho)
+  lowBalanceVaults.forEach((v) => {
+    allSystemAlerts.push({
+      id: `vault_low_${v.id}`,
+      type: "vault",
+      title: `Hạn mức kho: Số dư kho "${v.name}" dưới mức an toàn!`,
+      desc: `Số dư hiện tại ${v.balance.toLocaleString("vi-VN")} ₫ thấp hơn ngưỡng tối thiểu ${systemSettings.minVaultBalanceAllowed.toLocaleString("vi-VN")} ₫`,
+      severity: "warning",
+      actionTab: "vaults",
+    });
+  });
+
+  // 4. Miss thời gian nhập báo cáo / chốt sổ
+  if (isMissedDailyReport) {
+    allSystemAlerts.push({
+      id: "missed_daily_report",
+      type: "missed_report",
+      title: "Trễ hẹn: Chưa chốt sổ / kiểm tra tài chính hôm nay!",
+      desc: `Khung giờ nhắc hẹn là ${reminderConfig.dailyTime} hàng ngày nhưng bạn chưa xác nhận kiểm đếm dòng tiền hôm nay`,
+      severity: "danger",
+      actionTab: "reconcile",
+    });
+  }
+
+  // 5. Nợ khẩn cấp đến hạn
+  nearDueObligations.forEach((o) => {
+    allSystemAlerts.push({
+      id: `urgent_debt_${o.id}`,
+      type: "urgent_debt",
+      title: `Khoản nợ khẩn cấp đến hạn: ${o.title}`,
+      desc: `Khoản tiền ${o.amount.toLocaleString("vi-VN")} ₫ cần thanh toán vào ngày ${o.dueDate}`,
+      severity: "danger",
+      actionTab: "obligations",
+    });
+  });
+
+  // 6. Chênh lệch đối chiếu chưa rõ nguyên nhân
+  if (unverifiedReconciliations.length > 0) {
+    allSystemAlerts.push({
+      id: "unverified_reconcile",
+      type: "reconcile",
+      title: `Kỷ luật kiểm kê: Có ${unverifiedReconciliations.length} khoản chênh lệch chưa rõ nguyên nhân`,
+      desc: "Cần rà soát đối chiếu lại dòng chảy để bảo vệ tính toàn vẹn kiểm toán",
+      severity: "warning",
+      actionTab: "reconcile",
+    });
+  }
+
+  // 7. Quỹ dự phòng thuế bị thiếu hụt
+  if (isTaxFundShort) {
+    allSystemAlerts.push({
+      id: "tax_fund_short",
+      type: "tax",
+      title: "Cảnh báo quỹ thuế: Quỹ thuế bị thiếu hụt",
+      desc: `Số tiền khóa dự phòng (${lockedTaxVault?.lockedAmount || 0} ₫) thấp hơn ước tính nghĩa vụ thuế (${totalTax.toLocaleString("vi-VN")} ₫)`,
+      severity: "warning",
+      actionTab: "obligations",
+    });
+  }
+
   return (
     <div className="space-y-6 pb-24 relative">
       {/* HEADER: TÀI SẢN RÒNG & TỔNG QUAN XUYÊN SUỐT */}
@@ -914,25 +1026,48 @@ export default function Home() {
             <p className="mt-1 text-xs text-slate-300">
               Tài sản ròng = Tổng Kho ({totalBalance.toLocaleString("vi-VN")}₫) + Nợ phải thu (+{totalReceivable.toLocaleString("vi-VN")}₫) − Nợ phải trả (-{totalPayable.toLocaleString("vi-VN")}₫)
             </p>
-            </div>
-          <div className="grid grid-cols-3 gap-2 sm:gap-4 bg-white/10 backdrop-blur-sm p-3 sm:p-4 rounded-xl border border-white/15">
-            <div>
-              <span className="text-[10px] text-slate-300 uppercase block font-semibold">Tổng Kho</span>
-              <span className="text-sm sm:text-base font-bold text-white truncate block">
-                {totalBalance.toLocaleString("vi-VN")}₫
-              </span>
-            </div>
-            <div>
-              <span className="text-[10px] text-[#2E5749] bg-white/80 px-1 rounded uppercase font-bold inline-block">Phải thu (+)</span>
-              <span className="text-sm sm:text-base font-bold text-[#ABCBCA] truncate block">
-                +{totalReceivable.toLocaleString("vi-VN")}₫
-              </span>
-            </div>
-            <div>
-              <span className="text-[10px] text-[#BF512C] bg-white/80 px-1 rounded uppercase font-bold inline-block">Phải trả (-)</span>
-              <span className="text-sm sm:text-base font-bold text-[#DA9B2B] truncate block">
-                -{totalPayable.toLocaleString("vi-VN")}₫
-              </span>
+          </div>
+
+          <div className="flex items-center gap-3">
+            {/* NÚT THÔNG BÁO HỆ THỐNG NỔI BẬT */}
+            <button
+              type="button"
+              onClick={() => setShowNotificationCenterModal(true)}
+              className={`relative px-3.5 py-2.5 rounded-xl border flex items-center space-x-2 transition shadow-md cursor-pointer ${
+                allSystemAlerts.length > 0
+                  ? "bg-amber-500 hover:bg-amber-600 text-slate-950 font-black border-amber-400 animate-pulse"
+                  : "bg-white/10 hover:bg-white/20 text-white font-bold border-white/20"
+              }`}
+              title="Xem thông báo hệ thống"
+            >
+              <Bell className="w-5 h-5" />
+              <span className="text-xs">Thông Báo</span>
+              {allSystemAlerts.length > 0 && (
+                <span className="bg-rose-600 text-white font-black text-[11px] px-2 py-0.5 rounded-full shadow-xs">
+                  {allSystemAlerts.length}
+                </span>
+              )}
+            </button>
+
+            <div className="grid grid-cols-3 gap-2 sm:gap-4 bg-white/10 backdrop-blur-sm p-3 sm:p-4 rounded-xl border border-white/15">
+              <div>
+                <span className="text-[10px] text-slate-300 uppercase block font-semibold">Tổng Kho</span>
+                <span className="text-sm sm:text-base font-bold text-white truncate block">
+                  {totalBalance.toLocaleString("vi-VN")}₫
+                </span>
+              </div>
+              <div>
+                <span className="text-[10px] text-[#2E5749] bg-white/80 px-1 rounded uppercase font-bold inline-block">Phải thu (+)</span>
+                <span className="text-sm sm:text-base font-bold text-[#ABCBCA] truncate block">
+                  +{totalReceivable.toLocaleString("vi-VN")}₫
+                </span>
+              </div>
+              <div>
+                <span className="text-[10px] text-[#BF512C] bg-white/80 px-1 rounded uppercase font-bold inline-block">Phải trả (-)</span>
+                <span className="text-sm sm:text-base font-bold text-[#DA9B2B] truncate block">
+                  -{totalPayable.toLocaleString("vi-VN")}₫
+                </span>
+              </div>
             </div>
           </div>
         </div>
@@ -4103,6 +4238,106 @@ export default function Home() {
                 className="py-2.5 rounded-xl bg-[#0C2C47] hover:bg-[#0C2C47]/90 text-white text-xs font-black shadow-md cursor-pointer"
               >
                 Lưu Số Liệu Ngay ➔
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL TRUNG TÂM THÔNG BÁO HỆ THỐNG */}
+      {showNotificationCenterModal && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border-2 border-[#0C2C47] space-y-4 max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between border-b pb-3">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-2xl bg-amber-100 flex items-center justify-center text-amber-800 shadow-2xs">
+                  <Bell className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-[#0C2C47] uppercase tracking-wide">
+                    Trung Tâm Thông Báo Hệ Thống
+                  </h3>
+                  <p className="text-xs text-slate-500 font-medium">
+                    Cảnh báo dự thu/chi, ngưỡng nợ, hạn mức kho & lịch báo cáo
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowNotificationCenterModal(false)}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 cursor-pointer transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Danh sách thông báo */}
+            <div className="flex-1 overflow-y-auto space-y-2.5 pr-1">
+              {allSystemAlerts.length === 0 ? (
+                <div className="text-center py-12 text-slate-400 space-y-2.5">
+                  <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto" />
+                  <p className="font-bold text-sm text-slate-800">Tất cả chỉ số đều an toàn</p>
+                  <p className="text-xs text-slate-400">
+                    Không có cảnh báo vượt hạn mức hoặc nhắc nhở nào đang chờ xử lý.
+                  </p>
+                </div>
+              ) : (
+                allSystemAlerts.map((item) => (
+                  <div
+                    key={item.id}
+                    className={`p-3.5 rounded-2xl border flex items-start justify-between gap-3 text-xs shadow-2xs transition ${
+                      item.severity === "danger"
+                        ? "bg-rose-50/90 border-rose-200 text-rose-950"
+                        : item.severity === "warning"
+                        ? "bg-amber-50/90 border-amber-200 text-amber-950"
+                        : "bg-blue-50/90 border-blue-200 text-blue-950"
+                    }`}
+                  >
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-1.5">
+                        <span
+                          className={`w-2 h-2 rounded-full ${
+                            item.severity === "danger"
+                              ? "bg-rose-600 animate-pulse"
+                              : item.severity === "warning"
+                              ? "bg-amber-600"
+                              : "bg-blue-600"
+                          }`}
+                        />
+                        <span className="font-black text-xs">{item.title}</span>
+                      </div>
+                      <p className="text-[11px] opacity-90 leading-relaxed font-medium pl-3.5">
+                        {item.desc}
+                      </p>
+                    </div>
+                    {item.actionTab && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveTab(item.actionTab as any);
+                          setShowNotificationCenterModal(false);
+                        }}
+                        className="px-3 py-1.5 rounded-xl bg-white border border-slate-200 hover:border-slate-400 shadow-xs font-black text-[11px] whitespace-nowrap hover:bg-slate-50 cursor-pointer text-slate-800 transition shrink-0"
+                      >
+                        Xem ngay ➔
+                      </button>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
+              <span className="text-xs text-slate-400 font-medium">
+                {allSystemAlerts.length > 0
+                  ? `Có ${allSystemAlerts.length} thông báo cần chú ý`
+                  : "Hệ thống trạng thái tốt"}
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowNotificationCenterModal(false)}
+                className="px-5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold cursor-pointer transition"
+              >
+                Đóng
               </button>
             </div>
           </div>
