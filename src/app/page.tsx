@@ -1029,26 +1029,6 @@ export default function Home() {
           </div>
 
           <div className="flex items-center gap-3">
-            {/* NÚT THÔNG BÁO HỆ THỐNG NỔI BẬT */}
-            <button
-              type="button"
-              onClick={() => setShowNotificationCenterModal(true)}
-              className={`relative px-3.5 py-2.5 rounded-xl border flex items-center space-x-2 transition shadow-md cursor-pointer ${
-                allSystemAlerts.length > 0
-                  ? "bg-amber-500 hover:bg-amber-600 text-slate-950 font-black border-amber-400 animate-pulse"
-                  : "bg-white/10 hover:bg-white/20 text-white font-bold border-white/20"
-              }`}
-              title="Xem thông báo hệ thống"
-            >
-              <Bell className="w-5 h-5" />
-              <span className="text-xs">Thông Báo</span>
-              {allSystemAlerts.length > 0 && (
-                <span className="bg-rose-600 text-white font-black text-[11px] px-2 py-0.5 rounded-full shadow-xs">
-                  {allSystemAlerts.length}
-                </span>
-              )}
-            </button>
-
             <div className="grid grid-cols-3 gap-2 sm:gap-4 bg-white/10 backdrop-blur-sm p-3 sm:p-4 rounded-xl border border-white/15">
               <div>
                 <span className="text-[10px] text-slate-300 uppercase block font-semibold">Tổng Kho</span>
@@ -2802,7 +2782,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* THANH NHẬP NHANH DỌC MÀN HÌNH: 2 NÚT TO ĐỎ / XANH (THU - CHI) - CHỐNG PHẢN QUANG */}
+      {/* THANH NHẬP NHANH DỌC MÀN HÌNH: 3 NÚT THU - CHUÔNG - CHI */}
       {!showQuickIncomeModal &&
         !showQuickExpenseModal &&
         !showQuickRecordModal &&
@@ -2810,13 +2790,14 @@ export default function Home() {
         !showReconcileModal &&
         !selectedVaultDetail &&
         !showReminderModal &&
-        !showAlarmAlertModal && (
+        !showAlarmAlertModal &&
+        !showNotificationCenterModal && (
           <aside
-            aria-label="Thanh nhập nhanh Thu Chi dọc màn hình"
-            className="fixed bottom-8 right-3 sm:right-6 z-40 flex flex-col items-center gap-3.5 select-none"
+            aria-label="Thanh nhập nhanh Thu Chi và Chuông thông báo dọc màn hình"
+            className="fixed bottom-6 right-3 sm:right-6 z-40 flex flex-col items-center gap-2.5 sm:gap-3 select-none"
             style={{ isolation: "isolate" }}
           >
-            {/* NÚT THU: XANH ĐẬM CHỐNG PHẢN QUANG */}
+            {/* 1. NÚT THU: XANH ĐẬM CHỐNG PHẢN QUANG */}
             <button
               onClick={() => {
                 if (!quickIncomeForm.toVaultId && vaults.length > 0) {
@@ -2825,17 +2806,45 @@ export default function Home() {
                 setShowQuickIncomeModal(true);
               }}
               style={{ backgroundColor: "#0e6b38", color: "#ffffff", borderColor: "#16a34a" }}
-              className="group w-16 h-28 sm:w-20 sm:h-32 rounded-2xl border-2 shadow-xl shadow-black/40 flex flex-col items-center justify-center transition-all transform hover:scale-105 active:scale-95 cursor-pointer"
+              className="group w-16 h-24 sm:w-20 sm:h-28 rounded-2xl border-2 shadow-xl shadow-black/40 flex flex-col items-center justify-center transition-all transform hover:scale-105 active:scale-95 cursor-pointer"
               title="Ghi nhận khoản THU tiền vào"
             >
-              <div className="p-1.5 rounded-full bg-black/25 mb-1">
-                <ArrowDownLeft className="w-7 h-7 sm:w-8 sm:h-8 text-white stroke-[3]" />
+              <div className="p-1 rounded-full bg-black/25 mb-0.5">
+                <ArrowDownLeft className="w-6 h-6 sm:w-7 sm:h-7 text-white stroke-[3]" />
               </div>
-              <span className="font-black text-base sm:text-xl tracking-wider text-white">THU</span>
-              <span className="text-[10px] font-bold text-emerald-100 uppercase tracking-widest">(+) VÀO</span>
+              <span className="font-black text-base sm:text-lg tracking-wider text-white">THU</span>
+              <span className="text-[9px] sm:text-[10px] font-bold text-emerald-100 uppercase tracking-widest">(+) VÀO</span>
             </button>
 
-            {/* NÚT CHI: ĐỎ ĐẬM CHỐNG PHẢN QUANG */}
+            {/* 2. NÚT CHUÔNG THÔNG BÁO Ở GIỮA (THU / CHUÔNG / CHI) */}
+            <button
+              onClick={() => setShowNotificationCenterModal(true)}
+              style={{
+                backgroundColor: allSystemAlerts.length > 0 ? "#b45309" : "#1e293b",
+                color: "#ffffff",
+                borderColor: allSystemAlerts.length > 0 ? "#f59e0b" : "#475569",
+              }}
+              className={`relative group w-16 h-20 sm:w-20 sm:h-22 rounded-2xl border-2 shadow-xl shadow-black/40 flex flex-col items-center justify-center transition-all transform hover:scale-105 active:scale-95 cursor-pointer ${
+                allSystemAlerts.length > 0 ? "animate-pulse" : ""
+              }`}
+              title="Xem thông báo và cảnh báo hệ thống"
+            >
+              {/* Badge số lượng thông báo nổi bật */}
+              {allSystemAlerts.length > 0 && (
+                <span className="absolute -top-2 -right-2 bg-rose-600 text-white font-black text-xs min-w-[22px] h-[22px] px-1 flex items-center justify-center rounded-full border-2 border-white shadow-lg animate-bounce">
+                  {allSystemAlerts.length}
+                </span>
+              )}
+              <div className="p-1 rounded-full bg-black/25 mb-0.5">
+                <Bell className="w-6 h-6 sm:w-7 sm:h-7 text-amber-300 stroke-[2.5]" />
+              </div>
+              <span className="font-black text-xs sm:text-sm tracking-wider text-white">BÁO</span>
+              <span className="text-[9px] sm:text-[10px] font-bold text-amber-200 uppercase tracking-widest">
+                {allSystemAlerts.length > 0 ? `${allSystemAlerts.length} TIN` : "CHUÔNG"}
+              </span>
+            </button>
+
+            {/* 3. NÚT CHI: ĐỎ ĐẬM CHỐNG PHẢN QUANG */}
             <button
               onClick={() => {
                 if (!quickExpenseForm.fromVaultId && vaults.length > 0) {
@@ -2844,14 +2853,14 @@ export default function Home() {
                 setShowQuickExpenseModal(true);
               }}
               style={{ backgroundColor: "#b91c1c", color: "#ffffff", borderColor: "#dc2626" }}
-              className="group w-16 h-28 sm:w-20 sm:h-32 rounded-2xl border-2 shadow-xl shadow-black/40 flex flex-col items-center justify-center transition-all transform hover:scale-105 active:scale-95 cursor-pointer"
+              className="group w-16 h-24 sm:w-20 sm:h-28 rounded-2xl border-2 shadow-xl shadow-black/40 flex flex-col items-center justify-center transition-all transform hover:scale-105 active:scale-95 cursor-pointer"
               title="Ghi nhận khoản CHI tiền ra"
             >
-              <div className="p-1.5 rounded-full bg-black/25 mb-1">
-                <ArrowUpRight className="w-7 h-7 sm:w-8 sm:h-8 text-white stroke-[3]" />
+              <div className="p-1 rounded-full bg-black/25 mb-0.5">
+                <ArrowUpRight className="w-6 h-6 sm:w-7 sm:h-7 text-white stroke-[3]" />
               </div>
-              <span className="font-black text-base sm:text-xl tracking-wider text-white">CHI</span>
-              <span className="text-[10px] font-bold text-rose-100 uppercase tracking-widest">(-) RA</span>
+              <span className="font-black text-base sm:text-lg tracking-wider text-white">CHI</span>
+              <span className="text-[9px] sm:text-[10px] font-bold text-rose-100 uppercase tracking-widest">(-) RA</span>
             </button>
           </aside>
         )}
