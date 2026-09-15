@@ -47,7 +47,10 @@ import {
   ReceiptText,
   Check,
   Target,
-  PiggyBank
+  PiggyBank,
+  Edit,
+  Trash2,
+  Eye
 } from "lucide-react";
 import { playCoinSound, playCashCounterSound, stopAllSounds } from "@/lib/sound";
 
@@ -243,6 +246,35 @@ export default function Home() {
     reason: "Đối chiếu kiểm đếm định kỳ",
     assignAsFlow: false,
     flowTag: "Chênh lệch đối chiếu",
+  });
+
+  // State Modal Sửa / Xóa Dòng Chảy & Sự Kiện Dự Chi / Thu
+  const [editingFlow, setEditingFlow] = useState<Flow | null>(null);
+  const [editFlowForm, setEditFlowForm] = useState({
+    title: "",
+    amountUnits: "", // Lưu dạng đơn vị (quy ước 1 = 1.000 VNĐ)
+    flowDate: "",
+    tag: "",
+    fromVaultId: "",
+    toVaultId: "",
+  });
+  const [flowToDelete, setFlowToDelete] = useState<Flow | null>(null);
+
+  // State Modal Popup Chỉnh Sửa Số Liệu Cài Đặt (Quy ước 1 = 1.000 VNĐ)
+  const [settingEditModal, setSettingEditModal] = useState<{
+    isOpen: boolean;
+    key: "maxNegativeDebtAllowed" | "minVaultBalanceAllowed" | "savingsGoalAmount" | null;
+    title: string;
+    description: string;
+    currentValue: number;
+    inputUnits: string; // nhập số dạng 1 = 1.000 VNĐ
+  }>({
+    isOpen: false,
+    key: null,
+    title: "",
+    description: "",
+    currentValue: 0,
+    inputUnits: "",
   });
 
   // Filter Sổ Ghi Tổng (Mục 2.2)
@@ -625,6 +657,132 @@ export default function Home() {
     } catch (err: any) {
       alert("Lỗi tạo giao dịch: " + err.message);
     }
+  };
+
+  // Mở modal sửa Flow (Quy ước 1 = 1.000 VNĐ)
+  const handleOpenEditFlow = (flow: Flow) => {
+    let dateStr = "";
+    if (flow.rawDate) {
+      try {
+        dateStr = new Date(flow.rawDate).toISOString().split("T")[0];
+      } catch (_) {
+        dateStr = flow.rawDate;
+      }
+    } else if (flow.date && flow.date.includes("/")) {
+      const parts = flow.date.split("/");
+      dateStr = `${parts[2]}-${parts[1]}-${parts[0]}`;
+    }
+
+    // Quy ước 1 = 1.000 VNĐ: chia cho 1000
+    const units = (flow.amount / 1000).toString();
+
+    setEditingFlow(flow);
+    setEditFlowForm({
+      title: flow.title,
+      amountUnits: units,
+      flowDate: dateStr,
+      tag: flow.tag,
+      fromVaultId: flow.fromVaultId || "",
+      toVaultId: flow.toVaultId || "",
+    });
+  };
+
+  // Lưu chỉnh sửa Flow (nhập đơn vị -> nhân 1.000 ra VNĐ)
+  const handleUpdateFlow = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingFlow) return;
+
+    const units = parseFloat(editFlowForm.amountUnits);
+    if (isNaN(units) || units <= 0) {
+      return alert("Vui lòng nhập số hợp lệ (> 0). Ví dụ nhập 20 = 20.000đ, 50000 = 50.000.000đ");
+    }
+    const realAmount = Math.round(units * 1000);
+
+    let fromTitle = editingFlow.from;
+    let toTitle = editingFlow.to;
+    if (editFlowForm.fromVaultId) {
+      const v = vaults.find((item) => item.id === editFlowForm.fromVaultId);
+      if (v) fromTitle = v.name;
+    }
+    if (editFlowForm.toVaultId) {
+      const v = vaults.find((item) => item.id === editFlowForm.toVaultId);
+      if (v) toTitle = v.name;
+    }
+
+    try {
+      const res = await fetch("/api/flows", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: editingFlow.id,
+          title: editFlowForm.title,
+          amount: realAmount,
+          tag: editFlowForm.tag,
+          flowDate: editFlowForm.flowDate,
+          fromVaultId: editFlowForm.fromVaultId || null,
+          toVaultId: editFlowForm.toVaultId || null,
+          fromTitle,
+          toTitle,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setEditingFlow(null);
+        await fetchData();
+      } else {
+        alert("Lỗi: " + data.error);
+      }
+    } catch (err: any) {
+      alert("Lỗi cập nhật giao dịch: " + err.message);
+    }
+  };
+
+  // Xóa Flow và hoàn lại số dư kho tương ứng
+  const handleDeleteFlowConfirm = async () => {
+    if (!flowToDelete) return;
+    try {
+      const res = await fetch(`/api/flows?id=${encodeURIComponent(flowToDelete.id)}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (data.success) {
+        // Đồng thời nếu flow này đang nằm trong plannedSelectedFlowIds thì loại ra
+        if (systemSettings.plannedSelectedFlowIds?.includes(flowToDelete.id)) {
+          handleSaveSystemSettings({
+            ...systemSettings,
+            plannedSelectedFlowIds: systemSettings.plannedSelectedFlowIds.filter((id) => id !== flowToDelete.id),
+          });
+        }
+        setFlowToDelete(null);
+        await fetchData();
+      } else {
+        alert("Lỗi: " + data.error);
+      }
+    } catch (err: any) {
+      alert("Lỗi xóa giao dịch: " + err.message);
+    }
+  };
+
+  // Lưu chỉnh sửa số liệu cài đặt từ Modal Popup (Quy ước 1 = 1.000 VNĐ)
+  const handleSaveSettingFromModal = () => {
+    if (!settingEditModal.key) return;
+    const units = parseFloat(settingEditModal.inputUnits);
+    if (isNaN(units) || units < 0) {
+      return alert("Vui lòng nhập số hợp lệ");
+    }
+    const realVal = Math.round(units * 1000);
+    handleSaveSystemSettings({
+      ...systemSettings,
+      [settingEditModal.key]: realVal,
+    });
+    setSettingEditModal({
+      isOpen: false,
+      key: null,
+      title: "",
+      description: "",
+      currentValue: 0,
+      inputUnits: "",
+    });
   };
 
   // Submit Đối Chiếu Số Dư Thực Tế (Mục 2.6)
@@ -1375,22 +1533,44 @@ export default function Home() {
                     </div>
                   </div>
 
-                  <div className="text-right">
-                    <span
-                      className={`text-base font-black ${
-                        flow.type === "income"
-                          ? "text-[#2E5749]"
-                          : flow.type === "expense"
-                          ? "text-[#BF512C]"
-                          : "text-[#0C2C47]"
-                      }`}
-                    >
-                      {flow.type === "income" ? "+" : flow.type === "expense" ? "-" : ""}
-                      {flow.amount.toLocaleString("vi-VN")} ₫
-                    </span>
-                    <span className="block text-[10px] uppercase font-bold text-slate-400">
-                      {flow.type}
-                    </span>
+                  <div className="flex items-center space-x-3">
+                    <div className="text-right">
+                      <span
+                        className={`text-base font-black ${
+                          flow.type === "income"
+                            ? "text-[#2E5749]"
+                            : flow.type === "expense"
+                            ? "text-[#BF512C]"
+                            : "text-[#0C2C47]"
+                        }`}
+                      >
+                        {flow.type === "income" ? "+" : flow.type === "expense" ? "-" : ""}
+                        {flow.amount.toLocaleString("vi-VN")} ₫
+                      </span>
+                      <span className="block text-[10px] uppercase font-bold text-slate-400">
+                        {flow.type}
+                      </span>
+                    </div>
+
+                    {/* Nút Sửa & Xóa Flow */}
+                    <div className="flex items-center space-x-1 pl-2 border-l border-slate-200">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenEditFlow(flow)}
+                        className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-600 hover:text-blue-600 transition cursor-pointer"
+                        title="Sửa số liệu"
+                      >
+                        <Edit className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setFlowToDelete(flow)}
+                        className="p-1.5 rounded-lg hover:bg-rose-50 text-slate-400 hover:text-rose-600 transition cursor-pointer"
+                        title="Xóa giao dịch"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))
@@ -1970,17 +2150,45 @@ export default function Home() {
                                     </span>
                                   </div>
                                 </div>
-                                <div className="text-right">
-                                  <span className="font-black text-slate-900 block">
-                                    {f.amount.toLocaleString("vi-VN")} ₫
-                                  </span>
-                                  <span
-                                    className={`text-[10px] font-bold ${
-                                      isSelected ? "text-amber-700" : "text-slate-400"
-                                    }`}
-                                  >
-                                    {isSelected ? "🔔 Nhận thông báo" : "Tắt nhắc"}
-                                  </span>
+                                <div className="flex items-center space-x-2">
+                                  <div className="text-right">
+                                    <span className="font-black text-slate-900 block">
+                                      {f.amount.toLocaleString("vi-VN")} ₫
+                                    </span>
+                                    <span
+                                      className={`text-[10px] font-bold ${
+                                        isSelected ? "text-amber-700" : "text-slate-400"
+                                      }`}
+                                    >
+                                      {isSelected ? "🔔 Nhận thông báo" : "Tắt nhắc"}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center space-x-1 pl-1 border-l border-slate-200">
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        handleOpenEditFlow(f);
+                                      }}
+                                      className="p-1 rounded hover:bg-white text-slate-500 hover:text-blue-600 transition cursor-pointer"
+                                      title="Sửa số liệu"
+                                    >
+                                      <Edit className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        setFlowToDelete(f);
+                                      }}
+                                      className="p-1 rounded hover:bg-white text-slate-400 hover:text-rose-600 transition cursor-pointer"
+                                      title="Xóa kế hoạch"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
                                 </div>
                               </label>
                             );
@@ -2014,9 +2222,29 @@ export default function Home() {
                             </span>
                             <span className="font-bold text-slate-800 truncate max-w-[160px]">{f.title}</span>
                           </div>
-                          <div className="text-right">
-                            <span className="font-black text-slate-900 block">{f.amount.toLocaleString("vi-VN")} ₫</span>
-                            <span className="text-[10px] text-amber-700 font-semibold">{f.date || f.rawDate}</span>
+                          <div className="flex items-center space-x-2">
+                            <div className="text-right">
+                              <span className="font-black text-slate-900 block">{f.amount.toLocaleString("vi-VN")} ₫</span>
+                              <span className="text-[10px] text-amber-700 font-semibold">{f.date || f.rawDate}</span>
+                            </div>
+                            <div className="flex items-center space-x-1 pl-1 border-l border-slate-200">
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditFlow(f)}
+                                className="p-1 rounded hover:bg-slate-200 text-slate-500 hover:text-blue-600 transition cursor-pointer"
+                                title="Sửa số liệu"
+                              >
+                                <Edit className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setFlowToDelete(f)}
+                                className="p-1 rounded hover:bg-rose-100 text-slate-400 hover:text-rose-600 transition cursor-pointer"
+                                title="Xóa kế hoạch"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                           </div>
                         </div>
                       ))}
@@ -2047,9 +2275,28 @@ export default function Home() {
                 <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
                   <div className="flex justify-between items-center">
                     <span className="font-bold text-slate-700">Ngưỡng âm nợ cho phép tối đa:</span>
-                    <span className="font-black text-rose-700 text-sm">
-                      {systemSettings.maxNegativeDebtAllowed.toLocaleString("vi-VN")} ₫
-                    </span>
+                    <div className="flex items-center space-x-2">
+                      <span className="font-black text-rose-700 text-sm">
+                        {systemSettings.maxNegativeDebtAllowed.toLocaleString("vi-VN")} ₫
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSettingEditModal({
+                            isOpen: true,
+                            key: "maxNegativeDebtAllowed",
+                            title: "Chỉnh Sửa Ngưỡng Âm Nợ Cho Phép Tối Đa",
+                            description: "Hệ thống sẽ phát cảnh báo đỏ khi tổng nợ phải trả vượt quá ngưỡng này",
+                            currentValue: systemSettings.maxNegativeDebtAllowed,
+                            inputUnits: (systemSettings.maxNegativeDebtAllowed / 1000).toString(),
+                          })
+                        }
+                        className="p-1 rounded-lg hover:bg-rose-100 text-rose-700 transition cursor-pointer"
+                        title="Tùy chỉnh số liệu"
+                      >
+                        <Edit className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
                   <div className="grid grid-cols-4 gap-1.5 pt-1">
                     {[20000000, 50000000, 100000000, 200000000].map((val) => (
@@ -2086,9 +2333,28 @@ export default function Home() {
                 <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
                   <div className="flex justify-between items-center">
                     <span className="font-bold text-slate-700">Ngưỡng số dư tối thiểu mỗi kho:</span>
-                    <span className="font-black text-[#0C2C47] text-sm">
-                      {systemSettings.minVaultBalanceAllowed.toLocaleString("vi-VN")} ₫
-                    </span>
+                    <div className="flex items-center space-x-2">
+                      <span className="font-black text-[#0C2C47] text-sm">
+                        {systemSettings.minVaultBalanceAllowed.toLocaleString("vi-VN")} ₫
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSettingEditModal({
+                            isOpen: true,
+                            key: "minVaultBalanceAllowed",
+                            title: "Chỉnh Sửa Ngưỡng Số Dư Tối Thiểu Mỗi Kho",
+                            description: "Hệ thống cảnh báo khi có bất kỳ kho nào rơi xuống dưới ngưỡng này",
+                            currentValue: systemSettings.minVaultBalanceAllowed,
+                            inputUnits: (systemSettings.minVaultBalanceAllowed / 1000).toString(),
+                          })
+                        }
+                        className="p-1 rounded-lg hover:bg-slate-200 text-[#0C2C47] transition cursor-pointer"
+                        title="Tùy chỉnh số liệu"
+                      >
+                        <Edit className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
                   <div className="grid grid-cols-4 gap-1.5 pt-1">
                     {[1000000, 2000000, 5000000, 10000000].map((val) => (
@@ -2132,9 +2398,29 @@ export default function Home() {
                     <p className="text-[11px] text-slate-500">Kế hoạch tài chính dài hạn hướng tới tự do tài chính</p>
                   </div>
                 </div>
-                <div className="text-right">
-                  <span className="text-[10px] uppercase font-bold text-slate-500 block">Tiến độ đạt được</span>
-                  <span className="text-lg font-black text-emerald-700">{savingsProgressPct}%</span>
+                <div className="text-right flex items-center space-x-3">
+                  <div>
+                    <span className="text-[10px] uppercase font-bold text-slate-500 block">Tiến độ đạt được</span>
+                    <span className="text-lg font-black text-emerald-700">{savingsProgressPct}%</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSettingEditModal({
+                        isOpen: true,
+                        key: "savingsGoalAmount",
+                        title: "Chỉnh Sửa Mục Tiêu Tiết Kiệm & Quỹ Tích Lũy",
+                        description: "Kế hoạch tài chính dài hạn để theo dõi tiến độ tỷ lệ hoàn thành",
+                        currentValue: systemSettings.savingsGoalAmount,
+                        inputUnits: (systemSettings.savingsGoalAmount / 1000).toString(),
+                      })
+                    }
+                    className="p-2 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700 transition cursor-pointer flex items-center space-x-1 text-xs font-bold shadow-xs"
+                    title="Nhập mục tiêu tùy ý"
+                  >
+                    <Edit className="w-3.5 h-3.5" />
+                    <span>Sửa số liệu</span>
+                  </button>
                 </div>
               </div>
 
@@ -3510,6 +3796,313 @@ export default function Home() {
                 className="w-full py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition cursor-pointer"
               >
                 Đã xem / Tắt chuông
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* MODAL SỬA DÒNG TIỀN / SỰ KIỆN DỰ CHI DỰ THU (Quy ước 1 = 1.000 VNĐ) */}
+      {editingFlow && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border-2 border-slate-300 space-y-4 max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b pb-3">
+              <div className="flex items-center space-x-2">
+                <div className="w-9 h-9 rounded-xl bg-blue-100 flex items-center justify-center text-blue-700">
+                  <Edit className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-[#0C2C47]">
+                    SỬA SỐ LIỆU: {editingFlow.isActual ? "DÒNG CHẢY THỰC TẾ" : "KẾ HOẠCH DỰ KIẾN"}
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Quy ước nhập số: <span className="font-bold text-blue-700">1 = 1.000 VNĐ</span> (Vd: 20 = 20.000đ, 50000 = 50 triệu)
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setEditingFlow(null)}
+                className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateFlow} className="space-y-4">
+              {/* Màn hình nhập số tiền cực to nền tối chữ sáng quy ước 1 = 1.000 */}
+              <div className="bg-[#091522] border-2 border-blue-500 rounded-2xl p-5 text-center shadow-xl ring-1 ring-blue-500/30">
+                <div className="flex items-center justify-between text-xs font-black text-blue-400 uppercase tracking-wider mb-2">
+                  <span>SỐ ĐƠN VỊ NHẬP (1 = 1.000Đ)</span>
+                  <span className="text-[10px] text-amber-300 font-bold">QUY ƯỚC 1=1K</span>
+                </div>
+                <div className="flex items-center justify-center space-x-2 py-1">
+                  <input
+                    type="number"
+                    step="any"
+                    inputMode="decimal"
+                    required
+                    placeholder="0"
+                    value={editFlowForm.amountUnits}
+                    onChange={(e) => setEditFlowForm({ ...editFlowForm, amountUnits: e.target.value })}
+                    className="w-full text-center text-4xl sm:text-5xl font-black text-blue-300 bg-transparent focus:outline-none placeholder-slate-700 font-mono cursor-pointer"
+                  />
+                  <span className="text-2xl sm:text-3xl font-black text-blue-400">k</span>
+                </div>
+                {editFlowForm.amountUnits && !isNaN(parseFloat(editFlowForm.amountUnits)) ? (
+                  <div className="mt-3 pt-2.5 border-t border-slate-800 flex flex-col items-center">
+                    <span className="text-xs text-slate-400">Thành tiền thực tế:</span>
+                    <span className="text-base sm:text-lg font-black text-amber-300 tracking-wide">
+                      = {(Math.round(parseFloat(editFlowForm.amountUnits) * 1000)).toLocaleString("vi-VN")} Đồng
+                    </span>
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-500 mt-2">Ví dụ: gõ 50 = 50.000₫ | gõ 10000 = 10.000.000₫</p>
+                )}
+              </div>
+
+              {/* Phím số nhanh mệnh giá */}
+              <div>
+                <label className="block text-[11px] font-black text-slate-600 uppercase mb-1.5">
+                  Phím cộng nhanh (theo đơn vị k):
+                </label>
+                <div className="grid grid-cols-4 gap-1.5 text-xs font-black">
+                  {[
+                    { label: "+10k", val: 10 },
+                    { label: "+50k", val: 50 },
+                    { label: "+100k", val: 100 },
+                    { label: "+500k", val: 500 },
+                    { label: "+1 Tr", val: 1000 },
+                    { label: "+5 Tr", val: 5000 },
+                    { label: "+10 Tr", val: 10000 },
+                    { label: "+50 Tr", val: 50000 },
+                  ].map((btn) => (
+                    <button
+                      key={btn.label}
+                      type="button"
+                      onClick={() => {
+                        const cur = parseFloat(editFlowForm.amountUnits) || 0;
+                        setEditFlowForm({ ...editFlowForm, amountUnits: (cur + btn.val).toString() });
+                      }}
+                      className="py-2 px-1 rounded-xl bg-slate-100 hover:bg-blue-100 hover:text-blue-800 border border-slate-300 transition text-slate-800 active:scale-95 shadow-2xs cursor-pointer"
+                    >
+                      {btn.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Tên mục / tiêu đề */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tiêu đề / Mục đích</label>
+                <input
+                  type="text"
+                  required
+                  value={editFlowForm.title}
+                  onChange={(e) => setEditFlowForm({ ...editFlowForm, title: e.target.value })}
+                  className="w-full p-2.5 rounded-xl border border-slate-300 text-sm font-bold text-slate-800 focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+
+              {/* Ngày phát sinh / dự kiến */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    {editingFlow.isActual ? "Ngày phát sinh" : "Ngày dự kiến"}
+                  </label>
+                  <input
+                    type="date"
+                    value={editFlowForm.flowDate}
+                    onChange={(e) => setEditFlowForm({ ...editFlowForm, flowDate: e.target.value })}
+                    className="w-full p-2.5 rounded-xl border border-slate-300 text-xs font-bold bg-white cursor-pointer"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Nhãn giao dịch</label>
+                  <input
+                    type="text"
+                    value={editFlowForm.tag}
+                    onChange={(e) => setEditFlowForm({ ...editFlowForm, tag: e.target.value })}
+                    className="w-full p-2.5 rounded-xl border border-slate-300 text-xs"
+                    placeholder="Nhãn..."
+                  />
+                </div>
+              </div>
+
+              <div className="pt-3 flex items-center justify-end space-x-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setEditingFlow(null)}
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 text-xs font-bold text-slate-600 hover:bg-slate-100 cursor-pointer"
+                >
+                  Hủy Bỏ
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-black shadow-md cursor-pointer"
+                >
+                  Lưu Chỉnh Sửa ➔
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL POPUP XÁC NHẬN XÓA SỐ LIỆU */}
+      {flowToDelete && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border-2 border-rose-300 text-center space-y-4">
+            <div className="w-14 h-14 rounded-full bg-rose-100 text-rose-600 mx-auto flex items-center justify-center shadow-inner">
+              <Trash2 className="w-7 h-7" />
+            </div>
+
+            <div>
+              <h3 className="text-lg font-black text-[#0C2C47]">XÁC NHẬN XÓA DỮ LIỆU</h3>
+              <p className="text-xs text-slate-500 mt-1">
+                Bạn có chắc chắn muốn xóa mục này khỏi sổ sách kế toán không?
+              </p>
+            </div>
+
+            <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 text-left text-xs space-y-1">
+              <div className="flex justify-between">
+                <span className="text-slate-500">Mục đích:</span>
+                <span className="font-bold text-slate-800">{flowToDelete.title}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Số tiền:</span>
+                <span className="font-black text-rose-700 text-sm">{flowToDelete.amount.toLocaleString("vi-VN")} ₫</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Trạng thái:</span>
+                <span className="font-bold text-slate-700">{flowToDelete.isActual ? "Đã trừ/cộng kho thực tế" : "Kế hoạch dự kiến"}</span>
+              </div>
+              {flowToDelete.isActual && (
+                <p className="text-[11px] text-amber-700 pt-1 border-t border-slate-200 font-semibold">
+                  ⚠️ Lưu ý: Vì là giao dịch thực tế, số tiền sẽ được tự động hoàn trả/cân đối lại kho ban đầu.
+                </p>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setFlowToDelete(null)}
+                className="py-2.5 rounded-xl border border-slate-300 text-xs font-bold text-slate-600 hover:bg-slate-100 cursor-pointer"
+              >
+                Hủy Bỏ
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteFlowConfirm}
+                className="py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-black shadow-md cursor-pointer"
+              >
+                Đồng Ý Xóa Vĩnh Viễn
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL POPUP CHỈNH SỬA SỐ LIỆU CÀI ĐẶT (7.4 & 7.5 - Quy ước 1 = 1.000 VNĐ) */}
+      {settingEditModal.isOpen && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border-2 border-[#0C2C47] space-y-4">
+            <div className="flex items-center justify-between border-b pb-3">
+              <div className="flex items-center space-x-2">
+                <div className="w-8 h-8 rounded-xl bg-amber-100 flex items-center justify-center text-amber-800 font-black text-sm">
+                  1k
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-[#0C2C47] uppercase">{settingEditModal.title}</h3>
+                  <p className="text-[10px] text-slate-500">Quy ước nhập số: 1 = 1.000 VNĐ</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setSettingEditModal({ ...settingEditModal, isOpen: false })}
+                className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-600">{settingEditModal.description}</p>
+
+            {/* Màn hình nhập số cực to nền tối chữ sáng */}
+            <div className="bg-[#091522] border-2 border-amber-400 rounded-2xl p-5 text-center shadow-xl">
+              <span className="block text-[11px] font-black text-amber-400 uppercase tracking-wider mb-2">
+                NHẬP SỐ ĐƠN VỊ (QUY ƯỚC 1 = 1.000 VNĐ)
+              </span>
+              <div className="flex items-center justify-center space-x-2 py-1">
+                <input
+                  type="number"
+                  step="any"
+                  inputMode="numeric"
+                  required
+                  placeholder="0"
+                  value={settingEditModal.inputUnits}
+                  onChange={(e) => setSettingEditModal({ ...settingEditModal, inputUnits: e.target.value })}
+                  className="w-full text-center text-4xl sm:text-5xl font-black text-amber-300 bg-transparent focus:outline-none placeholder-slate-700 font-mono cursor-pointer"
+                />
+                <span className="text-3xl font-black text-amber-400">k</span>
+              </div>
+              {settingEditModal.inputUnits && !isNaN(parseFloat(settingEditModal.inputUnits)) ? (
+                <div className="mt-3 pt-2.5 border-t border-slate-800 flex flex-col items-center">
+                  <span className="text-xs text-slate-400">Giá trị thực tế sẽ lưu:</span>
+                  <span className="text-base sm:text-lg font-black text-emerald-400 tracking-wide">
+                    = {(Math.round(parseFloat(settingEditModal.inputUnits) * 1000)).toLocaleString("vi-VN")} Đồng
+                  </span>
+                </div>
+              ) : (
+                <p className="text-xs text-slate-500 mt-2">Ví dụ: gõ 50000 = 50 triệu | gõ 200000 = 200 triệu</p>
+              )}
+            </div>
+
+            {/* Phím cộng nhanh */}
+            <div>
+              <label className="block text-[11px] font-black text-slate-600 uppercase mb-1.5">
+                Các mức phổ biến:
+              </label>
+              <div className="grid grid-cols-4 gap-1.5 text-xs font-black">
+                {[
+                  { label: "10 Tr", val: 10000 },
+                  { label: "20 Tr", val: 20000 },
+                  { label: "50 Tr", val: 50000 },
+                  { label: "100 Tr", val: 100000 },
+                  { label: "200 Tr", val: 200000 },
+                  { label: "500 Tr", val: 500000 },
+                  { label: "1 Tỷ", val: 1000000 },
+                  { label: "2 Tỷ", val: 2000000 },
+                ].map((item) => (
+                  <button
+                    key={item.label}
+                    type="button"
+                    onClick={() =>
+                      setSettingEditModal({
+                        ...settingEditModal,
+                        inputUnits: item.val.toString(),
+                      })
+                    }
+                    className="py-2 px-1 rounded-xl bg-slate-100 hover:bg-amber-100 hover:text-amber-900 border border-slate-200 transition text-slate-800 cursor-pointer shadow-2xs text-[11px]"
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setSettingEditModal({ ...settingEditModal, isOpen: false })}
+                className="py-2.5 rounded-xl border border-slate-300 text-xs font-bold text-slate-600 hover:bg-slate-100 cursor-pointer"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveSettingFromModal}
+                className="py-2.5 rounded-xl bg-[#0C2C47] hover:bg-[#0C2C47]/90 text-white text-xs font-black shadow-md cursor-pointer"
+              >
+                Lưu Số Liệu Ngay ➔
               </button>
             </div>
           </div>
