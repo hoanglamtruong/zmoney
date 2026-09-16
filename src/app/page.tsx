@@ -1217,49 +1217,6 @@ export default function Home() {
 
   return (
     <div className="space-y-6 pb-32 sm:pb-36 relative">
-      {/* THANH CẢNH BÁO ƯU TIÊN HỆ THỐNG (HIỂN THỊ KHI CÓ CẢNH BÁO CHƯA ĐỌC) */}
-      {unreadAlertsCount > 0 && (
-        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3 sm:p-4 shadow-xs flex flex-wrap items-center gap-2 text-xs">
-          <div className="flex items-center space-x-1.5 text-amber-900 font-black mr-1">
-            <AlertTriangle className="w-4 h-4 text-amber-600" />
-            <span>Cảnh báo cần chú ý ({unreadAlertsCount}):</span>
-          </div>
-
-          {/* Cảnh báo sự kiện dự chi/thu sắp diễn ra trong X ngày */}
-          {systemSettings.enablePlannedNotice && upcomingPlannedFlows.map((f) => (
-            <span
-              key={f.id}
-              className="bg-amber-400 text-amber-950 font-black px-2.5 py-1 rounded-full flex items-center space-x-1 shadow-xs"
-            >
-              <Clock className="w-3.5 h-3.5 text-amber-900" />
-              <span>
-                Nhắc sự kiện: {f.title} ({f.amount.toLocaleString("vi-VN")}₫) - Ngày {f.date || f.rawDate}
-              </span>
-            </span>
-          ))}
-
-          {/* Cảnh báo vượt ngưỡng âm nợ */}
-          {isDebtExceeded && (
-            <span className="bg-rose-500 text-white font-black px-2.5 py-1 rounded-full flex items-center space-x-1 shadow-xs">
-              <AlertTriangle className="w-3.5 h-3.5 text-white" />
-              <span>
-                VƯỢT NGƯỠNG ÂM NỢ ({negativeDebt.toLocaleString("vi-VN")}₫ &gt; {systemSettings.maxNegativeDebtAllowed.toLocaleString("vi-VN")}₫)
-              </span>
-            </span>
-          )}
-
-          {/* Cảnh báo kho dưới ngưỡng tiền tối thiểu */}
-          {lowBalanceVaults.map((v) => (
-            <span key={v.id} className="bg-orange-500 text-white font-bold px-2.5 py-1 rounded-full flex items-center space-x-1">
-              <AlertTriangle className="w-3.5 h-3.5 text-white" />
-              <span>
-                BoMo "{v.name}" dưới ngưỡng an toàn ({v.balance.toLocaleString("vi-VN")}₫ &lt; {systemSettings.minVaultBalanceAllowed.toLocaleString("vi-VN")}₫)
-              </span>
-            </span>
-          ))}
-        </div>
-      )}
-
       {/* THANH ĐIỀU HƯỚNG CHÍNH (Đã tinh gọn chỉ còn Trang Chủ & Cài Đặt) */}
       <div className="flex space-x-2 border-b border-slate-200 pb-3 text-xs sm:text-sm font-black">
         <button
