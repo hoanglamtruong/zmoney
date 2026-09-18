@@ -36,13 +36,10 @@ export default function RootLayout({
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3.5 flex items-center justify-between">
             <div className="flex items-center space-x-3">
               <span className="text-2xl font-black tracking-tight text-white">Zmoney</span>
-              <span className="text-[10px] sm:text-xs bg-[#BF512C] text-white px-2 py-0.5 rounded font-semibold uppercase tracking-wider">
-                VÒNG 2 · PWA
-              </span>
             </div>
             <div className="text-xs sm:text-sm text-slate-300 flex items-center space-x-2">
-              <span className="inline-block w-2 h-2 rounded-full bg-[#2E5749]"></span>
-              <span>DB Online · Port 8121</span>
+              <span className="inline-block w-2 h-2 rounded-full bg-emerald-400"></span>
+              <span className="font-medium text-slate-200">Trực Tuyến</span>
             </div>
           </div>
         </header>
@@ -51,8 +48,8 @@ export default function RootLayout({
           {children}
         </main>
 
-        <footer className="border-t border-[#ABCBCA] bg-white py-4 text-center text-xs text-slate-500">
-          Zmoney · Hệ sinh thái ZOS · PWA Installable
+        <footer className="border-t border-slate-200 bg-white py-4 text-center text-xs text-slate-500">
+          Zmoney · Quản lý tài chính cá nhân & hộ kinh doanh · Money Box (MoBo)
         </footer>
 
         {/* Script đăng ký Service Worker */}

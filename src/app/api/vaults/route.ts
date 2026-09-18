@@ -27,7 +27,7 @@ export async function POST(request: Request) {
     const { name, type, balance = 0, description = "", isLocked = false, lockedAmount = 0 } = body;
 
     if (!name || !type) {
-      return NextResponse.json({ success: false, error: "Tên và loại BoMo là bắt buộc" }, { status: 400 });
+      return NextResponse.json({ success: false, error: "Tên và loại MoBo là bắt buộc" }, { status: 400 });
     }
 
     const id = `v_${Date.now()}`;
@@ -52,7 +52,7 @@ export async function PUT(request: Request) {
     const { id, name, type, balance, description = "", isLocked = false, lockedAmount = 0 } = body;
 
     if (!id || !name || !type) {
-      return NextResponse.json({ success: false, error: "Thiếu thông tin BoMo cần cập nhật" }, { status: 400 });
+      return NextResponse.json({ success: false, error: "Thiếu thông tin MoBo cần cập nhật" }, { status: 400 });
     }
 
     let query = "";
@@ -81,7 +81,7 @@ export async function PUT(request: Request) {
     const result = await pool.query(query, params);
 
     if (result.rowCount === 0) {
-      return NextResponse.json({ success: false, error: "Không tìm thấy BoMo" }, { status: 404 });
+      return NextResponse.json({ success: false, error: "Không tìm thấy MoBo" }, { status: 404 });
     }
 
     return NextResponse.json({ success: true, data: result.rows[0] });
@@ -98,16 +98,16 @@ export async function DELETE(request: Request) {
     const { id, targetVaultId } = body;
 
     if (!id) {
-      return NextResponse.json({ success: false, error: "Thiếu mã BoMo cần xóa" }, { status: 400 });
+      return NextResponse.json({ success: false, error: "Thiếu mã MoBo cần xóa" }, { status: 400 });
     }
 
     await client.query("BEGIN");
 
-    // Lấy thông tin BoMo cần xóa
+    // Lấy thông tin MoBo cần xóa
     const vRes = await client.query(`SELECT * FROM vaults WHERE id = $1 AND is_closed = false`, [id]);
     if (vRes.rows.length === 0) {
       await client.query("ROLLBACK");
-      return NextResponse.json({ success: false, error: "Không tìm thấy BoMo hoặc BoMo đã bị xóa" }, { status: 404 });
+      return NextResponse.json({ success: false, error: "Không tìm thấy MoBo hoặc MoBo đã bị xóa" }, { status: 404 });
     }
 
     const currentVault = vRes.rows[0];
@@ -119,19 +119,19 @@ export async function DELETE(request: Request) {
         await client.query("ROLLBACK");
         return NextResponse.json({ 
           success: false, 
-          error: "BoMo có số dư khác 0 đ. Bắt buộc chuyển toàn bộ số dư (+/-) sang BoMo khác trước khi xóa." 
+          error: "MoBo có số dư khác 0 đ. Bắt buộc chuyển toàn bộ số dư (+/-) sang MoBo khác trước khi xóa." 
         }, { status: 400 });
       }
 
       if (targetVaultId === id) {
         await client.query("ROLLBACK");
-        return NextResponse.json({ success: false, error: "Không thể kết chuyển sang chính BoMo cần xóa" }, { status: 400 });
+        return NextResponse.json({ success: false, error: "Không thể kết chuyển sang chính MoBo cần xóa" }, { status: 400 });
       }
 
       const tRes = await client.query(`SELECT * FROM vaults WHERE id = $1 AND is_closed = false`, [targetVaultId]);
       if (tRes.rows.length === 0) {
         await client.query("ROLLBACK");
-        return NextResponse.json({ success: false, error: "BoMo tiếp nhận không tồn tại hoặc đã bị đóng" }, { status: 404 });
+        return NextResponse.json({ success: false, error: "MoBo tiếp nhận không tồn tại hoặc đã bị đóng" }, { status: 404 });
       }
       const targetVault = tRes.rows[0];
 
@@ -147,12 +147,12 @@ export async function DELETE(request: Request) {
       const isPositive = currentBalance > 0;
       
       const flowTitle = isPositive 
-        ? `Chuyển toàn bộ số dư (+${currentBalance.toLocaleString('vi-VN')}₫) khi đóng BoMo "${currentVault.name}"`
-        : `Chuyển giao dư nợ (${currentBalance.toLocaleString('vi-VN')}₫) khi đóng BoMo "${currentVault.name}"`;
+        ? `Chuyển toàn bộ số dư (+${currentBalance.toLocaleString('vi-VN')}₫) khi đóng MoBo "${currentVault.name}"`
+        : `Chuyển giao dư nợ (${currentBalance.toLocaleString('vi-VN')}₫) khi đóng MoBo "${currentVault.name}"`;
 
       await client.query(
         `INSERT INTO flows (id, title, amount, type, from_vault_id, to_vault_id, from_title, to_title, tag, is_actual, flow_date)
-         VALUES ($1, $2, $3, 'transfer', $4, $5, $6, $7, 'Tất toán BoMo', true, CURRENT_DATE)`,
+         VALUES ($1, $2, $3, 'transfer', $4, $5, $6, $7, 'Tất toán MoBo', true, CURRENT_DATE)`,
         [
           flowId,
           flowTitle,
@@ -164,15 +164,15 @@ export async function DELETE(request: Request) {
         ]
       );
 
-      // Đưa số dư BoMo hiện tại về 0
+      // Đưa số dư MoBo hiện tại về 0
       await client.query(`UPDATE vaults SET balance = 0 WHERE id = $1`, [id]);
     }
 
-    // Đánh dấu BoMo đã đóng (is_closed = true)
+    // Đánh dấu MoBo đã đóng (is_closed = true)
     await client.query(`UPDATE vaults SET is_closed = true WHERE id = $1`, [id]);
 
     await client.query("COMMIT");
-    return NextResponse.json({ success: true, message: "Đã tất toán và xóa BoMo thành công" });
+    return NextResponse.json({ success: true, message: "Đã tất toán và xóa MoBo thành công" });
   } catch (error: any) {
     await client.query("ROLLBACK");
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });

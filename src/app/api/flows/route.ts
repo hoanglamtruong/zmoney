@@ -175,9 +175,9 @@ export async function PUT(request: Request) {
 
     const finalIsActual = isActual !== undefined ? Boolean(isActual) : Boolean(oldFlow.is_actual);
 
-    // Xử lý biến động số dư BoMo
+    // Xử lý biến động số dư MoBo
     if (!oldFlow.is_actual && finalIsActual) {
-      // Chuyển từ Kế hoạch dự kiến sang Thực tế -> trừ/cộng BoMo ngay
+      // Chuyển từ Kế hoạch dự kiến sang Thực tế -> trừ/cộng MoBo ngay
       const finalFromVaultId = fromVaultId !== undefined ? fromVaultId : oldFlow.from_vault_id;
       const finalToVaultId = toVaultId !== undefined ? toVaultId : oldFlow.to_vault_id;
       if (oldFlow.type === "expense" && finalFromVaultId) {
@@ -189,7 +189,7 @@ export async function PUT(request: Request) {
         if (finalToVaultId) await client.query("UPDATE vaults SET balance = balance + $1 WHERE id = $2", [newAmount, finalToVaultId]);
       }
     } else if (oldFlow.is_actual && !finalIsActual) {
-      // Chuyển từ Thực tế về Kế hoạch dự kiến -> hoàn trả số dư BoMo
+      // Chuyển từ Thực tế về Kế hoạch dự kiến -> hoàn trả số dư MoBo
       if (oldFlow.type === "expense" && oldFlow.from_vault_id) {
         await client.query("UPDATE vaults SET balance = balance + $1 WHERE id = $2", [oldAmount, oldFlow.from_vault_id]);
       } else if (oldFlow.type === "income" && oldFlow.to_vault_id) {

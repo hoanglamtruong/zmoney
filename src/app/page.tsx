@@ -226,7 +226,7 @@ export default function Home() {
   const [selectedVaultForReconcile, setSelectedVaultForReconcile] = useState<Vault | null>(null);
   const [selectedVaultDetail, setSelectedVaultDetail] = useState<Vault | null>(null);
 
-  // Form Thêm BoMo (BoxMoney)
+  // Form Thêm MoBo (Money Box)
   const [vaultForm, setVaultForm] = useState({
     name: "",
     type: "bank",
@@ -237,7 +237,7 @@ export default function Home() {
     lockedAmountUnits: "", // Quy ước 1 = 1.000 VNĐ
   });
 
-  // State Modal Sửa BoMo (BoxMoney)
+  // State Modal Sửa MoBo (Money Box)
   const [editingVault, setEditingVault] = useState<Vault | null>(null);
   const [editVaultForm, setEditVaultForm] = useState({
     name: "",
@@ -249,7 +249,7 @@ export default function Home() {
     lockedAmountUnits: "",
   });
 
-  // State Modal Xóa BoMo (BoxMoney)
+  // State Modal Xóa MoBo (Money Box)
   const [deletingVault, setDeletingVault] = useState<Vault | null>(null);
   const [targetTransferVaultId, setTargetTransferVaultId] = useState<string>("");
 
@@ -626,10 +626,10 @@ export default function Home() {
     }
   };
 
-  // Submit BoMo (BoxMoney) Mới
+  // Submit MoBo (Money Box) Mới
   const handleCreateVault = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!vaultForm.name.trim()) return alert("Vui lòng nhập tên BoMo");
+    if (!vaultForm.name.trim()) return alert("Vui lòng nhập tên MoBo");
     try {
       const units = parseFloat(vaultForm.balanceUnits) || 0;
       let realBalance = Math.round(units * 1000);
@@ -668,11 +668,11 @@ export default function Home() {
         alert("Lỗi: " + data.error);
       }
     } catch (err: any) {
-      alert("Lỗi khi thêm BoMo: " + err.message);
+      alert("Lỗi khi thêm MoBo: " + err.message);
     }
   };
 
-  // Mở Modal Sửa BoMo
+  // Mở Modal Sửa MoBo
   const openEditVaultModal = (vault: Vault) => {
     setEditingVault(vault);
     const isNegative = vault.balance < 0;
@@ -691,11 +691,11 @@ export default function Home() {
     });
   };
 
-  // Submit Cập Nhật BoMo
+  // Submit Cập Nhật MoBo
   const handleUpdateVault = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingVault) return;
-    if (!editVaultForm.name.trim()) return alert("Vui lòng nhập tên BoMo");
+    if (!editVaultForm.name.trim()) return alert("Vui lòng nhập tên MoBo");
 
     try {
       const units = parseFloat(editVaultForm.balanceUnits) || 0;
@@ -724,27 +724,27 @@ export default function Home() {
         setEditingVault(null);
         await fetchData();
       } else {
-        alert("Lỗi cập nhật BoMo: " + data.error);
+        alert("Lỗi cập nhật MoBo: " + data.error);
       }
     } catch (err: any) {
       alert("Lỗi: " + err.message);
     }
   };
 
-  // Mở Modal Xóa BoMo (bắt buộc balance = 0 hoặc kết chuyển)
+  // Mở Modal Xóa MoBo (bắt buộc balance = 0 hoặc kết chuyển)
   const openDeleteVaultModal = (vault: Vault) => {
     setDeletingVault(vault);
     const otherVaults = vaults.filter((v) => v.id !== vault.id);
     setTargetTransferVaultId(otherVaults[0]?.id || "");
   };
 
-  // Xác nhận Xóa BoMo
+  // Xác nhận Xóa MoBo
   const handleDeleteVaultConfirm = async () => {
     if (!deletingVault) return;
 
     const hasBalance = Math.abs(deletingVault.balance) > 0.001;
     if (hasBalance && !targetTransferVaultId) {
-      return alert("Vui lòng chọn BoMo đích để kết chuyển số dư (+/-) trước khi xóa!");
+      return alert("Vui lòng chọn MoBo đích để kết chuyển số dư (+/-) trước khi xóa!");
     }
 
     try {
@@ -761,10 +761,10 @@ export default function Home() {
         setDeletingVault(null);
         await fetchData();
       } else {
-        alert("Không thể xóa BoMo: " + data.error);
+        alert("Không thể xóa MoBo: " + data.error);
       }
     } catch (err: any) {
-      alert("Lỗi khi xóa BoMo: " + err.message);
+      alert("Lỗi khi xóa MoBo: " + err.message);
     }
   };
 
@@ -900,7 +900,7 @@ export default function Home() {
     }
   };
 
-  // Thực hiện ngay một khoản dự thu / dự chi: chuyển sang thực tế và trừ/cộng BoMo ngay
+  // Thực hiện ngay một khoản dự thu / dự chi: chuyển sang thực tế và trừ/cộng MoBo ngay
   const handleExecutePlannedFlow = async (flow: Flow) => {
     const confirmMsg = flow.type === "income"
       ? `Xác nhận thực hiện ngay khoản DỰ THU "${flow.title}" (+${flow.amount.toLocaleString("vi-VN")} ₫) vào thực tế?`
@@ -1014,8 +1014,8 @@ export default function Home() {
     }
   };
 
-  // CÔNG THỨC TÀI SẢN RÒNG (Nguyên tắc xuyên suốt toàn hệ sinh thái BoMo)
-  // Tổng BoMo khả dụng (+), Tổng dư nợ ngân hàng (−), Tài sản ròng = Tổng BoMo (+) − Dư nợ (−)
+  // CÔNG THỨC TÀI SẢN RÒNG (Nguyên tắc xuyên suốt toàn hệ sinh thái MoBo)
+  // Tổng MoBo khả dụng (+), Tổng dư nợ ngân hàng (−), Tài sản ròng = Tổng MoBo (+) − Dư nợ (−)
   const positiveBalance = vaults.filter((v) => v.balance > 0).reduce((acc, v) => acc + v.balance, 0);
   const negativeDebt = Math.abs(vaults.filter((v) => v.balance < 0).reduce((acc, v) => acc + v.balance, 0));
   const totalBalance = vaults.reduce((acc, v) => acc + (v.balance || 0), 0);
@@ -1226,7 +1226,7 @@ export default function Home() {
           }`}
         >
           <TrendingUp className="w-4 h-4 text-emerald-400" />
-          <span>🏠 Trang Chủ (5 Khối Cốt Lõi)</span>
+          <span>🏠 Trang Chủ</span>
         </button>
 
         <button
@@ -1254,10 +1254,10 @@ export default function Home() {
                 </div>
                 <div>
                   <h3 className="font-black text-slate-900 text-base sm:text-lg tracking-tight">
-                    Khối 1: Tổng Tài Sản Hệ Thống
+                    Tổng Tài Sản Hệ Thống
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Bao gồm toàn bộ BoMo khả dụng (+), dư nợ vay ngân hàng (−) và tài sản ròng
+                    Bao gồm toàn bộ MoBo khả dụng (+), dư nợ vay ngân hàng (−) và tài sản ròng
                   </p>
                 </div>
               </div>
@@ -1267,16 +1267,16 @@ export default function Home() {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              {/* Thẻ 1: Tổng BoMo khả dụng (+) */}
+              {/* Thẻ 1: Tổng MoBo khả dụng (+) */}
               <div className="bg-emerald-50/70 border-2 border-emerald-200/90 rounded-2xl p-4.5 shadow-2xs">
                 <span className="text-[11px] font-black text-emerald-800 uppercase tracking-wider block">
-                  1. Tổng BoMo Khả Dụng (+)
+                  1. Tổng MoBo Khả Dụng (+)
                 </span>
                 <span className="text-2xl sm:text-3xl font-black text-emerald-600 mt-1.5 block tracking-tight">
                   +{positiveBalance.toLocaleString("vi-VN")} ₫
                 </span>
                 <span className="text-xs text-emerald-700/90 mt-1 block font-medium">
-                  {vaults.filter((v) => v.balance > 0).length} BoMo dương có thể luân chuyển ngay
+                  {vaults.filter((v) => v.balance > 0).length} MoBo dương có thể luân chuyển ngay
                 </span>
               </div>
 
@@ -1289,7 +1289,7 @@ export default function Home() {
                   {negativeDebt > 0 ? `-${negativeDebt.toLocaleString("vi-VN")} ₫` : "0 ₫"}
                 </span>
                 <span className="text-xs text-rose-700/90 mt-1 block font-medium">
-                  {vaults.filter((v) => v.balance < 0).length} BoMo thấu chi / vay nợ ngân hàng
+                  {vaults.filter((v) => v.balance < 0).length} MoBo thấu chi / vay nợ ngân hàng
                 </span>
               </div>
 
@@ -1309,7 +1309,7 @@ export default function Home() {
           </div>
 
           {/* ======================================================== */}
-          {/* KHỐI 2: CÁC BOMO (BOXMONEY) */}
+          {/* KHỐI 2: CÁC MOBO (Money Box) */}
           {/* ======================================================== */}
           <div className="bg-white rounded-3xl p-6 border border-slate-200/90 shadow-sm space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-100 pb-3">
@@ -1319,7 +1319,7 @@ export default function Home() {
                 </div>
                 <div>
                   <h3 className="font-black text-slate-900 text-base sm:text-lg tracking-tight">
-                    Khối 2: Các BoMo (BoxMoney) ({vaults.length})
+                    Các MoBo (Money Box) ({vaults.length})
                   </h3>
                   <p className="text-xs text-slate-500">
                     Hộp tiền mặt, tài khoản ngân hàng, ví điện tử & thẻ vay nợ thấu chi
@@ -1332,11 +1332,11 @@ export default function Home() {
                 className="bg-[#0C2C47] hover:bg-[#0C2C47]/90 text-white px-4 py-2.5 rounded-xl text-xs font-black flex items-center space-x-2 shadow-sm transition active:scale-95 cursor-pointer self-start sm:self-auto"
               >
                 <PlusCircle className="w-4 h-4" />
-                <span>+ Tạo BoMo Mới</span>
+                <span>+ Tạo MoBo Mới</span>
               </button>
             </div>
 
-            {/* Danh sách các BoMo */}
+            {/* Danh sách các MoBo */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pt-1">
               {vaults.map((vault) => {
                 const isNegative = vault.balance < 0;
@@ -1372,18 +1372,18 @@ export default function Home() {
                         </div>
 
                         <div className="flex items-center space-x-1 shrink-0">
-                          {/* Sửa BoMo */}
+                          {/* Sửa MoBo */}
                           <button
                             onClick={() => openEditVaultModal(vault)}
-                            title="Sửa thông tin BoMo"
+                            title="Sửa thông tin MoBo"
                             className="p-1.5 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-white transition cursor-pointer border border-transparent hover:border-slate-200"
                           >
                             <Edit className="w-3.5 h-3.5" />
                           </button>
-                          {/* Xóa BoMo */}
+                          {/* Xóa MoBo */}
                           <button
                             onClick={() => openDeleteVaultModal(vault)}
-                            title="Xóa BoMo (yêu cầu số dư 0đ hoặc kết chuyển)"
+                            title="Xóa MoBo (yêu cầu số dư 0đ hoặc kết chuyển)"
                             className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-white transition cursor-pointer border border-transparent hover:border-slate-200"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -1439,7 +1439,7 @@ export default function Home() {
                 </div>
                 <div>
                   <h3 className="font-black text-slate-900 text-base sm:text-lg tracking-tight">
-                    Khối 3: Chi Tiết Thu Chi (Lọc Theo Thời Gian)
+                    Chi Tiết Thu Chi (Lọc Theo Thời Gian)
                   </h3>
                   <p className="text-xs text-slate-500">
                     Theo dõi biến động dòng tiền thực tế, chỉnh sửa và xóa giao dịch quy ước 1=1.000 VNĐ
@@ -1490,7 +1490,7 @@ export default function Home() {
                 ))}
               </div>
 
-              {/* Hàng chọn ngày tùy chọn & dropdown BoMo, Nhãn, Loại */}
+              {/* Hàng chọn ngày tùy chọn & dropdown MoBo, Nhãn, Loại */}
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2 text-xs">
                 {homeFilterRange === "custom" && (
                   <div className="col-span-1 sm:col-span-2 flex items-center space-x-2">
@@ -1524,13 +1524,13 @@ export default function Home() {
                   <option value="transfer">Chuyển nội bộ (➔)</option>
                 </select>
 
-                {/* Lọc theo BoMo */}
+                {/* Lọc theo MoBo */}
                 <select
                   value={homeFilterVault}
                   onChange={(e) => setHomeFilterVault(e.target.value)}
                   className="p-2 rounded-xl border border-slate-300 bg-white text-xs"
                 >
-                  <option value="">Tất cả BoMo</option>
+                  <option value="">Tất cả MoBo</option>
                   {vaults.map((v) => (
                     <option key={v.id} value={v.id}>
                       {v.name}
@@ -1566,7 +1566,7 @@ export default function Home() {
               const filteredFlows = actualFlows.filter((flow) => {
                 // Lọc theo loại
                 if (homeFilterType !== "all" && flow.type !== homeFilterType) return false;
-                // Lọc theo BoMo
+                // Lọc theo MoBo
                 if (homeFilterVault && flow.fromVaultId !== homeFilterVault && flow.toVaultId !== homeFilterVault) return false;
                 // Lọc theo Nhãn
                 if (homeFilterTag && flow.tag !== homeFilterTag) return false;
@@ -1683,10 +1683,10 @@ export default function Home() {
                 </div>
                 <div>
                   <h3 className="font-black text-slate-900 text-base sm:text-lg tracking-tight">
-                    Khối 4: Trạng Thái Ngưỡng Kiểm Soát An Toàn
+                    Trạng Thái Ngưỡng Kiểm Soát An Toàn
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Ngưỡng âm nợ tối đa, ngưỡng tiền tối thiểu BoMo và tiến độ mục tiêu tiết kiệm
+                    Ngưỡng âm nợ tối đa, ngưỡng tiền tối thiểu MoBo và tiến độ mục tiêu tiết kiệm
                   </p>
                 </div>
               </div>
@@ -1741,18 +1741,18 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* Chỉ báo 2: Ngưỡng số dư tối thiểu mỗi BoMo */}
+              {/* Chỉ báo 2: Ngưỡng số dư tối thiểu mỗi MoBo */}
               <div className="p-4 rounded-2xl border border-slate-200 bg-slate-50/60 space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-700">Ngưỡng BoMo tối thiểu</span>
+                  <span className="text-xs font-bold text-slate-700">Ngưỡng MoBo tối thiểu</span>
                   <button
                     type="button"
                     onClick={() =>
                       setSettingEditModal({
                         isOpen: true,
                         key: "minVaultBalanceAllowed",
-                        title: "Chỉnh Sửa Ngưỡng Tiền Tối Thiểu Mỗi BoMo",
-                        description: "Cảnh báo khi BoMo có số dư dưới ngưỡng này",
+                        title: "Chỉnh Sửa Ngưỡng Tiền Tối Thiểu Mỗi MoBo",
+                        description: "Cảnh báo khi MoBo có số dư dưới ngưỡng này",
                         currentValue: systemSettings.minVaultBalanceAllowed,
                         inputUnits: (systemSettings.minVaultBalanceAllowed / 1000).toString(),
                       })
@@ -1771,11 +1771,11 @@ export default function Home() {
                 <div className="pt-1">
                   {lowBalanceVaults.length > 0 ? (
                     <span className="text-[11px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200 inline-block">
-                      ⚠️ {lowBalanceVaults.length} BoMo dưới ngưỡng
+                      ⚠️ {lowBalanceVaults.length} MoBo dưới ngưỡng
                     </span>
                   ) : (
                     <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200 inline-block">
-                      ✓ Tất cả BoMo đều đạt chuẩn
+                      ✓ Tất cả MoBo đều đạt chuẩn
                     </span>
                   )}
                 </div>
@@ -1829,7 +1829,7 @@ export default function Home() {
                 </div>
                 <div>
                   <h3 className="font-black text-slate-900 text-base sm:text-lg tracking-tight">
-                    Khối 5: Kế Hoạch Sắp Tới (Dự Thu / Dự Chi)
+                    Kế Hoạch Sắp Tới (Dự Thu / Dự Chi)
                   </h3>
                   <p className="text-xs text-slate-500">
                     Các sự kiện tài chính tương lai, đếm ngược ngày đến hạn và nút thực hiện ngay
@@ -1949,7 +1949,7 @@ export default function Home() {
       {activeTab === "settings" && (
         <div className="space-y-6">
           <div className="bg-[#0C2C47] text-white p-5 rounded-xl space-y-2">
-            <h3 className="font-black text-lg">7. Cài Đặt Hệ Thống & Cảnh Báo</h3>
+            <h3 className="font-black text-lg">Cài Đặt Hệ Thống & Cảnh Báo</h3>
             <p className="text-xs text-slate-300">
               Cấu hình ngưỡng số ngày im lặng của Kho, quy tắc đối chiếu định kỳ và danh mục nhãn
             </p>
@@ -1964,7 +1964,7 @@ export default function Home() {
                     <Clock className="w-4 h-4" />
                   </div>
                   <div>
-                    <h4 className="font-bold text-[#0C2C47] text-sm">7.3 Thông Báo Sự Kiện Dự Chi / Thu</h4>
+                    <h4 className="font-bold text-[#0C2C47] text-sm">Thông Báo Sự Kiện Dự Chi / Thu</h4>
                     <p className="text-[11px] text-slate-500">Nhắc nhở người dùng còn X ngày đến ngày thực hiện</p>
                   </div>
                 </div>
@@ -2260,7 +2260,7 @@ export default function Home() {
                   <ShieldAlert className="w-4 h-4" />
                 </div>
                 <div>
-                  <h4 className="font-bold text-[#0C2C47] text-sm">7.4 Ngưỡng Âm Nợ & Tiền Kho Cho Phép</h4>
+                  <h4 className="font-bold text-[#0C2C47] text-sm">Ngưỡng Âm Nợ & Tiền Kho Cho Phép</h4>
                   <p className="text-[11px] text-slate-500">Thiết lập các giới hạn bảo vệ an toàn vốn</p>
                 </div>
               </div>
@@ -2389,7 +2389,7 @@ export default function Home() {
                     <PiggyBank className="w-4 h-4" />
                   </div>
                   <div>
-                    <h4 className="font-black text-[#0C2C47] text-base">7.5 Mục Tiêu Tiết Kiệm & Quỹ Tích Lũy</h4>
+                    <h4 className="font-black text-[#0C2C47] text-base">Mục Tiêu Tiết Kiệm & Quỹ Tích Lũy</h4>
                     <p className="text-[11px] text-slate-500">Kế hoạch tài chính dài hạn hướng tới tự do tài chính</p>
                   </div>
                 </div>
@@ -2467,7 +2467,7 @@ export default function Home() {
                   </div>
                   <div>
                     <h4 className="text-base font-black text-[#0C2C47]">
-                      7.2A Cài Đặt Thời Gian Cập Nhật Tài Chính
+                      Cài Đặt Thời Gian Cập Nhật Tài Chính
                     </h4>
                     <p className="text-xs text-slate-500 font-medium">
                       Lên lịch hẹn giờ cho các hành động chốt sổ, kiểm kê kho & cập nhật dòng tiền
@@ -2622,7 +2622,7 @@ export default function Home() {
                   <div>
                     <div className="flex items-center gap-2">
                       <h4 className="text-base font-black text-[#0C2C47]">
-                        7.2B Cấu Hình Âm Thanh Thông Báo Đặc Quyền
+                        Cấu Hình Âm Thanh Thông Báo
                       </h4>
                       <span className="text-[10px] font-black bg-amber-500 text-slate-950 px-2 py-0.5 rounded-full uppercase tracking-wider">
                         3 Hồi Ngắt Quãng
@@ -3234,7 +3234,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* MODAL 1: TẠO BOMO (BOXMONEY) MỚI */}
+      {/* MODAL 1: TẠO MOBO (Money Box) MỚI */}
       {showVaultModal && (
         <div className="fixed inset-0 z-50 bg-black/65 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border-2 border-[#0C2C47] space-y-4 max-h-[92vh] overflow-y-auto">
@@ -3244,7 +3244,7 @@ export default function Home() {
                   <Wallet className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-base font-black text-[#0C2C47]">TẠO BOMO (BOXMONEY) MỚI</h3>
+                  <h3 className="text-base font-black text-[#0C2C47]">TẠO MOBO (Money Box) MỚI</h3>
                   <p className="text-[11px] text-slate-500">Ví tiền, tài khoản ngân hàng hoặc tài khoản nợ vay</p>
                 </div>
               </div>
@@ -3258,7 +3258,7 @@ export default function Home() {
 
             <form onSubmit={handleCreateVault} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tên BoMo (BoxMoney) *</label>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tên MoBo (Money Box) *</label>
                 <input
                   type="text"
                   required
@@ -3271,7 +3271,7 @@ export default function Home() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Phân Loại BoMo</label>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Phân Loại MoBo</label>
                   <select
                     value={vaultForm.type}
                     onChange={(e) => {
@@ -3334,7 +3334,7 @@ export default function Home() {
                 </div>
                 <p className="text-[11px] text-slate-500 mt-1 pl-6">
                   {vaultForm.isNegativeDebt
-                    ? "Số tiền nhập dưới đây sẽ được ghi nhận là khoản nợ ngân hàng (mang giá trị âm), trừ vào tổng tài sản BoMo."
+                    ? "Số tiền nhập dưới đây sẽ được ghi nhận là khoản nợ ngân hàng (mang giá trị âm), trừ vào tổng tài sản MoBo."
                     : "Đánh dấu nếu đây là tài khoản thẻ tín dụng, khoản vay ngân hàng hoặc tài khoản đang thấu chi."}
                 </p>
               </div>
@@ -3448,7 +3448,7 @@ export default function Home() {
                   type="submit"
                   className="px-6 py-2.5 rounded-xl bg-[#0C2C47] hover:bg-[#0C2C47]/90 text-white text-xs font-black shadow-md cursor-pointer"
                 >
-                  Tạo BoMo Mới
+                  Tạo MoBo Mới
                 </button>
               </div>
             </form>
@@ -3456,7 +3456,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* MODAL 2: SỬA BOMO (BOXMONEY) */}
+      {/* MODAL 2: SỬA MOBO (Money Box) */}
       {editingVault && (
         <div className="fixed inset-0 z-50 bg-black/65 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border-2 border-[#0C2C47] space-y-4 max-h-[92vh] overflow-y-auto">
@@ -3466,7 +3466,7 @@ export default function Home() {
                   <Edit className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-base font-black text-[#0C2C47]">SỬA THÔNG TIN BOMO</h3>
+                  <h3 className="text-base font-black text-[#0C2C47]">SỬA THÔNG TIN MOBO</h3>
                   <p className="text-[11px] text-slate-500">Cập nhật tên, phân loại, số dư hoặc quỹ khóa</p>
                 </div>
               </div>
@@ -3480,11 +3480,11 @@ export default function Home() {
 
             <form onSubmit={handleUpdateVault} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tên BoMo (BoxMoney) *</label>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tên MoBo (Money Box) *</label>
                 <input
                   type="text"
                   required
-                  placeholder="Tên BoMo..."
+                  placeholder="Tên MoBo..."
                   value={editVaultForm.name}
                   onChange={(e) => setEditVaultForm({ ...editVaultForm, name: e.target.value })}
                   className="w-full p-2.5 rounded-xl border border-slate-300 text-sm font-semibold focus:ring-2 focus:ring-[#0C2C47]"
@@ -3493,7 +3493,7 @@ export default function Home() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Phân Loại BoMo</label>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Phân Loại MoBo</label>
                   <select
                     value={editVaultForm.type}
                     onChange={(e) => {
@@ -3673,7 +3673,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* MODAL 3: XÓA BOMO (BẮT BUỘC SỐ DƯ = 0 Đ, CHUYỂN +/- SANG BOMO KHÁC) */}
+      {/* MODAL 3: XÓA MOBO (BẮT BUỘC SỐ DƯ = 0 Đ, CHUYỂN +/- SANG MOBO KHÁC) */}
       {deletingVault && (() => {
         const isZeroBalance = Math.abs(deletingVault.balance) < 0.001;
         const isPositive = deletingVault.balance > 0;
@@ -3690,7 +3690,7 @@ export default function Home() {
                   </div>
                   <div>
                     <h3 className="text-base font-black text-slate-900 uppercase">
-                      XÓA BOMO: {deletingVault.name}
+                      XÓA MOBO: {deletingVault.name}
                     </h3>
                     <p className="text-[11px] text-slate-500">Quy chuẩn an toàn: Bắt buộc số dư phải về 0 đ</p>
                   </div>
@@ -3712,7 +3712,7 @@ export default function Home() {
                 }`}
               >
                 <div className="flex justify-between items-center">
-                  <span className="font-semibold">Số dư BoMo hiện tại:</span>
+                  <span className="font-semibold">Số dư MoBo hiện tại:</span>
                   <span
                     className={`text-base font-black ${
                       isZeroBalance
@@ -3731,31 +3731,31 @@ export default function Home() {
                 {isZeroBalance ? (
                   <div className="flex items-center space-x-2 text-emerald-800 font-bold pt-1 border-t border-emerald-200">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span>BoMo có số dư đúng bằng 0 đ. Đủ điều kiện xóa an toàn khỏi hệ thống!</span>
+                    <span>MoBo có số dư đúng bằng 0 đ. Đủ điều kiện xóa an toàn khỏi hệ thống!</span>
                   </div>
                 ) : (
                   <div className="space-y-1 pt-1 border-t border-amber-200">
                     <div className="flex items-center space-x-1.5 font-black text-rose-700">
                       <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
-                      <span>Số dư khác 0 đ! Bắt buộc chuyển toàn bộ sang BoMo khác trước khi xóa.</span>
+                      <span>Số dư khác 0 đ! Bắt buộc chuyển toàn bộ sang MoBo khác trước khi xóa.</span>
                     </div>
                     <p className="text-[11px] text-slate-600">
-                      Để tránh thất thoát sổ sách kế toán, bạn có quyền chuyển toàn bộ số tiền (+) hoặc dư nợ (−) của BoMo này sang một BoMo chỉ định.
+                      Để tránh thất thoát sổ sách kế toán, bạn có quyền chuyển toàn bộ số tiền (+) hoặc dư nợ (−) của MoBo này sang một MoBo chỉ định.
                     </p>
                   </div>
                 )}
               </div>
 
-              {/* Nếu số dư khác 0: Form chọn BoMo tiếp nhận kết chuyển */}
+              {/* Nếu số dư khác 0: Form chọn MoBo tiếp nhận kết chuyển */}
               {!isZeroBalance && (
                 <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
                   <label className="block text-xs font-black text-slate-800 uppercase">
-                    CHỌN BOMO TIẾP NHẬN SỐ DƯ ({isPositive ? "TIỀN DƯƠNG +" : "DƯ NỢ VAY −"}) *
+                    CHỌN MOBO TIẾP NHẬN SỐ DƯ ({isPositive ? "TIỀN DƯƠNG +" : "DƯ NỢ VAY −"}) *
                   </label>
 
                   {otherVaults.length === 0 ? (
                     <p className="text-xs text-rose-600 font-bold">
-                      Không còn BoMo nào khác để chuyển giao số dư. Vui lòng tạo thêm một BoMo khác hoặc đưa số dư về 0 đ trước khi xóa.
+                      Không còn MoBo nào khác để chuyển giao số dư. Vui lòng tạo thêm một MoBo khác hoặc đưa số dư về 0 đ trước khi xóa.
                     </p>
                   ) : (
                     <>
@@ -3776,11 +3776,11 @@ export default function Home() {
                           <span className="font-bold block">Tác động kết chuyển tự động:</span>
                           {isPositive ? (
                             <p className="text-[11px]">
-                              Toàn bộ <b>+{deletingVault.balance.toLocaleString("vi-VN")} ₫</b> sẽ chuyển sang BoMo <b>"{selectedTarget.name}"</b> (Số dư mới: {(selectedTarget.balance + deletingVault.balance).toLocaleString("vi-VN")} ₫). BoMo <b>"{deletingVault.name}"</b> sẽ về 0 đ và được xóa vĩnh viễn.
+                              Toàn bộ <b>+{deletingVault.balance.toLocaleString("vi-VN")} ₫</b> sẽ chuyển sang MoBo <b>"{selectedTarget.name}"</b> (Số dư mới: {(selectedTarget.balance + deletingVault.balance).toLocaleString("vi-VN")} ₫). MoBo <b>"{deletingVault.name}"</b> sẽ về 0 đ và được xóa vĩnh viễn.
                             </p>
                           ) : (
                             <p className="text-[11px]">
-                              Toàn bộ khoản nợ <b>{deletingVault.balance.toLocaleString("vi-VN")} ₫</b> sẽ chuyển sang gánh bởi BoMo <b>"{selectedTarget.name}"</b> (Số dư mới: {(selectedTarget.balance + deletingVault.balance).toLocaleString("vi-VN")} ₫). BoMo <b>"{deletingVault.name}"</b> sẽ về 0 đ và được xóa vĩnh viễn.
+                              Toàn bộ khoản nợ <b>{deletingVault.balance.toLocaleString("vi-VN")} ₫</b> sẽ chuyển sang gánh bởi MoBo <b>"{selectedTarget.name}"</b> (Số dư mới: {(selectedTarget.balance + deletingVault.balance).toLocaleString("vi-VN")} ₫). MoBo <b>"{deletingVault.name}"</b> sẽ về 0 đ và được xóa vĩnh viễn.
                             </p>
                           )}
                         </div>
@@ -3806,7 +3806,7 @@ export default function Home() {
                 >
                   <Trash2 className="w-4 h-4" />
                   <span>
-                    {isZeroBalance ? "Xác Nhận Xóa BoMo" : "Chuyển Giao Số Dư & Xóa"}
+                    {isZeroBalance ? "Xác Nhận Xóa MoBo" : "Chuyển Giao Số Dư & Xóa"}
                   </span>
                 </button>
               </div>
