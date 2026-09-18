@@ -84,6 +84,29 @@ export async function initDatabase() {
       );
     `);
 
+    // 5. Khoản Vay & Cho Vay (Chủ Nợ & Con Nợ)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS loans (
+        id VARCHAR(50) PRIMARY KEY,
+        title VARCHAR(255) NOT NULL,
+        role VARCHAR(50) NOT NULL, -- 'creditor' (Tôi là Chủ Nợ) | 'debtor' (Tôi là Con Nợ)
+        partner_name VARCHAR(255) NOT NULL,
+        linked_vault_id VARCHAR(50) REFERENCES vaults(id) ON DELETE SET NULL,
+        start_date DATE NOT NULL DEFAULT CURRENT_DATE,
+        due_date DATE,
+        amount NUMERIC(18, 2) NOT NULL,
+        paid_amount NUMERIC(18, 2) NOT NULL DEFAULT 0,
+        interest_rate NUMERIC(6, 2) DEFAULT 0,
+        interest_type VARCHAR(50) DEFAULT 'none',
+        interest_due_term VARCHAR(100) DEFAULT 'end_term',
+        confirmed_creditor BOOLEAN NOT NULL DEFAULT true,
+        confirmed_debtor BOOLEAN NOT NULL DEFAULT false,
+        status VARCHAR(50) NOT NULL DEFAULT 'active',
+        notes TEXT,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
     // Seed data nếu bảng vaults trống
     const { rows: vaultCount } = await client.query(`SELECT COUNT(*) FROM vaults;`);
     if (parseInt(vaultCount[0].count, 10) === 0) {
@@ -106,6 +129,20 @@ export async function initDatabase() {
           ('o2', 'Nhà cung cấp thiết bị Dell (Phải trả)', 'payable', 'debtor', 18500000, 'Đại lý Phân Phối ICT', NULL, '1.2%/tháng', '2026-09-10', 'urgent'),
           ('o3', 'Thuế GTGT & TNCN Quý 3/2026', 'tax', 'debtor', 9600000, 'Chi cục Thuế khu vực', 'Khoán 1.5% doanh thu dòng chảy', NULL, '2026-09-30', 'normal');
       `);
+    }
+
+    // Seed data nếu bảng loans trống
+    const { rows: loanCount } = await client.query(`SELECT COUNT(*) FROM loans;`);
+    if (parseInt(loanCount[0].count, 10) === 0) {
+      // Lấy id một vault có sẵn nếu có
+      const vQuery = await client.query(`SELECT id FROM vaults WHERE is_closed = false LIMIT 1;`);
+      const defaultVaultId = vQuery.rows.length > 0 ? vQuery.rows[0].id : null;
+
+      await client.query(`
+        INSERT INTO loans (id, title, role, partner_name, linked_vault_id, start_date, due_date, amount, paid_amount, interest_rate, interest_type, interest_due_term, confirmed_creditor, confirmed_debtor, status, notes) VALUES
+          ('loan_1', 'Cho anh Nam mượn vốn nhập hàng', 'creditor', 'Anh Nam (Hải Phòng)', $1, CURRENT_DATE - INTERVAL '15 days', CURRENT_DATE + INTERVAL '45 days', 30000000, 10000000, 1.0, 'monthly', 'Hàng tháng ngày 15', true, true, 'active', 'Cam kết hoàn trả qua MoBo liên kết'),
+          ('loan_2', 'Vay vốn nhập thiết bị điện tử', 'debtor', 'Ngân hàng Techcombank', $1, CURRENT_DATE - INTERVAL '5 days', CURRENT_DATE + INTERVAL '60 days', 50000000, 0, 8.5, 'yearly', 'Cuối kỳ cùng gốc', true, false, 'active', 'Hạn mức kinh doanh ngắn hạn');
+      `, [defaultVaultId]);
     }
   } finally {
     client.release();
