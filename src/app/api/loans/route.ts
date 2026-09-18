@@ -21,6 +21,7 @@ export async function GET() {
              l.confirmed_creditor as "confirmedCreditor",
              l.confirmed_debtor as "confirmedDebtor",
              l.status, l.notes,
+             l.agreement_id as "agreementId",
              TO_CHAR(l.created_at, 'DD/MM/YYYY HH24:MI') as "createdAt"
       FROM loans l
       LEFT JOIN vaults v ON l.linked_vault_id = v.id

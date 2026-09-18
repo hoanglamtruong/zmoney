@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import {
   Wallet, Handshake, Users, UserCheck, BadgePercent, CreditCard, 
   ArrowRightLeft,
@@ -51,7 +52,10 @@ import {
   PiggyBank,
   Edit,
   Trash2,
-  Eye
+  Eye,
+  PenTool,
+  Share2,
+  Copy
 } from "lucide-react";
 import {
   playCoinSound,
@@ -84,6 +88,7 @@ interface Loan {
   confirmedDebtor: boolean;
   status: "active" | "settled" | "overdue";
   notes?: string;
+  agreementId?: string;
   createdAt?: string;
 }
 
@@ -305,6 +310,28 @@ export default function Home() {
   const [payingVaultId, setPayingVaultId] = useState("");
   const [payingNote, setPayingNote] = useState("");
   const [loanToDelete, setLoanToDelete] = useState<Loan | null>(null);
+
+  // STATE THỎA THUẬN KÝ ĐIỆN TỬ (ID LIÊN KẾT & CHỮ KÝ CANVAS)
+  const [showAgreementModal, setShowAgreementModal] = useState(false);
+  const [agreementForm, setAgreementForm] = useState({
+    title: "",
+    creatorRole: "creditor" as "creditor" | "debtor",
+    creditorName: "",
+    creditorContact: "",
+    debtorName: "",
+    debtorContact: "",
+    amountUnits: "", // 1 = 1.000 VNĐ
+    interestRate: "0",
+    interestType: "none" as "none" | "monthly" | "yearly" | "fixed_sum",
+    interestDueTerm: "end_term",
+    startDate: new Date().toISOString().split("T")[0],
+    dueDate: "",
+    linkedVaultId: "",
+    terms: "Hai bên cam kết tự nguyện thỏa thuận vay và cho vay đúng theo các điều khoản ghi trong thỏa thuận này.",
+  });
+  const [createdAgreementResult, setCreatedAgreementResult] = useState<any | null>(null);
+  const [agreementLinkCopied, setAgreementLinkCopied] = useState(false);
+  const [isCreatingAgreement, setIsCreatingAgreement] = useState(false);
 
   const [targetTransferVaultId, setTargetTransferVaultId] = useState<string>("");
 
@@ -1003,6 +1030,75 @@ export default function Home() {
       }
     } catch (err: any) {
       alert("Lỗi: " + err.message);
+    }
+  };
+
+  const handleOpenCreateAgreement = () => {
+    setCreatedAgreementResult(null);
+    setAgreementLinkCopied(false);
+    const defaultVault = vaults.length > 0 ? vaults[0] : null;
+    setAgreementForm({
+      title: "",
+      creatorRole: "creditor",
+      creditorName: defaultVault ? defaultVault.name : "Chủ Nợ",
+      creditorContact: "",
+      debtorName: "",
+      debtorContact: "",
+      amountUnits: "",
+      interestRate: "0",
+      interestType: "none",
+      interestDueTerm: "end_term",
+      startDate: new Date().toISOString().split("T")[0],
+      dueDate: "",
+      linkedVaultId: defaultVault ? defaultVault.id : "",
+      terms: "Hai bên cam kết tự nguyện thỏa thuận vay và cho vay đúng theo các điều khoản ghi trong thỏa thuận này.",
+    });
+    setShowAgreementModal(true);
+  };
+
+  const handleCreateAgreement = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!agreementForm.title.trim()) return alert("Vui lòng nhập mục đích vay");
+    if (!agreementForm.creditorName.trim()) return alert("Vui lòng nhập họ tên Chủ Nợ");
+    if (!agreementForm.debtorName.trim()) return alert("Vui lòng nhập họ tên Con Nợ");
+
+    const units = parseFloat(agreementForm.amountUnits);
+    if (isNaN(units) || units <= 0) return alert("Vui lòng nhập số tiền hợp lệ (> 0). Quy ước 1 = 1.000 VNĐ.");
+    const realAmount = Math.round(units * 1000);
+
+    try {
+      setIsCreatingAgreement(true);
+      const res = await fetch("/api/agreements", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: agreementForm.title,
+          creatorRole: agreementForm.creatorRole,
+          creditorName: agreementForm.creditorName,
+          creditorContact: agreementForm.creditorContact,
+          debtorName: agreementForm.debtorName,
+          debtorContact: agreementForm.debtorContact,
+          amount: realAmount,
+          interestRate: parseFloat(agreementForm.interestRate) || 0,
+          interestType: agreementForm.interestType,
+          interestDueTerm: agreementForm.interestDueTerm,
+          startDate: agreementForm.startDate,
+          dueDate: agreementForm.dueDate || null,
+          linkedVaultId: agreementForm.linkedVaultId || null,
+          terms: agreementForm.terms,
+        }),
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        setCreatedAgreementResult(data.data);
+      } else {
+        alert("Lỗi: " + data.error);
+      }
+    } catch (err: any) {
+      alert("Lỗi khi tạo thỏa thuận: " + err.message);
+    } finally {
+      setIsCreatingAgreement(false);
     }
   };
 
@@ -1707,7 +1803,16 @@ export default function Home() {
                 </div>
               </div>
 
-              <div className="flex items-center space-x-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleOpenCreateAgreement}
+                  className="bg-indigo-700 hover:bg-indigo-800 text-white px-3 py-2 rounded-xl text-xs font-black shadow-xs cursor-pointer flex items-center space-x-1.5 transition active:scale-95"
+                  title="Tạo văn bản thỏa thuận vay mượn có ID chia sẻ để 2 bên cùng ký điện tử"
+                >
+                  <PenTool className="w-3.5 h-3.5" />
+                  <span>📝 Ký Thỏa Thuận (Chia Sẻ Link)</span>
+                </button>
                 <button
                   type="button"
                   onClick={() => handleOpenCreateLoan("creditor")}
@@ -1908,8 +2013,21 @@ export default function Home() {
                         </div>
 
                         {/* Hàng 2: Tiêu đề & Thông tin Đối tác (Ai?) */}
-                        <div>
-                          <h4 className="font-black text-slate-900 text-base leading-snug">{loan.title}</h4>
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <h4 className="font-black text-slate-900 text-base leading-snug">{loan.title}</h4>
+                            {loan.agreementId && (
+                              <Link
+                                href={`/agreement/${loan.agreementId}`}
+                                target="_blank"
+                                className="inline-flex items-center space-x-1 text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-lg hover:bg-indigo-100 transition shrink-0"
+                                title="Xem văn bản thỏa thuận ký điện tử & 2 bản lưu"
+                              >
+                                <FileText className="w-3 h-3 text-indigo-600" />
+                                <span>Thỏa thuận: {loan.agreementId} ➔</span>
+                              </Link>
+                            )}
+                          </div>
                           <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-600">
                             <span className="flex items-center space-x-1">
                               <Users className="w-3.5 h-3.5 text-slate-400" />
@@ -6163,6 +6281,351 @@ export default function Home() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* MODAL: TẠO THỎA THUẬN KÝ ĐIỆN TỬ QUA ID LIÊN KẾT */}
+      {/* ======================================================== */}
+      {showAgreementModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl p-6 w-full max-w-lg shadow-2xl border border-slate-100 max-h-[90vh] overflow-y-auto space-y-4">
+            
+            {/* Header Modal */}
+            <div className="flex justify-between items-center border-b pb-3 border-slate-100">
+              <div className="flex items-center space-x-2">
+                <div className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-800 flex items-center justify-center">
+                  <PenTool className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-[#0C2C47]">
+                    TẠO THỎA THUẬN KÝ ĐIỆN TỬ
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Sinh mã ID liên kết • 2 bên cùng ký tên Canvas • Tự import vào Sổ Vay Mượn
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAgreementModal(false)}
+                className="text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {createdAgreementResult ? (
+              /* MÀN HÌNH SAU KHI TẠO THÀNH CÔNG: HIỂN THỊ LINK CHIA SẺ */
+              <div className="space-y-4 py-2">
+                <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-200 text-center space-y-2">
+                  <div className="w-12 h-12 bg-emerald-100 text-emerald-700 rounded-full flex items-center justify-center mx-auto">
+                    <Check className="w-6 h-6" />
+                  </div>
+                  <h4 className="font-black text-slate-900 text-base">
+                    Đã Khởi Tạo Thỏa Thuận Thành Công!
+                  </h4>
+                  <p className="text-xs text-emerald-800">
+                    Mã định danh thỏa thuận duy nhất: <b className="text-emerald-950 font-black text-sm">{createdAgreementResult.id}</b>
+                  </p>
+                </div>
+
+                {/* Khối chia sẻ link */}
+                <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 space-y-2">
+                  <span className="text-xs font-black text-slate-800 uppercase block">
+                    Đường Link Thỏa Thuận & Ký Điện Tử:
+                  </span>
+                  
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="text"
+                      readOnly
+                      value={typeof window !== "undefined" ? `${window.location.origin}/agreement/${createdAgreementResult.id}` : `/agreement/${createdAgreementResult.id}`}
+                      className="w-full p-2.5 rounded-xl border border-slate-300 text-xs font-mono bg-white text-slate-800 select-all"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const link = `${window.location.origin}/agreement/${createdAgreementResult.id}`;
+                        navigator.clipboard.writeText(link);
+                        setAgreementLinkCopied(true);
+                        setTimeout(() => setAgreementLinkCopied(false), 2000);
+                      }}
+                      className="px-3.5 py-2.5 rounded-xl bg-indigo-700 hover:bg-indigo-800 text-white font-black text-xs cursor-pointer shrink-0 flex items-center space-x-1"
+                    >
+                      {agreementLinkCopied ? (
+                        <>
+                          <Check className="w-4 h-4" />
+                          <span>Đã chép!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-4 h-4" />
+                          <span>Sao Chép</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  <p className="text-[11px] text-slate-500 italic">
+                    💡 Hãy gửi link này cho đối tác (Chủ nợ hoặc Con nợ) qua Zalo/SMS. Khi cả hai bên cùng hoàn tất ký tên trên Canvas, thỏa thuận sẽ tự động import vào Sổ Vay & Mượn và tạo 2 bản lưu để tải về.
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-between pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowAgreementModal(false)}
+                    className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition cursor-pointer"
+                  >
+                    Đóng
+                  </button>
+
+                  <a
+                    href={`/agreement/${createdAgreementResult.id}`}
+                    target="_blank"
+                    className="px-5 py-2 rounded-xl bg-[#0C2C47] text-white font-black text-xs hover:bg-[#12385b] shadow-xs cursor-pointer flex items-center space-x-1.5"
+                  >
+                    <PenTool className="w-3.5 h-3.5" />
+                    <span>Mở Trang Ký Tên Ngay ➔</span>
+                  </a>
+                </div>
+              </div>
+            ) : (
+              /* FORM NHẬP LIỆU THỎA THUẬN */
+              <form onSubmit={handleCreateAgreement} className="space-y-4">
+                {/* Vai trò người lập */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    Bạn Đang Là Bên Nào Trong Thỏa Thuận? *
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setAgreementForm((prev) => ({ ...prev, creatorRole: "creditor" }))}
+                      className={`py-2 px-3 rounded-xl text-xs font-black border transition cursor-pointer flex items-center justify-center space-x-1.5 ${
+                        agreementForm.creatorRole === "creditor"
+                          ? "bg-emerald-600 text-white border-emerald-700 shadow-xs"
+                          : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                      }`}
+                    >
+                      <span>🟢 Tôi Là Bên Cho Vay (Chủ Nợ)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAgreementForm((prev) => ({ ...prev, creatorRole: "debtor" }))}
+                      className={`py-2 px-3 rounded-xl text-xs font-black border transition cursor-pointer flex items-center justify-center space-x-1.5 ${
+                        agreementForm.creatorRole === "debtor"
+                          ? "bg-rose-600 text-white border-rose-700 shadow-xs"
+                          : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                      }`}
+                    >
+                      <span>🔴 Tôi Là Bên Vay (Con Nợ)</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Tiêu đề mục đích */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    Mục Đích Thỏa Thuận Vay *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ví dụ: Vay vốn nhập hàng kinh doanh, Vay mua máy tính..."
+                    value={agreementForm.title}
+                    onChange={(e) => setAgreementForm((prev) => ({ ...prev, title: e.target.value }))}
+                    className="w-full p-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-[#0C2C47] text-xs font-medium"
+                  />
+                </div>
+
+                {/* Thông tin 2 Bên */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50/70 p-3 rounded-2xl border border-slate-200">
+                  <div>
+                    <label className="block text-xs font-black text-emerald-800 uppercase mb-1">
+                      Họ Tên Bên A (Chủ Nợ) *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Họ tên người cho vay..."
+                      value={agreementForm.creditorName}
+                      onChange={(e) => setAgreementForm((prev) => ({ ...prev, creditorName: e.target.value }))}
+                      className="w-full p-2 rounded-xl border border-slate-300 text-xs font-medium bg-white"
+                    />
+                    <input
+                      type="text"
+                      placeholder="SĐT / CCCD (tùy chọn)"
+                      value={agreementForm.creditorContact}
+                      onChange={(e) => setAgreementForm((prev) => ({ ...prev, creditorContact: e.target.value }))}
+                      className="w-full p-1.5 rounded-lg border border-slate-200 text-[11px] font-medium bg-white mt-1.5"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-black text-rose-800 uppercase mb-1">
+                      Họ Tên Bên B (Con Nợ) *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Họ tên người đi vay..."
+                      value={agreementForm.debtorName}
+                      onChange={(e) => setAgreementForm((prev) => ({ ...prev, debtorName: e.target.value }))}
+                      className="w-full p-2 rounded-xl border border-slate-300 text-xs font-medium bg-white"
+                    />
+                    <input
+                      type="text"
+                      placeholder="SĐT / CCCD (tùy chọn)"
+                      value={agreementForm.debtorContact}
+                      onChange={(e) => setAgreementForm((prev) => ({ ...prev, debtorContact: e.target.value }))}
+                      className="w-full p-1.5 rounded-lg border border-slate-200 text-[11px] font-medium bg-white mt-1.5"
+                    />
+                  </div>
+                </div>
+
+                {/* Số tiền gốc (1=1k) */}
+                <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200 space-y-1.5">
+                  <div className="flex justify-between items-center">
+                    <label className="block text-xs font-black text-slate-800 uppercase">
+                      Số Tiền Thỏa Thuận (Quy ước: 1 = 1.000 VNĐ) *
+                    </label>
+                    <span className="text-[10px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded">
+                      1 = 1.000 VNĐ
+                    </span>
+                  </div>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      step="any"
+                      required
+                      placeholder="Ví dụ: 30000 = 30 triệu..."
+                      value={agreementForm.amountUnits}
+                      onChange={(e) => setAgreementForm((prev) => ({ ...prev, amountUnits: e.target.value }))}
+                      className="w-full p-2.5 pr-14 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-[#0C2C47] font-black text-base"
+                    />
+                    <span className="absolute right-3 top-2.5 text-xs text-slate-400 font-bold">
+                      k VNĐ
+                    </span>
+                  </div>
+                  {agreementForm.amountUnits && !isNaN(parseFloat(agreementForm.amountUnits)) && (
+                    <div className="p-2 bg-emerald-50 rounded-xl border border-emerald-200 text-xs font-black text-emerald-800">
+                      💰 Số tiền thực tế:{" "}
+                      {Math.round(parseFloat(agreementForm.amountUnits) * 1000).toLocaleString("vi-VN")} ₫
+                    </div>
+                  )}
+                </div>
+
+                {/* Lãi suất */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                      Loại Lãi Suất
+                    </label>
+                    <select
+                      value={agreementForm.interestType}
+                      onChange={(e) => setAgreementForm((prev) => ({ ...prev, interestType: e.target.value as any }))}
+                      className="w-full p-2 rounded-xl border border-slate-300 text-xs font-medium bg-white"
+                    >
+                      <option value="none">Không tính lãi (0%)</option>
+                      <option value="monthly">% / tháng</option>
+                      <option value="yearly">% / năm</option>
+                      <option value="fixed_sum">Lãi cố định</option>
+                    </select>
+                  </div>
+
+                  {agreementForm.interestType !== "none" ? (
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                        Mức Lãi ({agreementForm.interestType === "monthly" ? "%/tháng" : agreementForm.interestType === "yearly" ? "%/năm" : "VNĐ"})
+                      </label>
+                      <input
+                        type="number"
+                        step="any"
+                        placeholder="Ví dụ: 1.0"
+                        value={agreementForm.interestRate}
+                        onChange={(e) => setAgreementForm((prev) => ({ ...prev, interestRate: e.target.value }))}
+                        className="w-full p-2 rounded-xl border border-slate-300 text-xs font-bold"
+                      />
+                    </div>
+                  ) : (
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                        Kỳ Hạn Lãi
+                      </label>
+                      <span className="block p-2 rounded-xl border border-slate-200 bg-slate-50 text-xs text-slate-400 font-semibold">
+                        Không phát sinh lãi
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Thời gian */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                      Ngày Bắt Đầu
+                    </label>
+                    <input
+                      type="date"
+                      required
+                      value={agreementForm.startDate}
+                      onChange={(e) => setAgreementForm((prev) => ({ ...prev, startDate: e.target.value }))}
+                      className="w-full p-2 rounded-xl border border-slate-300 text-xs font-medium"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                      Ngày Đáo Hạn
+                    </label>
+                    <input
+                      type="date"
+                      value={agreementForm.dueDate}
+                      onChange={(e) => setAgreementForm((prev) => ({ ...prev, dueDate: e.target.value }))}
+                      className="w-full p-2 rounded-xl border border-slate-300 text-xs font-medium"
+                    />
+                  </div>
+                </div>
+
+                {/* MoBo liên kết */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    MoBo Liên Kết Giao Dịch Của Bạn
+                  </label>
+                  <select
+                    value={agreementForm.linkedVaultId}
+                    onChange={(e) => setAgreementForm((prev) => ({ ...prev, linkedVaultId: e.target.value }))}
+                    className="w-full p-2.5 rounded-xl border border-slate-300 text-xs font-medium bg-white"
+                  >
+                    <option value="">-- Chưa gán MoBo --</option>
+                    {vaults.map((v) => (
+                      <option key={v.id} value={v.id}>
+                        {v.name} ({v.balance.toLocaleString("vi-VN")} ₫)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="pt-2 flex justify-end space-x-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowAgreementModal(false)}
+                    className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition cursor-pointer"
+                  >
+                    Hủy Bỏ
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isCreatingAgreement}
+                    className="px-5 py-2 rounded-xl text-xs font-black text-white bg-indigo-700 hover:bg-indigo-800 shadow-xs transition active:scale-95 cursor-pointer disabled:opacity-50"
+                  >
+                    {isCreatingAgreement ? "Đang Khởi Tạo..." : "Tạo Thỏa Thuận & Lấy Link Ký"}
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}

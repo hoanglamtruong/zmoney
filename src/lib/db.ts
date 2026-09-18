@@ -103,6 +103,35 @@ export async function initDatabase() {
         confirmed_debtor BOOLEAN NOT NULL DEFAULT false,
         status VARCHAR(50) NOT NULL DEFAULT 'active',
         notes TEXT,
+        agreement_id VARCHAR(50),
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+
+      ALTER TABLE loans ADD COLUMN IF NOT EXISTS agreement_id VARCHAR(50);
+
+      -- 6. Thỏa Thuận Ký Điện Tử (Agreements)
+      CREATE TABLE IF NOT EXISTS agreements (
+        id VARCHAR(50) PRIMARY KEY,
+        loan_id VARCHAR(50) REFERENCES loans(id) ON DELETE SET NULL,
+        title VARCHAR(255) NOT NULL,
+        creator_role VARCHAR(50) NOT NULL DEFAULT 'creditor',
+        creditor_name VARCHAR(255) NOT NULL,
+        creditor_contact VARCHAR(100),
+        debtor_name VARCHAR(255) NOT NULL,
+        debtor_contact VARCHAR(100),
+        amount NUMERIC(18, 2) NOT NULL,
+        interest_rate NUMERIC(6, 2) DEFAULT 0,
+        interest_type VARCHAR(50) DEFAULT 'none',
+        interest_due_term VARCHAR(100) DEFAULT 'end_term',
+        start_date DATE NOT NULL DEFAULT CURRENT_DATE,
+        due_date DATE,
+        linked_vault_id VARCHAR(50) REFERENCES vaults(id) ON DELETE SET NULL,
+        terms TEXT,
+        creditor_signature TEXT,
+        creditor_signed_at TIMESTAMP WITH TIME ZONE,
+        debtor_signature TEXT,
+        debtor_signed_at TIMESTAMP WITH TIME ZONE,
+        status VARCHAR(50) NOT NULL DEFAULT 'pending',
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
     `);
