@@ -1,7 +1,7 @@
 {
-  "name": "Zmoney",
-  "short_name": "Zmoney",
-  "description": "Quản lý tài chính cá nhân / hộ kinh doanh - Kho chứa, Dòng chảy, Nghĩa vụ",
+  "name": "MoBo - Money Box",
+  "short_name": "MoBo",
+  "description": "Quản lý tài chính cá nhân & hộ kinh doanh - Money Box (MoBo)",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#FFFFFF",
