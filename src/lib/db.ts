@@ -90,8 +90,13 @@ export async function initDatabase() {
         id VARCHAR(50) PRIMARY KEY,
         title VARCHAR(255) NOT NULL,
         role VARCHAR(50) NOT NULL, -- 'creditor' (Tôi là Chủ Nợ) | 'debtor' (Tôi là Con Nợ)
-        partner_name VARCHAR(255) NOT NULL,
+        partner_name VARCHAR(255),
         linked_vault_id VARCHAR(50) REFERENCES vaults(id) ON DELETE SET NULL,
+        creditor_vault_id VARCHAR(50) REFERENCES vaults(id) ON DELETE SET NULL,
+        creditor_name VARCHAR(255),
+        debtor_vault_id VARCHAR(50) REFERENCES vaults(id) ON DELETE SET NULL,
+        debtor_name VARCHAR(255),
+        loan_context VARCHAR(50) DEFAULT 'internal', -- 'internal' | 'lending' | 'borrowing'
         start_date DATE NOT NULL DEFAULT CURRENT_DATE,
         due_date DATE,
         amount NUMERIC(18, 2) NOT NULL,
@@ -105,6 +110,30 @@ export async function initDatabase() {
         notes TEXT,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
+
+      ALTER TABLE loans ADD COLUMN IF NOT EXISTS creditor_vault_id VARCHAR(50) REFERENCES vaults(id) ON DELETE SET NULL;
+      ALTER TABLE loans ADD COLUMN IF NOT EXISTS creditor_name VARCHAR(255);
+      ALTER TABLE loans ADD COLUMN IF NOT EXISTS debtor_vault_id VARCHAR(50) REFERENCES vaults(id) ON DELETE SET NULL;
+      ALTER TABLE loans ADD COLUMN IF NOT EXISTS debtor_name VARCHAR(255);
+      ALTER TABLE loans ADD COLUMN IF NOT EXISTS loan_context VARCHAR(50) DEFAULT 'internal';
+    `);
+
+    // Đồng bộ creditor_name và debtor_name cho các bản ghi cũ nếu bị null
+    await client.query(`
+      UPDATE loans SET
+        creditor_name = CASE 
+          WHEN role = 'creditor' THEN COALESCE((SELECT name FROM vaults WHERE id = linked_vault_id), 'MoBo Của Tôi')
+          ELSE COALESCE(partner_name, 'MoBo Chủ Nợ')
+        END,
+        debtor_name = CASE 
+          WHEN role = 'debtor' THEN COALESCE((SELECT name FROM vaults WHERE id = linked_vault_id), 'MoBo Của Tôi')
+          ELSE COALESCE(partner_name, 'MoBo Con Nợ')
+        END,
+        loan_context = CASE 
+          WHEN role = 'creditor' THEN 'lending'
+          ELSE 'borrowing'
+        END
+      WHERE creditor_name IS NULL OR debtor_name IS NULL;
     `);
 
     // Seed data nếu bảng vaults trống
@@ -134,15 +163,27 @@ export async function initDatabase() {
     // Seed data nếu bảng loans trống
     const { rows: loanCount } = await client.query(`SELECT COUNT(*) FROM loans;`);
     if (parseInt(loanCount[0].count, 10) === 0) {
-      // Lấy id một vault có sẵn nếu có
-      const vQuery = await client.query(`SELECT id FROM vaults WHERE is_closed = false LIMIT 1;`);
-      const defaultVaultId = vQuery.rows.length > 0 ? vQuery.rows[0].id : null;
+      // Lấy id các vault có sẵn nếu có
+      const vQuery = await client.query(`SELECT id, name FROM vaults WHERE is_closed = false ORDER BY id ASC LIMIT 2;`);
+      const v1 = vQuery.rows[0];
+      const v2 = vQuery.rows[1] || vQuery.rows[0];
 
       await client.query(`
-        INSERT INTO loans (id, title, role, partner_name, linked_vault_id, start_date, due_date, amount, paid_amount, interest_rate, interest_type, interest_due_term, confirmed_creditor, confirmed_debtor, status, notes) VALUES
-          ('loan_1', 'Cho anh Nam mượn vốn nhập hàng', 'creditor', 'Anh Nam (Hải Phòng)', $1, CURRENT_DATE - INTERVAL '15 days', CURRENT_DATE + INTERVAL '45 days', 30000000, 10000000, 1.0, 'monthly', 'Hàng tháng ngày 15', true, true, 'active', 'Cam kết hoàn trả qua MoBo liên kết'),
-          ('loan_2', 'Vay vốn nhập thiết bị điện tử', 'debtor', 'Ngân hàng Techcombank', $1, CURRENT_DATE - INTERVAL '5 days', CURRENT_DATE + INTERVAL '60 days', 50000000, 0, 8.5, 'yearly', 'Cuối kỳ cùng gốc', true, false, 'active', 'Hạn mức kinh doanh ngắn hạn');
-      `, [defaultVaultId]);
+        INSERT INTO loans (
+          id, title, role, partner_name, linked_vault_id,
+          creditor_vault_id, creditor_name, debtor_vault_id, debtor_name, loan_context,
+          start_date, due_date, amount, paid_amount, interest_rate, interest_type, interest_due_term,
+          confirmed_creditor, confirmed_debtor, status, notes
+        ) VALUES
+          ('loan_1', 'Cho MoBo Đối tác Nam mượn vốn nhập hàng', 'creditor', 'MoBo Anh Nam (Hải Phòng)', $1,
+           $1, $2, NULL, 'MoBo Anh Nam (Hải Phòng)', 'lending',
+           CURRENT_DATE - INTERVAL '15 days', CURRENT_DATE + INTERVAL '45 days', 30000000, 10000000, 1.0, 'monthly', 'Hàng tháng ngày 15',
+           true, true, 'active', 'Cam kết hoàn trả qua MoBo liên kết'),
+          ('loan_2', 'Vay vốn hạn mức từ MoBo Ngân Hàng Techcombank', 'debtor', 'MoBo Techcombank', $3,
+           NULL, 'MoBo Techcombank (Hội sở)', $3, $4, 'borrowing',
+           CURRENT_DATE - INTERVAL '5 days', CURRENT_DATE + INTERVAL '60 days', 50000000, 0, 8.5, 'yearly', 'Cuối kỳ cùng gốc',
+           true, false, 'active', 'Hạn mức kinh doanh ngắn hạn');
+      `, [v1 ? v1.id : null, v1 ? v1.name : 'MoBo Ví Tiền Mặt', v2 ? v2.id : null, v2 ? v2.name : 'MoBo Tài Khoản MB Bank']);
     }
   } finally {
     client.release();

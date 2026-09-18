@@ -68,6 +68,13 @@ interface Loan {
   role: "creditor" | "debtor";
   partnerName: string;
   linkedVaultId: string | null;
+  creditorVaultId?: string | null;
+  creditorName?: string;
+  debtorVaultId?: string | null;
+  debtorName?: string;
+  loanContext?: "internal" | "lending" | "borrowing";
+  creditorVaultName?: string;
+  debtorVaultName?: string;
   vaultName?: string;
   vaultType?: string;
   startDate: string;
@@ -280,12 +287,17 @@ export default function Home() {
   // STATE CHỦ NỢ & CON NỢ (VAY - MƯỢN)
   // ==========================================
   const [loans, setLoans] = useState<Loan[]>([]);
-  const [loanTabFilter, setLoanTabFilter] = useState<"all" | "creditor" | "debtor">("all");
+  const [loanTabFilter, setLoanTabFilter] = useState<"all" | "internal" | "creditor" | "debtor">("all");
   const [showLoanModal, setShowLoanModal] = useState(false);
   const [editingLoan, setEditingLoan] = useState<Loan | null>(null);
   const [loanForm, setLoanForm] = useState({
     title: "",
     role: "debtor" as "creditor" | "debtor",
+    loanContext: "borrowing" as "internal" | "lending" | "borrowing",
+    creditorVaultId: "",
+    creditorName: "",
+    debtorVaultId: "",
+    debtorName: "",
     partnerName: "",
     linkedVaultId: "",
     startDate: new Date().toISOString().split("T")[0],
@@ -830,21 +842,54 @@ export default function Home() {
   // ==========================================
   // HANDLERS CHỦ NỢ & CON NỢ (VAY - MƯỢN)
   // ==========================================
-  const handleOpenCreateLoan = (role: "creditor" | "debtor" = "debtor") => {
+  const handleOpenCreateLoan = (
+    role: "creditor" | "debtor" = "debtor",
+    defaultContext?: "internal" | "lending" | "borrowing"
+  ) => {
     setEditingLoan(null);
+    const ctx = defaultContext || (role === "creditor" ? "lending" : "borrowing");
+    const v1 = vaults.length > 0 ? vaults[0] : null;
+    const v2 = vaults.length > 1 ? vaults[1] : v1;
+
+    let creditorVaultId = "";
+    let creditorName = "";
+    let debtorVaultId = "";
+    let debtorName = "";
+
+    if (ctx === "internal") {
+      creditorVaultId = v1 ? v1.id : "";
+      creditorName = v1 ? v1.name : "";
+      debtorVaultId = v2 ? v2.id : "";
+      debtorName = v2 ? v2.name : "";
+    } else if (ctx === "lending") {
+      creditorVaultId = v1 ? v1.id : "";
+      creditorName = v1 ? v1.name : "";
+      debtorName = "";
+    } else {
+      // borrowing
+      debtorVaultId = v1 ? v1.id : "";
+      debtorName = v1 ? v1.name : "";
+      creditorName = "";
+    }
+
     setLoanForm({
       title: "",
-      role,
-      partnerName: "",
-      linkedVaultId: vaults.length > 0 ? vaults[0].id : "",
+      role: ctx === "borrowing" ? "debtor" : "creditor",
+      loanContext: ctx,
+      creditorVaultId,
+      creditorName,
+      debtorVaultId,
+      debtorName,
+      partnerName: ctx === "lending" ? debtorName : creditorName,
+      linkedVaultId: ctx === "borrowing" ? debtorVaultId : creditorVaultId,
       startDate: new Date().toISOString().split("T")[0],
       dueDate: "",
       amountUnits: "",
       interestRate: "0",
       interestType: "none",
       interestDueTerm: "end_term",
-      confirmedCreditor: role === "creditor",
-      confirmedDebtor: role === "debtor",
+      confirmedCreditor: ctx === "lending" || ctx === "internal",
+      confirmedDebtor: ctx === "borrowing" || ctx === "internal",
       notes: "",
       syncMoBo: false,
     });
@@ -853,9 +898,15 @@ export default function Home() {
 
   const handleOpenEditLoan = (loan: Loan) => {
     setEditingLoan(loan);
+    const ctx = loan.loanContext || (loan.role === "creditor" ? "lending" : "borrowing");
     setLoanForm({
       title: loan.title,
       role: loan.role,
+      loanContext: ctx,
+      creditorVaultId: loan.creditorVaultId || (loan.role === "creditor" ? loan.linkedVaultId || "" : ""),
+      creditorName: loan.creditorName || (loan.role === "creditor" ? loan.vaultName || "" : loan.partnerName),
+      debtorVaultId: loan.debtorVaultId || (loan.role === "debtor" ? loan.linkedVaultId || "" : ""),
+      debtorName: loan.debtorName || (loan.role === "debtor" ? loan.vaultName || "" : loan.partnerName),
       partnerName: loan.partnerName,
       linkedVaultId: loan.linkedVaultId || (vaults.length > 0 ? vaults[0].id : ""),
       startDate: loan.startDate || new Date().toISOString().split("T")[0],
@@ -875,11 +926,35 @@ export default function Home() {
   const handleSaveLoan = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!loanForm.title.trim()) return alert("Vui lòng nhập tên/tiêu đề khoản nợ");
-    if (!loanForm.partnerName.trim()) return alert("Vui lòng nhập tên đối tác vay / cho vay");
+    
+    // Kiểm tra thông tin theo ngữ cảnh
+    if (loanForm.loanContext === "internal") {
+      if (!loanForm.creditorVaultId || !loanForm.debtorVaultId) {
+        return alert("Vui lòng chọn cả MoBo Chủ Nợ (xuất vốn) và MoBo Con Nợ (nhận vốn)");
+      }
+      if (loanForm.creditorVaultId === loanForm.debtorVaultId) {
+        return alert("MoBo Chủ Nợ và MoBo Con Nợ không được trùng nhau");
+      }
+    } else if (loanForm.loanContext === "lending") {
+      if (!loanForm.creditorVaultId) return alert("Vui lòng chọn MoBo Chủ Nợ của bạn trích tiền cho vay");
+      if (!loanForm.debtorName.trim()) return alert("Vui lòng nhập tên MoBo Con Nợ đối tác");
+    } else {
+      if (!loanForm.debtorVaultId) return alert("Vui lòng chọn MoBo Con Nợ của bạn tiếp nhận tiền vay");
+      if (!loanForm.creditorName.trim()) return alert("Vui lòng nhập tên MoBo Chủ Nợ / Ngân hàng");
+    }
+
     const units = parseFloat(loanForm.amountUnits);
     if (isNaN(units) || units <= 0) return alert("Vui lòng nhập số tiền hợp lệ (> 0). Quy ước 1 = 1.000 VNĐ.");
 
     const realAmount = Math.round(units * 1000);
+
+    // Xác định tên MoBo đối ứng
+    const finalCreditorName = loanForm.creditorVaultId 
+      ? (vaults.find(v => v.id === loanForm.creditorVaultId)?.name || loanForm.creditorName) 
+      : loanForm.creditorName;
+    const finalDebtorName = loanForm.debtorVaultId 
+      ? (vaults.find(v => v.id === loanForm.debtorVaultId)?.name || loanForm.debtorName) 
+      : loanForm.debtorName;
 
     try {
       if (editingLoan) {
@@ -890,9 +965,14 @@ export default function Home() {
           body: JSON.stringify({
             id: editingLoan.id,
             title: loanForm.title,
-            role: loanForm.role,
-            partnerName: loanForm.partnerName,
-            linkedVaultId: loanForm.linkedVaultId || null,
+            role: loanForm.loanContext === "borrowing" ? "debtor" : "creditor",
+            loanContext: loanForm.loanContext,
+            creditorVaultId: loanForm.creditorVaultId || null,
+            creditorName: finalCreditorName,
+            debtorVaultId: loanForm.debtorVaultId || null,
+            debtorName: finalDebtorName,
+            partnerName: loanForm.loanContext === "lending" ? finalDebtorName : finalCreditorName,
+            linkedVaultId: loanForm.loanContext === "borrowing" ? loanForm.debtorVaultId : loanForm.creditorVaultId,
             startDate: loanForm.startDate,
             dueDate: loanForm.dueDate || null,
             amount: realAmount,
@@ -917,9 +997,14 @@ export default function Home() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             title: loanForm.title,
-            role: loanForm.role,
-            partnerName: loanForm.partnerName,
-            linkedVaultId: loanForm.linkedVaultId || null,
+            role: loanForm.loanContext === "borrowing" ? "debtor" : "creditor",
+            loanContext: loanForm.loanContext,
+            creditorVaultId: loanForm.creditorVaultId || null,
+            creditorName: finalCreditorName,
+            debtorVaultId: loanForm.debtorVaultId || null,
+            debtorName: finalDebtorName,
+            partnerName: loanForm.loanContext === "lending" ? finalDebtorName : finalCreditorName,
+            linkedVaultId: loanForm.loanContext === "borrowing" ? loanForm.debtorVaultId : loanForm.creditorVaultId,
             startDate: loanForm.startDate,
             dueDate: loanForm.dueDate || null,
             amount: realAmount,
@@ -1699,18 +1784,26 @@ export default function Home() {
                 </div>
                 <div>
                   <h3 className="font-black text-slate-900 text-base sm:text-lg tracking-tight">
-                    Sổ Vay & Mượn (Chủ Nợ & Con Nợ)
+                    Sổ Vay & Mượn (Chủ Nợ & Con Nợ Giữa Các MoBo)
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Theo dõi các khoản cho vay (chủ nợ) & đi vay (con nợ), lãi suất, thời hạn và xác nhận 2 phía
+                    Chủ nợ và Con nợ đều là các tài khoản MoBo • Đối soát & xác nhận 2 phía theo ngữ cảnh
                   </p>
                 </div>
               </div>
 
-              <div className="flex items-center space-x-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => handleOpenCreateLoan("creditor")}
+                  onClick={() => handleOpenCreateLoan("creditor", "internal")}
+                  className="bg-indigo-700 hover:bg-indigo-800 text-white px-3 py-2 rounded-xl text-xs font-black shadow-xs cursor-pointer flex items-center space-x-1 transition active:scale-95"
+                >
+                  <PlusCircle className="w-3.5 h-3.5" />
+                  <span>+ Vay Nội Bộ MoBo</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleOpenCreateLoan("creditor", "lending")}
                   className="bg-emerald-700 hover:bg-emerald-800 text-white px-3 py-2 rounded-xl text-xs font-black shadow-xs cursor-pointer flex items-center space-x-1 transition active:scale-95"
                 >
                   <PlusCircle className="w-3.5 h-3.5" />
@@ -1718,7 +1811,7 @@ export default function Home() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => handleOpenCreateLoan("debtor")}
+                  onClick={() => handleOpenCreateLoan("debtor", "borrowing")}
                   className="bg-rose-700 hover:bg-rose-800 text-white px-3 py-2 rounded-xl text-xs font-black shadow-xs cursor-pointer flex items-center space-x-1 transition active:scale-95"
                 >
                   <PlusCircle className="w-3.5 h-3.5" />
@@ -1727,78 +1820,100 @@ export default function Home() {
               </div>
             </div>
 
-            {/* 2 Thẻ Tổng Quan Chỉ Số: Chủ Nợ vs Con Nợ */}
+            {/* 3 Thẻ Tổng Quan Chỉ Số Theo Ngữ Cảnh */}
             {(() => {
-              const creditorLoans = loans.filter((l) => l.role === "creditor" && l.status === "active");
-              const debtorLoans = loans.filter((l) => l.role === "debtor" && l.status === "active");
+              const activeLoans = loans.filter((l) => l.status === "active");
+              const internalLoans = activeLoans.filter((l) => l.loanContext === "internal");
+              const creditorLoans = activeLoans.filter((l) => l.loanContext === "lending" || (!l.loanContext && l.role === "creditor"));
+              const debtorLoans = activeLoans.filter((l) => l.loanContext === "borrowing" || (!l.loanContext && l.role === "debtor"));
               
               const totalCreditorRemaining = creditorLoans.reduce((sum, l) => sum + l.remainingAmount, 0);
-              const totalCreditorOriginal = creditorLoans.reduce((sum, l) => sum + l.amount, 0);
-              
               const totalDebtorRemaining = debtorLoans.reduce((sum, l) => sum + l.remainingAmount, 0);
-              const totalDebtorOriginal = debtorLoans.reduce((sum, l) => sum + l.amount, 0);
+              const totalInternalRemaining = internalLoans.reduce((sum, l) => sum + l.remainingAmount, 0);
 
               return (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {/* Thẻ 1: Tôi là Chủ Nợ (Cho vay - Phải thu) */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                  {/* Thẻ 1: Cho vay ngoài */}
                   <div
                     onClick={() => setLoanTabFilter("creditor")}
-                    className={`p-4.5 rounded-2xl border-2 transition cursor-pointer ${
+                    className={`p-4 rounded-2xl border-2 transition cursor-pointer ${
                       loanTabFilter === "creditor"
                         ? "bg-emerald-50/90 border-emerald-500 shadow-sm"
                         : "bg-emerald-50/40 border-emerald-200 hover:bg-emerald-50/70"
                     }`}
                   >
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-black text-emerald-800 uppercase tracking-wider flex items-center space-x-1.5">
+                      <span className="text-xs font-black text-emerald-800 uppercase tracking-wider flex items-center space-x-1">
                         <ArrowUpRight className="w-4 h-4 text-emerald-600" />
-                        <span>1. Tôi Là Chủ Nợ (Cho Vay / Phải Thu)</span>
+                        <span>1. Cho Vay Ngoài</span>
                       </span>
                       <span className="text-[11px] font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-md">
                         {creditorLoans.length} khoản
                       </span>
                     </div>
                     <div className="mt-2 flex items-baseline justify-between">
-                      <span className="text-2xl sm:text-3xl font-black text-emerald-600 tracking-tight">
+                      <span className="text-xl sm:text-2xl font-black text-emerald-600 tracking-tight">
                         +{totalCreditorRemaining.toLocaleString("vi-VN")} ₫
-                      </span>
-                      <span className="text-xs text-slate-500 font-medium">
-                        gốc ban đầu: +{totalCreditorOriginal.toLocaleString("vi-VN")}₫
                       </span>
                     </div>
                     <span className="text-[11px] text-emerald-700 mt-1 block font-medium">
-                      Tiền người khác đang nợ tôi, sẽ thu hồi về các MoBo
+                      MoBo của tôi cho MoBo ngoài vay
                     </span>
                   </div>
 
-                  {/* Thẻ 2: Tôi là Con Nợ (Đi vay - Phải trả) */}
+                  {/* Thẻ 2: Đi vay ngoài */}
                   <div
                     onClick={() => setLoanTabFilter("debtor")}
-                    className={`p-4.5 rounded-2xl border-2 transition cursor-pointer ${
+                    className={`p-4 rounded-2xl border-2 transition cursor-pointer ${
                       loanTabFilter === "debtor"
                         ? "bg-rose-50/90 border-rose-500 shadow-sm"
                         : "bg-rose-50/40 border-rose-200 hover:bg-rose-50/70"
                     }`}
                   >
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-black text-rose-800 uppercase tracking-wider flex items-center space-x-1.5">
+                      <span className="text-xs font-black text-rose-800 uppercase tracking-wider flex items-center space-x-1">
                         <ArrowDownLeft className="w-4 h-4 text-rose-600" />
-                        <span>2. Tôi Là Con Nợ (Đi Vay / Phải Trả)</span>
+                        <span>2. Đi Vay Ngoài</span>
                       </span>
                       <span className="text-[11px] font-bold bg-rose-100 text-rose-800 px-2 py-0.5 rounded-md">
                         {debtorLoans.length} khoản
                       </span>
                     </div>
                     <div className="mt-2 flex items-baseline justify-between">
-                      <span className="text-2xl sm:text-3xl font-black text-rose-600 tracking-tight">
+                      <span className="text-xl sm:text-2xl font-black text-rose-600 tracking-tight">
                         -{totalDebtorRemaining.toLocaleString("vi-VN")} ₫
-                      </span>
-                      <span className="text-xs text-slate-500 font-medium">
-                        gốc ban đầu: -{totalDebtorOriginal.toLocaleString("vi-VN")}₫
                       </span>
                     </div>
                     <span className="text-[11px] text-rose-700 mt-1 block font-medium">
-                      Nghĩa vụ nợ cần thanh toán từ các MoBo
+                      MoBo nhận nợ từ ngân hàng/đối tác
+                    </span>
+                  </div>
+
+                  {/* Thẻ 3: Vay mượn luân chuyển nội bộ */}
+                  <div
+                    onClick={() => setLoanTabFilter("internal")}
+                    className={`p-4 rounded-2xl border-2 transition cursor-pointer ${
+                      loanTabFilter === "internal"
+                        ? "bg-indigo-50/90 border-indigo-500 shadow-sm"
+                        : "bg-indigo-50/40 border-indigo-200 hover:bg-indigo-50/70"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-black text-indigo-800 uppercase tracking-wider flex items-center space-x-1">
+                        <RefreshCw className="w-3.5 h-3.5 text-indigo-600" />
+                        <span>3. Luân Chuyển Nội Bộ</span>
+                      </span>
+                      <span className="text-[11px] font-bold bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded-md">
+                        {internalLoans.length} khoản
+                      </span>
+                    </div>
+                    <div className="mt-2 flex items-baseline justify-between">
+                      <span className="text-xl sm:text-2xl font-black text-indigo-700 tracking-tight">
+                        {totalInternalRemaining.toLocaleString("vi-VN")} ₫
+                      </span>
+                    </div>
+                    <span className="text-[11px] text-indigo-700 mt-1 block font-medium">
+                      Vay mượn giữa 2 MoBo của tôi
                     </span>
                   </div>
                 </div>
@@ -1806,8 +1921,8 @@ export default function Home() {
             })()}
 
             {/* Thanh Tab Lọc Danh Sách */}
-            <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-              <div className="flex items-center space-x-2 text-xs font-bold">
+            <div className="flex flex-wrap items-center justify-between border-b border-slate-100 pb-2 gap-2">
+              <div className="flex flex-wrap items-center gap-1.5 text-xs font-bold">
                 <button
                   type="button"
                   onClick={() => setLoanTabFilter("all")}
@@ -1821,6 +1936,17 @@ export default function Home() {
                 </button>
                 <button
                   type="button"
+                  onClick={() => setLoanTabFilter("internal")}
+                  className={`px-3 py-1.5 rounded-xl transition cursor-pointer flex items-center space-x-1 ${
+                    loanTabFilter === "internal"
+                      ? "bg-indigo-700 text-white shadow-xs"
+                      : "bg-indigo-50 text-indigo-800 hover:bg-indigo-100"
+                  }`}
+                >
+                  <span>🔁 Nội bộ MoBo ({loans.filter((l) => l.loanContext === "internal").length})</span>
+                </button>
+                <button
+                  type="button"
                   onClick={() => setLoanTabFilter("creditor")}
                   className={`px-3 py-1.5 rounded-xl transition cursor-pointer flex items-center space-x-1 ${
                     loanTabFilter === "creditor"
@@ -1828,7 +1954,7 @@ export default function Home() {
                       : "bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
                   }`}
                 >
-                  <span>🟢 Chủ Nợ ({loans.filter((l) => l.role === "creditor").length})</span>
+                  <span>🟢 Cho vay ({loans.filter((l) => l.loanContext === "lending" || (!l.loanContext && l.role === "creditor")).length})</span>
                 </button>
                 <button
                   type="button"
@@ -1839,7 +1965,7 @@ export default function Home() {
                       : "bg-rose-50 text-rose-800 hover:bg-rose-100"
                   }`}
                 >
-                  <span>🔴 Con Nợ ({loans.filter((l) => l.role === "debtor").length})</span>
+                  <span>🔴 Đi vay ({loans.filter((l) => l.loanContext === "borrowing" || (!l.loanContext && l.role === "debtor")).length})</span>
                 </button>
               </div>
 
@@ -1852,13 +1978,16 @@ export default function Home() {
             {(() => {
               const filteredLoans = loans.filter((l) => {
                 if (loanTabFilter === "all") return true;
-                return l.role === loanTabFilter;
+                if (loanTabFilter === "internal") return l.loanContext === "internal";
+                if (loanTabFilter === "creditor") return l.loanContext === "lending" || (!l.loanContext && l.role === "creditor");
+                if (loanTabFilter === "debtor") return l.loanContext === "borrowing" || (!l.loanContext && l.role === "debtor");
+                return true;
               });
 
               if (filteredLoans.length === 0) {
                 return (
                   <div className="text-center py-10 text-slate-400 text-xs bg-slate-50/50 rounded-2xl border border-dashed border-slate-200">
-                    Chưa có khoản vay mượn nào trong danh mục này. Hãy bấm <b>+ Cho Vay</b> hoặc <b>+ Đi Vay</b> để tạo mới.
+                    Chưa có khoản vay mượn nào trong danh mục này. Hãy bấm <b>+ Vay Nội Bộ</b>, <b>+ Cho Vay</b> hoặc <b>+ Đi Vay</b> để tạo mới.
                   </div>
                 );
               }
@@ -1866,10 +1995,15 @@ export default function Home() {
               return (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                   {filteredLoans.map((loan) => {
-                    const isCreditor = loan.role === "creditor";
+                    const ctx = loan.loanContext || (loan.role === "creditor" ? "lending" : "borrowing");
+                    const isInternal = ctx === "internal";
+                    const isCreditor = ctx === "lending" || (ctx !== "borrowing" && loan.role === "creditor");
                     const isSettled = loan.status === "settled" || loan.remainingAmount <= 0;
                     const bothConfirmed = loan.confirmedCreditor && loan.confirmedDebtor;
                     const percentPaid = loan.amount > 0 ? Math.min(100, Math.round((loan.paidAmount / loan.amount) * 100)) : 0;
+
+                    const creditorMoBo = loan.creditorName || loan.creditorVaultName || (loan.role === "creditor" ? loan.vaultName || "MoBo Của Tôi" : loan.partnerName);
+                    const debtorMoBo = loan.debtorName || loan.debtorVaultName || (loan.role === "debtor" ? loan.vaultName || "MoBo Của Tôi" : loan.partnerName);
 
                     return (
                       <div
@@ -1877,21 +2011,29 @@ export default function Home() {
                         className={`rounded-2xl p-5 border-2 transition-all space-y-3.5 ${
                           isSettled
                             ? "bg-slate-50/70 border-slate-200 opacity-80"
+                            : isInternal
+                            ? "bg-gradient-to-br from-white to-indigo-50/30 border-indigo-200 hover:border-indigo-400 shadow-xs"
                             : isCreditor
                             ? "bg-gradient-to-br from-white to-emerald-50/20 border-emerald-200 hover:border-emerald-400 shadow-xs"
                             : "bg-gradient-to-br from-white to-rose-50/20 border-rose-200 hover:border-rose-400 shadow-xs"
                         }`}
                       >
-                        {/* Hàng 1: Huy hiệu Vai Trò & Trạng thái tất toán */}
+                        {/* Hàng 1: Huy hiệu Ngữ Cảnh & Trạng thái tất toán */}
                         <div className="flex items-center justify-between">
                           <span
                             className={`text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full border ${
-                              isCreditor
+                              isInternal
+                                ? "bg-indigo-100 text-indigo-800 border-indigo-300"
+                                : isCreditor
                                 ? "bg-emerald-100 text-emerald-800 border-emerald-300"
                                 : "bg-rose-100 text-rose-800 border-rose-300"
                             }`}
                           >
-                            {isCreditor ? "🟢 Tôi là Chủ Nợ (Cho Vay)" : "🔴 Tôi là Con Nợ (Đi Vay)"}
+                            {isInternal
+                              ? "🔁 Vay mượn nội bộ MoBo"
+                              : isCreditor
+                              ? "🟢 Tôi là Chủ Nợ (Cho Vay)"
+                              : "🔴 Tôi là Con Nợ (Đi Vay)"}
                           </span>
 
                           <div className="flex items-center space-x-1.5">
@@ -1907,21 +2049,43 @@ export default function Home() {
                           </div>
                         </div>
 
-                        {/* Hàng 2: Tiêu đề & Thông tin Đối tác (Ai?) */}
+                        {/* Hàng 2: Tiêu đề khoản nợ */}
                         <div>
                           <h4 className="font-black text-slate-900 text-base leading-snug">{loan.title}</h4>
-                          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-600">
-                            <span className="flex items-center space-x-1">
-                              <Users className="w-3.5 h-3.5 text-slate-400" />
-                              <span>
-                                {isCreditor ? "Người nợ:" : "Chủ nợ:"} <b className="text-slate-900">{loan.partnerName}</b>
-                              </span>
+                        </div>
+
+                        {/* Hàng 2b: Dòng chảy 2 Tài Khoản MoBo (Chủ Nợ & Con Nợ) */}
+                        <div className="bg-slate-50/90 p-3 rounded-xl border border-slate-200/80 flex items-center justify-between gap-2 text-xs">
+                          <div className="flex-1 min-w-0">
+                            <span className="text-[10px] uppercase font-bold text-slate-400 flex items-center space-x-1">
+                              <span>🏦 MoBo Chủ Nợ (Xuất Vốn)</span>
+                              {loan.confirmedCreditor ? (
+                                <Check className="w-3 h-3 text-emerald-600" />
+                              ) : (
+                                <Clock className="w-3 h-3 text-amber-500" />
+                              )}
                             </span>
-                            <span className="flex items-center space-x-1">
-                              <Wallet className="w-3.5 h-3.5 text-blue-600" />
-                              <span>
-                                MoBo liên kết: <b className="text-blue-700">{loan.vaultName || "Chưa gán MoBo"}</b>
-                              </span>
+                            <span className="font-black text-slate-900 truncate block mt-0.5 text-xs">
+                              {creditorMoBo}
+                            </span>
+                          </div>
+
+                          <div className="flex flex-col items-center px-1 shrink-0">
+                            <span className="text-slate-400 font-black text-xs">➔</span>
+                            <span className="text-[9px] text-slate-400 font-semibold">luồng vốn</span>
+                          </div>
+
+                          <div className="flex-1 min-w-0 text-right">
+                            <span className="text-[10px] uppercase font-bold text-slate-400 flex items-center justify-end space-x-1">
+                              {loan.confirmedDebtor ? (
+                                <Check className="w-3 h-3 text-emerald-600" />
+                              ) : (
+                                <Clock className="w-3 h-3 text-amber-500" />
+                              )}
+                              <span>MoBo Con Nợ (Nhận Vốn) 🎯</span>
+                            </span>
+                            <span className="font-black text-slate-900 truncate block mt-0.5 text-xs">
+                              {debtorMoBo}
                             </span>
                           </div>
                         </div>
@@ -1940,14 +2104,18 @@ export default function Home() {
                           {/* Progress bar */}
                           <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
                             <div
-                              className={`h-full transition-all duration-500 ${isCreditor ? "bg-emerald-500" : "bg-rose-500"}`}
+                              className={`h-full transition-all duration-500 ${
+                                isInternal ? "bg-indigo-500" : isCreditor ? "bg-emerald-500" : "bg-rose-500"
+                              }`}
                               style={{ width: `${percentPaid}%` }}
                             />
                           </div>
 
                           <div className="flex items-baseline justify-between pt-0.5">
                             <span className="text-xs font-bold text-slate-700">Dư nợ còn lại:</span>
-                            <span className={`text-base sm:text-lg font-black ${isCreditor ? "text-emerald-700" : "text-rose-700"}`}>
+                            <span className={`text-base sm:text-lg font-black ${
+                              isInternal ? "text-indigo-700" : isCreditor ? "text-emerald-700" : "text-rose-700"
+                            }`}>
                               {loan.remainingAmount.toLocaleString("vi-VN")} ₫
                             </span>
                           </div>
@@ -1956,7 +2124,7 @@ export default function Home() {
                         {/* Hàng 4: Lãi suất & Thời hạn (Lúc nào? Lãi? Hạn gốc?) */}
                         <div className="grid grid-cols-2 gap-2 text-[11px] bg-slate-50 p-2.5 rounded-xl border border-slate-100">
                           <div>
-                            <span className="text-slate-400 block font-semibold">Lãi suất & Kỳ hạn lãi:</span>
+                            <span className="text-slate-400 block font-semibold">Lãi suất & Kỳ hạn:</span>
                             <span className="font-bold text-slate-800 block">
                               {loan.interestType === "none" || loan.interestRate === 0
                                 ? "Không tính lãi (0%)"
@@ -1983,44 +2151,48 @@ export default function Home() {
                           </div>
                         </div>
 
-                        {/* Hàng 5: Xác nhận từ 2 phía */}
+                        {/* Hàng 5: Xác nhận đối soát theo ngữ cảnh từ 2 phía MoBo */}
                         <div className="pt-1 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-xs">
-                          <div className="flex items-center space-x-2">
-                            <span className="text-[11px] font-bold text-slate-500">Xác nhận:</span>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="text-[11px] font-bold text-slate-500">Đối soát:</span>
                             
-                            {/* Phía Chủ Nợ */}
+                            {/* Phía MoBo Chủ Nợ */}
                             <button
                               type="button"
                               onClick={() => handleToggleLoanConfirm(loan, "creditor")}
-                              title="Bấm để chuyển trạng thái xác nhận phía Chủ Nợ"
+                              title="Bấm để chuyển trạng thái xác nhận từ MoBo Chủ Nợ"
                               className={`px-2 py-0.5 rounded-md text-[10px] font-bold border transition cursor-pointer flex items-center space-x-1 ${
                                 loan.confirmedCreditor
                                   ? "bg-emerald-50 text-emerald-800 border-emerald-300"
                                   : "bg-amber-50 text-amber-800 border-amber-300"
                               }`}
                             >
-                              <span>Chủ nợ: {loan.confirmedCreditor ? "✓ Đã chốt" : "⏳ Chờ chốt"}</span>
+                              <span>
+                                {loan.confirmedCreditor ? "✓ MoBo Chủ Nợ: Đã duyệt" : "⏳ MoBo Chủ Nợ: Chờ duyệt"}
+                              </span>
                             </button>
 
-                            {/* Phía Con Nợ */}
+                            {/* Phía MoBo Con Nợ */}
                             <button
                               type="button"
                               onClick={() => handleToggleLoanConfirm(loan, "debtor")}
-                              title="Bấm để chuyển trạng thái xác nhận phía Con Nợ"
+                              title="Bấm để chuyển trạng thái xác nhận từ MoBo Con Nợ"
                               className={`px-2 py-0.5 rounded-md text-[10px] font-bold border transition cursor-pointer flex items-center space-x-1 ${
                                 loan.confirmedDebtor
                                   ? "bg-emerald-50 text-emerald-800 border-emerald-300"
                                   : "bg-amber-50 text-amber-800 border-amber-300"
                               }`}
                             >
-                              <span>Con nợ: {loan.confirmedDebtor ? "✓ Đã chốt" : "⏳ Chờ chốt"}</span>
+                              <span>
+                                {loan.confirmedDebtor ? "✓ MoBo Con Nợ: Đã nhận" : "⏳ MoBo Con Nợ: Chờ nhận"}
+                              </span>
                             </button>
                           </div>
 
                           {bothConfirmed ? (
                             <span className="text-[10px] font-black text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-md flex items-center space-x-1">
                               <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                              <span>Đã xác nhận 2 phía</span>
+                              <span>2 MoBo đã xác nhận</span>
                             </span>
                           ) : (
                             <button
@@ -2028,7 +2200,7 @@ export default function Home() {
                               onClick={() => handleToggleLoanConfirm(loan, undefined, true)}
                               className="text-[10px] font-bold text-blue-700 hover:text-blue-900 hover:underline cursor-pointer"
                             >
-                              Xác nhận cả 2 bên ➔
+                              Xác nhận cả 2 MoBo ➔
                             </button>
                           )}
                         </div>
@@ -2040,12 +2212,20 @@ export default function Home() {
                               type="button"
                               onClick={() => handleOpenPayLoan(loan)}
                               className={`px-3.5 py-1.5 rounded-xl text-white font-black text-xs shadow-xs transition active:scale-95 cursor-pointer flex items-center space-x-1 ${
-                                isCreditor
+                                isInternal
+                                  ? "bg-indigo-700 hover:bg-indigo-800"
+                                  : isCreditor
                                   ? "bg-emerald-700 hover:bg-emerald-800"
                                   : "bg-rose-700 hover:bg-rose-800"
                               }`}
                             >
-                              <span>{isCreditor ? "✓ Thu Hồi Nợ" : "✓ Thanh Toán Trả Nợ"}</span>
+                              <span>
+                                {isInternal
+                                  ? "✓ Hoàn Trả Nội Bộ"
+                                  : isCreditor
+                                  ? "✓ Thu Hồi Nợ Vào MoBo"
+                                  : "✓ Thanh Toán Trả Nợ"}
+                              </span>
                             </button>
                           ) : (
                             <span className="text-xs text-slate-400 font-bold italic">
@@ -5734,14 +5914,18 @@ export default function Home() {
         </div>
       )}
 
-      {/* MODAL 1: TẠO / SỬA KHOẢN VAY - MƯỢN (CHỦ NỢ & CON NỢ) */}
+      {/* MODAL 1: TẠO / SỬA KHOẢN VAY - MƯỢN GIỮA CÁC MOBO */}
       {showLoanModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl p-6 w-full max-w-lg shadow-2xl border border-slate-100 max-h-[90vh] overflow-y-auto space-y-4">
             <div className="flex justify-between items-center border-b pb-3 border-slate-100">
               <div className="flex items-center space-x-2">
                 <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${
-                  loanForm.role === "creditor" ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800"
+                  loanForm.loanContext === "internal"
+                    ? "bg-indigo-100 text-indigo-800"
+                    : loanForm.loanContext === "lending"
+                    ? "bg-emerald-100 text-emerald-800"
+                    : "bg-rose-100 text-rose-800"
                 }`}>
                   <Handshake className="w-4 h-4" />
                 </div>
@@ -5759,33 +5943,83 @@ export default function Home() {
             </div>
 
             <form onSubmit={handleSaveLoan} className="space-y-4">
-              {/* Chọn vai trò: Chủ Nợ hay Con Nợ */}
+              {/* Chọn Ngữ Cảnh Vay Mượn Giữa Các MoBo */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                  Vai Trò Của Bạn *
+                  Ngữ Cảnh Vay Mượn (Chủ Nợ & Con Nợ MoBo) *
                 </label>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <button
                     type="button"
-                    onClick={() => setLoanForm((prev) => ({ ...prev, role: "creditor", confirmedCreditor: true }))}
-                    className={`py-2 px-3 rounded-xl text-xs font-black border transition cursor-pointer flex items-center justify-center space-x-1.5 ${
-                      loanForm.role === "creditor"
-                        ? "bg-emerald-600 text-white border-emerald-700 shadow-xs"
+                    onClick={() => {
+                      const v1 = vaults.length > 0 ? vaults[0].id : "";
+                      const v2 = vaults.length > 1 ? vaults[1].id : v1;
+                      setLoanForm((prev) => ({
+                        ...prev,
+                        loanContext: "internal",
+                        role: "creditor",
+                        creditorVaultId: v1,
+                        debtorVaultId: v2,
+                        confirmedCreditor: true,
+                        confirmedDebtor: true,
+                      }));
+                    }}
+                    className={`p-2.5 rounded-xl text-xs font-black border transition cursor-pointer flex flex-col items-center justify-center text-center ${
+                      loanForm.loanContext === "internal"
+                        ? "bg-indigo-700 text-white border-indigo-800 shadow-xs"
                         : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
                     }`}
                   >
-                    <span>🟢 Tôi Là Chủ Nợ (Cho Vay)</span>
+                    <span>🔁 Nội Bộ MoBo</span>
+                    <span className="text-[10px] font-normal opacity-90 mt-0.5">Giữa 2 MoBo của tôi</span>
                   </button>
+
                   <button
                     type="button"
-                    onClick={() => setLoanForm((prev) => ({ ...prev, role: "debtor", confirmedDebtor: true }))}
-                    className={`py-2 px-3 rounded-xl text-xs font-black border transition cursor-pointer flex items-center justify-center space-x-1.5 ${
-                      loanForm.role === "debtor"
-                        ? "bg-rose-600 text-white border-rose-700 shadow-xs"
+                    onClick={() => {
+                      const v1 = vaults.length > 0 ? vaults[0].id : "";
+                      setLoanForm((prev) => ({
+                        ...prev,
+                        loanContext: "lending",
+                        role: "creditor",
+                        creditorVaultId: v1,
+                        debtorVaultId: "",
+                        confirmedCreditor: true,
+                        confirmedDebtor: false,
+                      }));
+                    }}
+                    className={`p-2.5 rounded-xl text-xs font-black border transition cursor-pointer flex flex-col items-center justify-center text-center ${
+                      loanForm.loanContext === "lending"
+                        ? "bg-emerald-700 text-white border-emerald-800 shadow-xs"
                         : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
                     }`}
                   >
-                    <span>🔴 Tôi Là Con Nợ (Đi Vay)</span>
+                    <span>🟢 Cho Vay Ngoài</span>
+                    <span className="text-[10px] font-normal opacity-90 mt-0.5">MoBo tôi là Chủ Nợ</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const v1 = vaults.length > 0 ? vaults[0].id : "";
+                      setLoanForm((prev) => ({
+                        ...prev,
+                        loanContext: "borrowing",
+                        role: "debtor",
+                        debtorVaultId: v1,
+                        creditorVaultId: "",
+                        confirmedCreditor: false,
+                        confirmedDebtor: true,
+                      }));
+                    }}
+                    className={`p-2.5 rounded-xl text-xs font-black border transition cursor-pointer flex flex-col items-center justify-center text-center ${
+                      loanForm.loanContext === "borrowing"
+                        ? "bg-rose-700 text-white border-rose-800 shadow-xs"
+                        : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                    }`}
+                  >
+                    <span>🔴 Đi Vay Ngoài</span>
+                    <span className="text-[10px] font-normal opacity-90 mt-0.5">MoBo tôi là Con Nợ</span>
                   </button>
                 </div>
               </div>
@@ -5798,50 +6032,109 @@ export default function Home() {
                 <input
                   type="text"
                   required
-                  placeholder="Ví dụ: Vay mua thiết bị, Cho anh Nam mượn..."
+                  placeholder="Ví dụ: Vay mua thiết bị, Cho anh Nam mượn vốn, Luân chuyển quỹ két..."
                   value={loanForm.title}
                   onChange={(e) => setLoanForm((prev) => ({ ...prev, title: e.target.value }))}
                   className="w-full p-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-[#0C2C47] text-xs font-medium"
                 />
               </div>
 
-              {/* Đối tác (Ai?) */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                  Đối Tác (Ai?) *
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Tên cá nhân, ngân hàng hoặc tổ chức đối tác..."
-                  value={loanForm.partnerName}
-                  onChange={(e) => setLoanForm((prev) => ({ ...prev, partnerName: e.target.value }))}
-                  className="w-full p-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-[#0C2C47] text-xs font-medium"
-                />
-              </div>
+              {/* KHỐI 2 MOBO: CHỦ NỢ & CON NỢ */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50/80 p-3.5 rounded-2xl border border-slate-200">
+                {/* 1. MoBo Chủ Nợ (Bên cho vay / Xuất vốn) */}
+                <div>
+                  <label className="block text-xs font-black text-emerald-800 uppercase mb-1">
+                    1. MoBo Chủ Nợ (Xuất Vốn) *
+                  </label>
+                  {loanForm.loanContext === "internal" || loanForm.loanContext === "lending" ? (
+                    <div>
+                      <select
+                        value={loanForm.creditorVaultId}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          const vName = vaults.find((v) => v.id === val)?.name || "";
+                          setLoanForm((prev) => ({ ...prev, creditorVaultId: val, creditorName: vName }));
+                        }}
+                        className="w-full p-2.5 rounded-xl border border-slate-300 text-xs font-medium bg-white"
+                      >
+                        <option value="">-- Chọn MoBo của bạn --</option>
+                        {vaults.map((v) => (
+                          <option key={v.id} value={v.id}>
+                            {v.name} ({v.balance.toLocaleString("vi-VN")} ₫)
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-[10px] text-slate-400 mt-1">MoBo nội bộ xuất nguồn vốn</p>
+                    </div>
+                  ) : (
+                    <div>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Tên MoBo Chủ nợ / Ngân hàng ngoài..."
+                        value={loanForm.creditorName}
+                        onChange={(e) => setLoanForm((prev) => ({ ...prev, creditorName: e.target.value }))}
+                        className="w-full p-2.5 rounded-xl border border-slate-300 text-xs font-medium bg-white"
+                      />
+                      <p className="text-[10px] text-slate-400 mt-1">MoBo chủ nợ cho vay bên ngoài</p>
+                    </div>
+                  )}
+                </div>
 
-              {/* MoBo liên kết */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                  Tài Khoản MoBo Liên Kết
-                </label>
-                <select
-                  value={loanForm.linkedVaultId}
-                  onChange={(e) => setLoanForm((prev) => ({ ...prev, linkedVaultId: e.target.value }))}
-                  className="w-full p-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-[#0C2C47] text-xs font-medium bg-white"
-                >
-                  <option value="">-- Chưa liên kết MoBo --</option>
-                  {vaults.map((v) => (
-                    <option key={v.id} value={v.id}>
-                      {v.name} ({v.balance.toLocaleString("vi-VN")} ₫)
-                    </option>
-                  ))}
-                </select>
-                <p className="text-[11px] text-slate-400 mt-1">
-                  {loanForm.role === "creditor"
-                    ? "MoBo nguồn trích tiền cho vay và nhận tiền thu hồi về sau này"
-                    : "MoBo tiếp nhận tiền vay và trích tiền thanh toán trả nợ sau này"}
-                </p>
+                {/* 2. MoBo Con Nợ (Bên đi vay / Nhận vốn) */}
+                <div>
+                  <label className="block text-xs font-black text-rose-800 uppercase mb-1">
+                    2. MoBo Con Nợ (Nhận Vốn) *
+                  </label>
+                  {loanForm.loanContext === "internal" || loanForm.loanContext === "borrowing" ? (
+                    <div>
+                      <select
+                        value={loanForm.debtorVaultId}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          const vName = vaults.find((v) => v.id === val)?.name || "";
+                          setLoanForm((prev) => ({ ...prev, debtorVaultId: val, debtorName: vName }));
+                        }}
+                        className="w-full p-2.5 rounded-xl border border-slate-300 text-xs font-medium bg-white"
+                      >
+                        <option value="">-- Chọn MoBo của bạn --</option>
+                        {vaults.map((v) => (
+                          <option key={v.id} value={v.id} disabled={loanForm.loanContext === "internal" && v.id === loanForm.creditorVaultId}>
+                            {v.name} ({v.balance.toLocaleString("vi-VN")} ₫){loanForm.loanContext === "internal" && v.id === loanForm.creditorVaultId ? " [Đang là Chủ nợ]" : ""}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-[10px] text-slate-400 mt-1">MoBo nội bộ tiếp nhận vốn vay</p>
+                    </div>
+                  ) : (
+                    <div>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Tên MoBo Con nợ đối tác ngoài..."
+                        value={loanForm.debtorName}
+                        onChange={(e) => setLoanForm((prev) => ({ ...prev, debtorName: e.target.value }))}
+                        className="w-full p-2.5 rounded-xl border border-slate-300 text-xs font-medium bg-white"
+                      />
+                      <p className="text-[10px] text-slate-400 mt-1">MoBo con nợ đối tác ngoài nhận nợ</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Tóm tắt luồng vốn trực quan */}
+                <div className="col-span-1 sm:col-span-2 pt-2 border-t border-slate-200/80 flex items-center justify-between text-xs text-slate-600 bg-white/70 p-2 rounded-xl">
+                  <span className="font-bold text-emerald-800">
+                    {loanForm.creditorVaultId
+                      ? vaults.find((v) => v.id === loanForm.creditorVaultId)?.name
+                      : loanForm.creditorName || "Chưa chọn MoBo Chủ Nợ"}
+                  </span>
+                  <span className="font-black text-slate-400 px-2">➔ Vay Mượn ➔</span>
+                  <span className="font-bold text-rose-800">
+                    {loanForm.debtorVaultId
+                      ? vaults.find((v) => v.id === loanForm.debtorVaultId)?.name
+                      : loanForm.debtorName || "Chưa chọn MoBo Con Nợ"}
+                  </span>
+                </div>
               </div>
 
               {/* Số tiền gốc (Bao nhiêu? Quy ước 1 = 1.000 VNĐ) */}
@@ -5954,35 +6247,69 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* Xác nhận từ 2 phía */}
-              <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200 space-y-2">
-                <span className="block text-xs font-black text-slate-800 uppercase">
-                  Xác Nhận Đối Soát 2 Phía
-                </span>
-                <div className="flex items-center justify-between gap-4 text-xs">
-                  <label className="flex items-center space-x-2 cursor-pointer">
+              {/* Xác nhận đối soát dựa trên ngữ cảnh giữa 2 MoBo */}
+              <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 space-y-2">
+                <div className="flex justify-between items-center">
+                  <span className="block text-xs font-black text-slate-800 uppercase">
+                    Xác Nhận Đối Soát Dựa Trên Ngữ Cảnh
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setLoanForm((prev) => ({ ...prev, confirmedCreditor: true, confirmedDebtor: true }))}
+                    className="text-[10px] font-bold text-blue-700 hover:underline cursor-pointer"
+                  >
+                    Đánh dấu cả 2 đã duyệt
+                  </button>
+                </div>
+                <div className="space-y-2 text-xs">
+                  <label className="flex items-center space-x-2.5 cursor-pointer bg-white p-2 rounded-xl border border-slate-200">
                     <input
                       type="checkbox"
                       checked={loanForm.confirmedCreditor}
                       onChange={(e) => setLoanForm((prev) => ({ ...prev, confirmedCreditor: e.target.checked }))}
                       className="w-4 h-4 text-emerald-600 rounded"
                     />
-                    <span className="font-bold text-slate-700">Chủ Nợ xác nhận</span>
+                    <div>
+                      <span className="font-black text-slate-800 block">
+                        MoBo Chủ Nợ:{" "}
+                        {loanForm.creditorVaultId
+                          ? vaults.find((v) => v.id === loanForm.creditorVaultId)?.name || "MoBo Của Tôi"
+                          : loanForm.creditorName || "Chủ nợ"}
+                      </span>
+                      <span className="text-[10px] text-slate-500">
+                        {loanForm.loanContext === "borrowing"
+                          ? "Chủ nợ/ngân hàng đã đồng ý giải ngân"
+                          : "Đã xuất quỹ/đồng ý chuyển vốn cho vay"}
+                      </span>
+                    </div>
                   </label>
-                  <label className="flex items-center space-x-2 cursor-pointer">
+
+                  <label className="flex items-center space-x-2.5 cursor-pointer bg-white p-2 rounded-xl border border-slate-200">
                     <input
                       type="checkbox"
                       checked={loanForm.confirmedDebtor}
                       onChange={(e) => setLoanForm((prev) => ({ ...prev, confirmedDebtor: e.target.checked }))}
                       className="w-4 h-4 text-rose-600 rounded"
                     />
-                    <span className="font-bold text-slate-700">Con Nợ xác nhận</span>
+                    <div>
+                      <span className="font-black text-slate-800 block">
+                        MoBo Con Nợ:{" "}
+                        {loanForm.debtorVaultId
+                          ? vaults.find((v) => v.id === loanForm.debtorVaultId)?.name || "MoBo Của Tôi"
+                          : loanForm.debtorName || "Con nợ"}
+                      </span>
+                      <span className="text-[10px] text-slate-500">
+                        {loanForm.loanContext === "lending"
+                          ? "Đối tác/người vay đã ký nhận nợ"
+                          : "Đã nhận tiền vào MoBo & cam kết hoàn trả đúng hạn"}
+                      </span>
+                    </div>
                   </label>
                 </div>
               </div>
 
               {/* Tùy chọn đồng bộ MoBo ngay khi tạo */}
-              {!editingLoan && loanForm.linkedVaultId && (
+              {!editingLoan && (loanForm.creditorVaultId || loanForm.debtorVaultId) && (
                 <label className="flex items-start space-x-2 p-3 bg-blue-50/70 rounded-xl border border-blue-200 cursor-pointer text-xs">
                   <input
                     type="checkbox"
@@ -5992,12 +6319,14 @@ export default function Home() {
                   />
                   <div>
                     <span className="font-black text-blue-950 block">
-                      {loanForm.role === "creditor"
-                        ? "Trừ tiền MoBo ngay (Xuất tiền cho vay thực tế)"
-                        : "Cộng tiền vào MoBo ngay (Đã nhận tiền vay thực tế)"}
+                      {loanForm.loanContext === "internal"
+                        ? "Điều chuyển số dư ngay: Trừ tiền ở MoBo Chủ Nợ & cộng vào MoBo Con Nợ"
+                        : loanForm.loanContext === "lending"
+                        ? "Trừ tiền MoBo Chủ Nợ ngay (Xuất vốn cho vay thực tế)"
+                        : "Cộng tiền vào MoBo Con Nợ ngay (Đã nhận tiền vay thực tế)"}
                     </span>
                     <span className="text-[11px] text-blue-800">
-                      Tự động tạo dòng tiền (Flow) và biến động số dư MoBo tại ngày bắt đầu.
+                      Tự động tạo bản ghi dòng tiền (Flow) và thay đổi số dư MoBo tại ngày bắt đầu.
                     </span>
                   </div>
                 </label>
@@ -6021,15 +6350,15 @@ export default function Home() {
                 <button
                   type="button"
                   onClick={() => setShowLoanModal(false)}
-                  className="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs hover:bg-slate-50 cursor-pointer"
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition cursor-pointer"
                 >
                   Hủy Bỏ
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2.5 rounded-xl bg-[#0C2C47] text-white font-black text-xs hover:bg-[#0C2C47]/90 shadow-md cursor-pointer"
+                  className="px-5 py-2 rounded-xl text-xs font-black text-white bg-[#0C2C47] hover:bg-[#12385b] shadow-xs transition active:scale-95 cursor-pointer"
                 >
-                  {editingLoan ? "Lưu Thay Đổi" : "Tạo Khoản Vay Mới"}
+                  {editingLoan ? "Cập Nhật Khoản Vay" : "Tạo Khoản Vay"}
                 </button>
               </div>
             </form>
@@ -6038,134 +6367,164 @@ export default function Home() {
       )}
 
       {/* MODAL 2: TRẢ NỢ / THU NỢ (QUY ƯỚC 1 = 1.000 VNĐ) */}
-      {activePayingLoan && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl border border-slate-100 space-y-4">
-            <div className="flex justify-between items-center border-b pb-3 border-slate-100">
-              <div className="flex items-center space-x-2">
-                <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${
-                  activePayingLoan.role === "creditor" ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800"
-                }`}>
-                  <CreditCard className="w-4 h-4" />
-                </div>
-                <h3 className="text-base font-black text-[#0C2C47]">
-                  {activePayingLoan.role === "creditor" ? "THU HỒI NỢ VỀ MOBO" : "THANH TOÁN TRẢ NỢ TỪ MOBO"}
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setActivePayingLoan(null)}
-                className="text-slate-400 hover:text-slate-600 cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+      {activePayingLoan && (() => {
+        const ctx = activePayingLoan.loanContext || (activePayingLoan.role === "creditor" ? "lending" : "borrowing");
+        const isInternal = ctx === "internal";
+        const isLending = ctx === "lending";
 
-            <form onSubmit={handleSubmitPayLoan} className="space-y-4">
-              <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 text-xs space-y-1">
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Khoản nợ:</span>
-                  <span className="font-bold text-slate-900">{activePayingLoan.title}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Đối tác:</span>
-                  <span className="font-bold text-slate-900">{activePayingLoan.partnerName}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Dư nợ còn lại:</span>
-                  <span className="font-black text-rose-600 text-sm">
-                    {activePayingLoan.remainingAmount.toLocaleString("vi-VN")} ₫
-                  </span>
-                </div>
-              </div>
+        const creditorMoBo = activePayingLoan.creditorName || activePayingLoan.creditorVaultName || "MoBo Chủ Nợ";
+        const debtorMoBo = activePayingLoan.debtorName || activePayingLoan.debtorVaultName || "MoBo Con Nợ";
 
-              {/* Nhập số tiền trả (1=1k) */}
-              <div className="space-y-1.5">
-                <div className="flex justify-between items-center">
-                  <label className="block text-xs font-black text-slate-800 uppercase">
-                    Số Tiền Thanh Toán (Quy ước 1 = 1.000 VNĐ) *
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => setPayingAmountUnits((activePayingLoan.remainingAmount / 1000).toString())}
-                    className="text-[10px] font-black text-blue-700 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded cursor-pointer"
-                  >
-                    Tất toán hết ({activePayingLoan.remainingAmount.toLocaleString("vi-VN")}₫)
-                  </button>
-                </div>
-                <div className="relative">
-                  <input
-                    type="number"
-                    step="any"
-                    required
-                    placeholder="Nhập số tiền..."
-                    value={payingAmountUnits}
-                    onChange={(e) => setPayingAmountUnits(e.target.value)}
-                    className="w-full p-2.5 pr-14 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-[#0C2C47] font-black text-base"
-                  />
-                  <span className="absolute right-3 top-2.5 text-xs text-slate-400 font-bold">
-                    k VNĐ
-                  </span>
-                </div>
-                {payingAmountUnits && !isNaN(parseFloat(payingAmountUnits)) && (
-                  <div className="p-2 bg-emerald-50 rounded-xl border border-emerald-200 text-xs font-black text-emerald-800">
-                    Thực trả: {Math.round(parseFloat(payingAmountUnits) * 1000).toLocaleString("vi-VN")} ₫
+        return (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl border border-slate-100 space-y-4">
+              <div className="flex justify-between items-center border-b pb-3 border-slate-100">
+                <div className="flex items-center space-x-2">
+                  <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${
+                    isInternal
+                      ? "bg-indigo-100 text-indigo-800"
+                      : isLending
+                      ? "bg-emerald-100 text-emerald-800"
+                      : "bg-rose-100 text-rose-800"
+                  }`}>
+                    <CreditCard className="w-4 h-4" />
                   </div>
-                )}
-              </div>
-
-              {/* Chọn MoBo thực hiện */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                  {activePayingLoan.role === "creditor" ? "MoBo Nhận Tiền Thu Về" : "MoBo Trích Tiền Đi Trả"}
-                </label>
-                <select
-                  value={payingVaultId}
-                  onChange={(e) => setPayingVaultId(e.target.value)}
-                  className="w-full p-2.5 rounded-xl border border-slate-300 text-xs font-medium bg-white"
-                >
-                  <option value="">-- Không cập nhật MoBo (Chỉ ghi sổ) --</option>
-                  {vaults.map((v) => (
-                    <option key={v.id} value={v.id}>
-                      {v.name} ({v.balance.toLocaleString("vi-VN")} ₫)
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Ghi chú */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                  Ghi Chú Đợt Trả
-                </label>
-                <input
-                  type="text"
-                  placeholder="Ví dụ: Trả đợt 1, thanh toán chuyển khoản..."
-                  value={payingNote}
-                  onChange={(e) => setPayingNote(e.target.value)}
-                  className="w-full p-2.5 rounded-xl border border-slate-300 text-xs font-medium"
-                />
-              </div>
-
-              <div className="pt-2 flex justify-end space-x-2">
+                  <h3 className="text-base font-black text-[#0C2C47]">
+                    {isInternal
+                      ? "HOÀN TRẢ VỐN NỘI BỘ GIỮA CÁC MOBO"
+                      : isLending
+                      ? "THU HỒI NỢ VỀ MOBO"
+                      : "THANH TOÁN TRẢ NỢ TỪ MOBO"}
+                  </h3>
+                </div>
                 <button
                   type="button"
                   onClick={() => setActivePayingLoan(null)}
-                  className="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs hover:bg-slate-50 cursor-pointer"
+                  className="text-slate-400 hover:text-slate-600 cursor-pointer"
                 >
-                  Hủy
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2.5 rounded-xl bg-[#0C2C47] text-white font-black text-xs hover:bg-[#0C2C47]/90 shadow-md cursor-pointer"
-                >
-                  Xác Nhận Thanh Toán
+                  <X className="w-5 h-5" />
                 </button>
               </div>
-            </form>
+
+              <form onSubmit={handleSubmitPayLoan} className="space-y-4">
+                <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 text-xs space-y-1.5">
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Khoản nợ:</span>
+                    <span className="font-bold text-slate-900">{activePayingLoan.title}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-500">MoBo Chủ Nợ (Xuất vốn):</span>
+                    <span className="font-bold text-emerald-800">{creditorMoBo}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-500">MoBo Con Nợ (Nhận nợ):</span>
+                    <span className="font-bold text-rose-800">{debtorMoBo}</span>
+                  </div>
+                  <div className="flex justify-between pt-1 border-t border-slate-200">
+                    <span className="text-slate-500">Dư nợ còn lại:</span>
+                    <span className="font-black text-rose-600 text-sm">
+                      {activePayingLoan.remainingAmount.toLocaleString("vi-VN")} ₫
+                    </span>
+                  </div>
+                </div>
+
+                {/* Nhập số tiền trả (1=1k) */}
+                <div className="space-y-1.5">
+                  <div className="flex justify-between items-center">
+                    <label className="block text-xs font-black text-slate-800 uppercase">
+                      Số Tiền Thanh Toán (Quy ước 1 = 1.000 VNĐ) *
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setPayingAmountUnits((activePayingLoan.remainingAmount / 1000).toString())}
+                      className="text-[10px] font-black text-blue-700 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded cursor-pointer"
+                    >
+                      Tất toán hết ({activePayingLoan.remainingAmount.toLocaleString("vi-VN")}₫)
+                    </button>
+                  </div>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      step="any"
+                      required
+                      placeholder="Nhập số tiền..."
+                      value={payingAmountUnits}
+                      onChange={(e) => setPayingAmountUnits(e.target.value)}
+                      className="w-full p-2.5 pr-14 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-[#0C2C47] font-black text-base"
+                    />
+                    <span className="absolute right-3 top-2.5 text-xs text-slate-400 font-bold">
+                      k VNĐ
+                    </span>
+                  </div>
+                  {payingAmountUnits && !isNaN(parseFloat(payingAmountUnits)) && (
+                    <div className="p-2 bg-emerald-50 rounded-xl border border-emerald-200 text-xs font-black text-emerald-800">
+                      Thực trả: {Math.round(parseFloat(payingAmountUnits) * 1000).toLocaleString("vi-VN")} ₫
+                    </div>
+                  )}
+                </div>
+
+                {/* Chọn MoBo thực hiện */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    {isInternal
+                      ? "MoBo Trích Tiền Hoàn Trả (Con Nợ)"
+                      : isLending
+                      ? "MoBo Nhận Tiền Thu Về (Của bạn)"
+                      : "MoBo Trích Tiền Đi Trả (Của bạn)"}
+                  </label>
+                  <select
+                    value={payingVaultId}
+                    onChange={(e) => setPayingVaultId(e.target.value)}
+                    className="w-full p-2.5 rounded-xl border border-slate-300 text-xs font-medium bg-white"
+                  >
+                    <option value="">-- Không cập nhật MoBo (Chỉ ghi sổ) --</option>
+                    {vaults.map((v) => (
+                      <option key={v.id} value={v.id}>
+                        {v.name} ({v.balance.toLocaleString("vi-VN")} ₫)
+                      </option>
+                    ))}
+                  </select>
+                  {isInternal && (
+                    <p className="text-[10px] text-indigo-700 mt-1">
+                      💡 Tiền sẽ được chuyển từ MoBo này sang <b>{creditorMoBo}</b>.
+                    </p>
+                  )}
+                </div>
+
+                {/* Ghi chú */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    Ghi Chú Đợt Trả
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ví dụ: Trả đợt 1, thanh toán chuyển khoản..."
+                    value={payingNote}
+                    onChange={(e) => setPayingNote(e.target.value)}
+                    className="w-full p-2.5 rounded-xl border border-slate-300 text-xs font-medium"
+                  />
+                </div>
+
+                <div className="pt-2 flex justify-end space-x-2">
+                  <button
+                    type="button"
+                    onClick={() => setActivePayingLoan(null)}
+                    className="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs hover:bg-slate-50 cursor-pointer"
+                  >
+                    Hủy Bỏ
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-5 py-2.5 rounded-xl bg-[#0C2C47] text-white font-black text-xs hover:bg-[#0C2C47]/90 shadow-md cursor-pointer"
+                  >
+                    Xác Nhận Thanh Toán
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* MODAL 3: XÁC NHẬN XÓA KHOẢN VAY */}
       {loanToDelete && (
