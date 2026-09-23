@@ -4551,7 +4551,35 @@ export default function Home() {
             </div>
 
             <form onSubmit={handleQuickIncomeSubmit} className="space-y-4">
-              {/* CHỌN KHO NHẬN TIỀN (NGUỒN ĐÍCH) */}
+              {/* BƯỚC 1: NHÃN & MỤC ĐÍCH THU */}
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Nhãn giao dịch</label>
+                  <select
+                    value={quickIncomeForm.tag}
+                    onChange={(e) => setQuickIncomeForm({ ...quickIncomeForm, tag: e.target.value })}
+                    className="w-full p-2.5 rounded-lg border border-slate-300 text-xs bg-white font-bold text-slate-800"
+                  >
+                    <option value="Doanh thu">Doanh thu bán hàng</option>
+                    <option value="Thu nợ">Thu hồi nợ</option>
+                    <option value="Tiền thưởng">Thưởng / Thu nhập khác</option>
+                    <option value="Nội bộ">Chuyển nội bộ</option>
+                    <option value="Khác">Khoản thu khác</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Mô tả ngắn</label>
+                  <input
+                    type="text"
+                    placeholder="Vd: Khách trả tiền..."
+                    value={quickIncomeForm.title}
+                    onChange={(e) => setQuickIncomeForm({ ...quickIncomeForm, title: e.target.value })}
+                    className="w-full p-2.5 rounded-lg border border-slate-300 text-xs"
+                  />
+                </div>
+              </div>
+
+              {/* BƯỚC 2: CHỌN KHO NHẬN TIỀN (NGUỒN ĐÍCH) */}
               <div>
                 <label className="block text-xs font-black text-[#0C2C47] uppercase mb-1.5">
                   Chọn Kho Nhận Tiền (Vào đâu?)
@@ -4580,34 +4608,6 @@ export default function Home() {
                       </button>
                     );
                   })}
-                </div>
-              </div>
-
-              {/* NHÃN & MỤC ĐÍCH THU */}
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Nhãn giao dịch</label>
-                  <select
-                    value={quickIncomeForm.tag}
-                    onChange={(e) => setQuickIncomeForm({ ...quickIncomeForm, tag: e.target.value })}
-                    className="w-full p-2.5 rounded-lg border border-slate-300 text-xs bg-white font-bold text-slate-800"
-                  >
-                    <option value="Doanh thu">Doanh thu bán hàng</option>
-                    <option value="Thu nợ">Thu hồi nợ</option>
-                    <option value="Tiền thưởng">Thưởng / Thu nhập khác</option>
-                    <option value="Nội bộ">Chuyển nội bộ</option>
-                    <option value="Khác">Khoản thu khác</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Mô tả ngắn</label>
-                  <input
-                    type="text"
-                    placeholder="Vd: Khách trả tiền..."
-                    value={quickIncomeForm.title}
-                    onChange={(e) => setQuickIncomeForm({ ...quickIncomeForm, title: e.target.value })}
-                    className="w-full p-2.5 rounded-lg border border-slate-300 text-xs"
-                  />
                 </div>
               </div>
 
@@ -4773,7 +4773,36 @@ export default function Home() {
             </div>
 
             <form onSubmit={handleQuickExpenseSubmit} className="space-y-4">
-              {/* CHỌN KHO CHI TIỀN (NGUỒN XUẤT) KÈM SỐ DƯ */}
+              {/* BƯỚC 1: NHÃN & MỤC ĐÍCH CHI */}
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Nhãn chi tiêu</label>
+                  <select
+                    value={quickExpenseForm.tag}
+                    onChange={(e) => setQuickExpenseForm({ ...quickExpenseForm, tag: e.target.value })}
+                    className="w-full p-2.5 rounded-lg border border-slate-300 text-xs bg-white font-bold text-slate-800"
+                  >
+                    <option value="Chi phí">Chi phí vận hành</option>
+                    <option value="Ăn uống">Ăn uống / Tiếp khách</option>
+                    <option value="Nhập hàng">Nhập hàng / Vật tư</option>
+                    <option value="Trả nợ">Trả nợ đối tác</option>
+                    <option value="Thuế">Nộp thuế</option>
+                    <option value="Khác">Chi tiêu khác</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Mô tả ngắn</label>
+                  <input
+                    type="text"
+                    placeholder="Vd: Mua đồ văn phòng, đổ xăng..."
+                    value={quickExpenseForm.title}
+                    onChange={(e) => setQuickExpenseForm({ ...quickExpenseForm, title: e.target.value })}
+                    className="w-full p-2.5 rounded-lg border border-slate-300 text-xs"
+                  />
+                </div>
+              </div>
+
+              {/* BƯỚC 2: CHỌN KHO CHI TIỀN (NGUỒN XUẤT) KÈM SỐ DƯ */}
               <div>
                 <label className="block text-xs font-black text-[#0C2C47] uppercase mb-1.5">
                   Chọn Kho Chi Tiền (Rút từ đâu?)
@@ -4807,35 +4836,6 @@ export default function Home() {
                       </button>
                     );
                   })}
-                </div>
-              </div>
-
-              {/* NHÃN & MỤC ĐÍCH CHI */}
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Nhãn chi tiêu</label>
-                  <select
-                    value={quickExpenseForm.tag}
-                    onChange={(e) => setQuickExpenseForm({ ...quickExpenseForm, tag: e.target.value })}
-                    className="w-full p-2.5 rounded-lg border border-slate-300 text-xs bg-white font-bold text-slate-800"
-                  >
-                    <option value="Chi phí">Chi phí vận hành</option>
-                    <option value="Ăn uống">Ăn uống / Tiếp khách</option>
-                    <option value="Nhập hàng">Nhập hàng / Vật tư</option>
-                    <option value="Trả nợ">Trả nợ đối tác</option>
-                    <option value="Thuế">Nộp thuế</option>
-                    <option value="Khác">Chi tiêu khác</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Mô tả ngắn</label>
-                  <input
-                    type="text"
-                    placeholder="Vd: Mua đồ văn phòng, đổ xăng..."
-                    value={quickExpenseForm.title}
-                    onChange={(e) => setQuickExpenseForm({ ...quickExpenseForm, title: e.target.value })}
-                    className="w-full p-2.5 rounded-lg border border-slate-300 text-xs"
-                  />
                 </div>
               </div>
 
