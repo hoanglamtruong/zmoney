@@ -12,7 +12,11 @@ import {
   DollarSign,
   Scale,
   Sparkles,
-  Info
+  Info,
+  Sliders,
+  ZoomIn,
+  ZoomOut,
+  Maximize2
 } from "lucide-react";
 
 export interface FlowItem {
@@ -78,6 +82,13 @@ export default function FinancialTrendsChart({
     plannedExpense: true,
     debt: true,
   });
+
+  // Chế độ thang đo cột tiền trục Y:
+  // "auto": Tự động theo toàn bộ dữ liệu đang bật (kể cả Nợ)
+  // "focus_flows": Phóng to các dòng Thu/Chi/Dự thu/Dự chi (loại trừ Nợ để thấy rõ từng khoản nhỏ 100k, 250k)
+  // "custom": Người dùng tự chọn mức trần hoặc kéo thanh zoom
+  const [scaleMode, setScaleMode] = useState<"auto" | "focus_flows" | "custom">("auto");
+  const [customMaxY, setCustomMaxY] = useState<number>(1000000);
 
   const toggleSeries = (key: keyof typeof visibleSeries) => {
     setVisibleSeries((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -280,18 +291,41 @@ export default function FinancialTrendsChart({
   // ========================================================
   // TÍNH TOÁN TỌA ĐỘ VẼ ĐƯỜNG SVG (Coordinate calculations)
   // ========================================================
-  const svgWidth = 860;
-  const svgHeight = 280;
-  const padLeft = 65;
+  const svgWidth = 880;
+  const svgHeight = 310;
+  const padLeft = 75;
   const padRight = 30;
-  const padTop = 30;
+  const padTop = 35;
   const padBottom = 45;
 
   const chartW = svgWidth - padLeft - padRight;
   const chartH = svgHeight - padTop - padBottom;
 
-  // Tìm giá trị cực đại để chia tỷ lệ trục Y
+  // Tính toán giá trị dòng tiền thu/chi tối đa (loại trừ nợ)
+  const maxFlowVal = useMemo(() => {
+    let max = 0;
+    chartData.forEach((d) => {
+      if (visibleSeries.actualIncome && d.actualIncome > max) max = d.actualIncome;
+      if (visibleSeries.actualExpense && d.actualExpense > max) max = d.actualExpense;
+      if (visibleSeries.plannedIncome && d.plannedIncome > max) max = d.plannedIncome;
+      if (visibleSeries.plannedExpense && d.plannedExpense > max) max = d.plannedExpense;
+    });
+    if (max === 0) return 500000;
+    const factor = Math.pow(10, Math.floor(Math.log10(max)));
+    return Math.max(100000, Math.ceil((max * 1.25) / factor) * factor);
+  }, [chartData, visibleSeries]);
+
+  // Tìm giá trị cực đại để chia tỷ lệ trục Y theo chế độ scale
   const maxVal = useMemo(() => {
+    if (scaleMode === "custom" && customMaxY > 0) {
+      return customMaxY;
+    }
+
+    if (scaleMode === "focus_flows") {
+      return maxFlowVal;
+    }
+
+    // Chế độ "auto": Tự động theo tất cả các đường đang bật (kể cả Nợ)
     let max = 0;
     chartData.forEach((d) => {
       if (visibleSeries.actualIncome && d.actualIncome > max) max = d.actualIncome;
@@ -300,11 +334,10 @@ export default function FinancialTrendsChart({
       if (visibleSeries.plannedExpense && d.plannedExpense > max) max = d.plannedExpense;
       if (visibleSeries.debt && d.debtAmount > max) max = d.debtAmount;
     });
-    if (max === 0) max = 1000000; // Tối thiểu 1 triệu
-    // Làm tròn lên mốc đẹp (nice round number)
+    if (max === 0) max = 1000000;
     const factor = Math.pow(10, Math.floor(Math.log10(max)));
     return Math.ceil((max * 1.15) / factor) * factor;
-  }, [chartData, visibleSeries]);
+  }, [chartData, visibleSeries, scaleMode, customMaxY, maxFlowVal]);
 
   // Hàm chuyển đổi điểm dữ liệu sang tọa độ pixel (X, Y)
   const getX = (index: number) => {
@@ -314,16 +347,44 @@ export default function FinancialTrendsChart({
 
   const getY = (val: number) => {
     if (maxVal === 0) return padTop + chartH;
-    return padTop + chartH - (val / maxVal) * chartH;
+    // Giới hạn trong khoảng trần để không bị vẽ tràn ra ngoài SVG
+    const clampedVal = Math.min(val, maxVal);
+    return padTop + chartH - (clampedVal / maxVal) * chartH;
   };
 
-  // Helper định dạng tiền ngắn gọn cho trục Y (VNĐ, k, Tr, Tỷ)
+  // Helper định dạng tiền chi tiết & chuẩn xác cho trục Y (VNĐ, k, Tr, Tỷ)
   const formatCompactMoney = (val: number): string => {
-    if (val >= 1000000000) return `${(val / 1000000000).toFixed(1)}Tỷ`;
-    if (val >= 1000000) return `${(val / 1000000).toFixed(1)}Tr`;
-    if (val >= 1000) return `${Math.round(val / 1000)}k`;
-    return `${val}`;
+    if (val === 0) return "0 ₫";
+    if (val >= 1000000000) {
+      const b = val / 1000000000;
+      return `${Number.isInteger(b) ? b : b.toFixed(1)} Tỷ`;
+    }
+    if (val >= 1000000) {
+      const m = val / 1000000;
+      return `${Number.isInteger(m) ? m : m.toFixed(1)} Tr`;
+    }
+    if (val >= 1000) {
+      const k = val / 1000;
+      return `${Number.isInteger(k) ? k : k.toFixed(0)}k`;
+    }
+    return `${val.toLocaleString("vi-VN")} ₫`;
   };
+
+  // Tạo danh sách 6 mốc chia chi tiết cho trục Y (0%, 20%, 40%, 60%, 80%, 100%)
+  const yTicks = useMemo(() => {
+    const steps = 5;
+    const ticks: { ratio: number; val: number; label: string }[] = [];
+    for (let i = 0; i <= steps; i++) {
+      const ratio = i / steps;
+      const val = Math.round(maxVal * ratio);
+      ticks.push({
+        ratio,
+        val,
+        label: formatCompactMoney(val),
+      });
+    }
+    return ticks;
+  }, [maxVal]);
 
   // Tạo đường dẫn path d cho SVG polyline
   const generatePath = (getter: (d: DataPoint) => number): string => {
@@ -534,6 +595,132 @@ export default function FinancialTrendsChart({
             </button>
           </div>
 
+          {/* ======================================================== */}
+          {/* CÔNG CỤ ĐIỀU CHỈNH CỘT TIỀN (TRỤC Y) CHI TIẾT */}
+          {/* ======================================================== */}
+          <div className="bg-slate-50 p-2.5 sm:p-3 rounded-2xl border border-slate-200/90 space-y-2 text-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="flex items-center space-x-2 flex-wrap gap-y-1.5">
+                <span className="font-black text-slate-800 flex items-center space-x-1.5 mr-1">
+                  <Sliders className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Điều chỉnh Cột Tiền (Trục Y):</span>
+                </span>
+
+                {/* Chế độ 1: Tự động toàn cảnh */}
+                <button
+                  type="button"
+                  onClick={() => setScaleMode("auto")}
+                  className={`px-3 py-1 rounded-xl font-bold border transition cursor-pointer flex items-center space-x-1 ${
+                    scaleMode === "auto"
+                      ? "bg-[#0C2C47] text-white border-[#0C2C47] shadow-2xs"
+                      : "bg-white text-slate-600 border-slate-200 hover:bg-slate-100"
+                  }`}
+                  title="Tự động chia tỷ lệ theo toàn bộ dữ liệu (kể cả Nợ)"
+                >
+                  <span>🎯 Tự Động Toàn Cảnh</span>
+                  <span className="text-[10px] opacity-80">({formatCompactMoney(maxVal)})</span>
+                </button>
+
+                {/* Chế độ 2: Phóng to Thu & Chi (Loại trừ Nợ) */}
+                <button
+                  type="button"
+                  onClick={() => setScaleMode("focus_flows")}
+                  className={`px-3 py-1 rounded-xl font-bold border transition cursor-pointer flex items-center space-x-1.5 ${
+                    scaleMode === "focus_flows"
+                      ? "bg-amber-600 text-white border-amber-700 shadow-2xs"
+                      : "bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100"
+                  }`}
+                  title="Tách biệt khoản nợ lớn, phóng to chi tiết các dòng tiền thu chi từ vài chục nghìn đến vài triệu để thấy rõ đường lượn sóng"
+                >
+                  <ZoomIn className="w-3.5 h-3.5 text-amber-200" />
+                  <span>🔍 Phóng To Thu & Chi</span>
+                  {scaleMode === "focus_flows" && (
+                    <span className="bg-white/20 px-1.5 py-0.2 rounded-full text-[10px] font-black">
+                      Max: {formatCompactMoney(maxVal)}
+                    </span>
+                  )}
+                </button>
+
+                {/* Các nút nấc trần nhanh */}
+                <div className="flex items-center space-x-1 bg-white p-1 rounded-xl border border-slate-200 shadow-2xs">
+                  <span className="text-[10px] text-slate-400 font-bold px-1 uppercase">Mức trần:</span>
+                  {[
+                    { label: "250k", val: 250000 },
+                    { label: "500k", val: 500000 },
+                    { label: "1Tr", val: 1000000 },
+                    { label: "5Tr", val: 5000000 },
+                    { label: "10Tr", val: 10000000 },
+                    { label: "30Tr", val: 30000000 },
+                    { label: "50Tr", val: 50000000 },
+                  ].map((preset) => (
+                    <button
+                      key={preset.label}
+                      type="button"
+                      onClick={() => {
+                        setScaleMode("custom");
+                        setCustomMaxY(preset.val);
+                      }}
+                      className={`px-2 py-0.5 rounded-lg text-[11px] font-black transition cursor-pointer ${
+                        scaleMode === "custom" && customMaxY === preset.val
+                          ? "bg-blue-600 text-white shadow-2xs"
+                          : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                      }`}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Nút Zoom In / Zoom Out tinh chỉnh mượt mà */}
+              <div className="flex items-center space-x-1.5 shrink-0 self-end sm:self-auto">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setScaleMode("custom");
+                    setCustomMaxY((prev) => Math.max(50000, Math.round((prev || maxVal) * 0.7)));
+                  }}
+                  className="px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 font-bold transition cursor-pointer shadow-2xs flex items-center space-x-1"
+                  title="Phóng to chi tiết (Hạ thấp mức trần trục Y)"
+                >
+                  <ZoomIn className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Phóng to</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setScaleMode("custom");
+                    setCustomMaxY((prev) => Math.round((prev || maxVal) * 1.4));
+                  }}
+                  className="px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 font-bold transition cursor-pointer shadow-2xs flex items-center space-x-1"
+                  title="Thu nhỏ toàn cảnh (Nâng cao mức trần trục Y)"
+                >
+                  <ZoomOut className="w-3.5 h-3.5 text-slate-500" />
+                  <span>Thu nhỏ</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Thông báo ngữ cảnh khi đang phóng to thu chi hoặc vượt trần */}
+            {visibleSeries.debt && currentTotalDebt > maxVal && (
+              <div className="flex items-center justify-between p-2 bg-indigo-50/80 rounded-xl border border-indigo-200 text-[11px] text-indigo-950 font-medium">
+                <div className="flex items-center space-x-1.5">
+                  <span className="text-sm">💡</span>
+                  <span>
+                    Đang phóng to trục Y ở mức trần <b>{formatCompactMoney(maxVal)}</b> để soi rõ các đường Thu / Chi. Đường nợ <b>{currentTotalDebt.toLocaleString("vi-VN")} ₫</b> đang ở mức cao hơn trần này.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setScaleMode("auto")}
+                  className="px-2 py-0.5 rounded-md bg-white border border-indigo-300 text-indigo-700 font-black hover:bg-indigo-100 cursor-pointer transition shrink-0 ml-2"
+                >
+                  Xem toàn cảnh ➔
+                </button>
+              </div>
+            )}
+          </div>
+
           {/* KHUNG VẼ BIỂU ĐỒ SVG TƯƠNG TÁC (Interactive SVG Line Chart) */}
           <div className="relative bg-slate-50/70 rounded-2xl border border-slate-200/90 p-2 sm:p-4 overflow-hidden">
             <div className="w-full overflow-x-auto">
@@ -541,34 +728,58 @@ export default function FinancialTrendsChart({
                 viewBox={`0 0 ${svgWidth} ${svgHeight}`}
                 className="w-full min-w-[650px] h-[260px] sm:h-[280px] overflow-visible select-none"
               >
-                {/* Lưới ngang (Horizontal Grid Lines & Labels) */}
-                {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
-                  const y = padTop + chartH - ratio * chartH;
-                  const val = maxVal * ratio;
+                {/* Lưới ngang chi tiết (Horizontal Grid Lines & Fine Ticks) */}
+                {yTicks.map((tick, idx) => {
+                  const y = padTop + chartH - tick.ratio * chartH;
                   return (
-                    <g key={ratio}>
+                    <g key={idx}>
                       <line
                         x1={padLeft}
                         y1={y}
                         x2={padLeft + chartW}
                         y2={y}
-                        stroke="#e2e8f0"
-                        strokeDasharray={ratio === 0 ? "" : "3 3"}
-                        strokeWidth="1"
+                        stroke={tick.ratio === 0 ? "#cbd5e1" : "#e2e8f0"}
+                        strokeDasharray={tick.ratio === 0 ? "" : "3 3"}
+                        strokeWidth={tick.ratio === 0 ? "1.5" : "1"}
                       />
                       <text
                         x={padLeft - 8}
-                        y={y + 3}
+                        y={y + 3.5}
                         fontSize="10"
-                        fontWeight="bold"
-                        fill="#94a3b8"
+                        fontWeight={tick.ratio === 0 || tick.ratio === 1 ? "900" : "700"}
+                        fill={tick.ratio === 0 ? "#475569" : "#64748b"}
                         textAnchor="end"
                       >
-                        {formatCompactMoney(val)}
+                        {tick.label}
                       </text>
                     </g>
                   );
                 })}
+
+                {/* Huy hiệu cảnh báo vượt trần nợ nếu đang phóng to */}
+                {visibleSeries.debt && currentTotalDebt > maxVal && (
+                  <g>
+                    <rect
+                      x={padLeft + 10}
+                      y={padTop + 4}
+                      width={230}
+                      height={18}
+                      rx={4}
+                      fill="#ede9fe"
+                      stroke="#c4b5fd"
+                      strokeWidth="1"
+                    />
+                    <text
+                      x={padLeft + 16}
+                      y={padTop + 16}
+                      fontSize="9"
+                      fontWeight="bold"
+                      fill="#5b21b6"
+                    >
+                      🟣 Dư nợ {currentTotalDebt.toLocaleString("vi-VN")} ₫ (vượt trần {formatCompactMoney(maxVal)})
+                    </text>
+                  </g>
+                )}
 
                 {/* Vạch mốc Hôm Nay (Today Reference Line) */}
                 {todayX !== null && (
