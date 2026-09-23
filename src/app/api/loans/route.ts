@@ -22,9 +22,17 @@ export async function GET() {
              l.confirmed_debtor as "confirmedDebtor",
              l.status, l.notes,
              l.agreement_id as "agreementId",
-             TO_CHAR(l.created_at, 'DD/MM/YYYY HH24:MI') as "createdAt"
+             TO_CHAR(l.created_at, 'DD/MM/YYYY HH24:MI') as "createdAt",
+             a.creditor_name as "agreementCreditorName",
+             a.creditor_contact as "agreementCreditorContact",
+             a.debtor_name as "agreementDebtorName",
+             a.debtor_contact as "agreementDebtorContact",
+             a.status as "agreementStatus",
+             TO_CHAR(a.creditor_signed_at, 'DD/MM/YYYY HH24:MI') as "creditorSignedAt",
+             TO_CHAR(a.debtor_signed_at, 'DD/MM/YYYY HH24:MI') as "debtorSignedAt"
       FROM loans l
       LEFT JOIN vaults v ON l.linked_vault_id = v.id
+      LEFT JOIN agreements a ON l.agreement_id = a.id
       ORDER BY 
         CASE WHEN l.status = 'active' THEN 0 ELSE 1 END,
         l.due_date ASC NULLS LAST,
