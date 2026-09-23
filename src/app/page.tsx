@@ -1836,71 +1836,6 @@ export default function Home() {
       {activeTab === "home" && (
         <div className="space-y-7">
           {/* ======================================================== */}
-          {/* KHỐI 1: TỔNG TÀI SẢN */}
-          {/* ======================================================== */}
-          <div className="bg-white rounded-3xl p-6 border border-slate-200/90 shadow-sm space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div className="flex items-center space-x-2.5">
-                <div className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center text-[#0C2C47]">
-                  <Scale className="w-5 h-5 text-[#BF512C]" />
-                </div>
-                <div>
-                  <h3 className="font-black text-slate-900 text-base sm:text-lg tracking-tight">
-                    Tổng Tài Sản Hệ Thống
-                  </h3>
-                  <p className="text-xs text-slate-500">
-                    Bao gồm toàn bộ MoBo khả dụng (+), dư nợ vay ngân hàng (−) và tài sản ròng
-                  </p>
-                </div>
-              </div>
-              <span className="text-[11px] font-bold bg-emerald-50 text-emerald-800 px-3 py-1 rounded-full border border-emerald-200">
-                Toàn Hệ Thống
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              {/* Thẻ 1: Tổng MoBo khả dụng (+) */}
-              <div className="bg-emerald-50/70 border-2 border-emerald-200/90 rounded-2xl p-4.5 shadow-2xs">
-                <span className="text-[11px] font-black text-emerald-800 uppercase tracking-wider block">
-                  1. Tổng MoBo Khả Dụng (+)
-                </span>
-                <span className="text-2xl sm:text-3xl font-black text-emerald-600 mt-1.5 block tracking-tight">
-                  +{positiveBalance.toLocaleString("vi-VN")} ₫
-                </span>
-                <span className="text-xs text-emerald-700/90 mt-1 block font-medium">
-                  {vaults.filter((v) => v.balance > 0).length} MoBo dương có thể luân chuyển ngay
-                </span>
-              </div>
-
-              {/* Thẻ 2: Tổng Dư Nợ Ngân Hàng (−) */}
-              <div className="bg-rose-50/70 border-2 border-rose-200/90 rounded-2xl p-4.5 shadow-2xs">
-                <span className="text-[11px] font-black text-rose-800 uppercase tracking-wider block">
-                  2. Tổng Dư Nợ Vay Ngân Hàng (−)
-                </span>
-                <span className="text-2xl sm:text-3xl font-black text-rose-600 mt-1.5 block tracking-tight">
-                  {negativeDebt > 0 ? `-${negativeDebt.toLocaleString("vi-VN")} ₫` : "0 ₫"}
-                </span>
-                <span className="text-xs text-rose-700/90 mt-1 block font-medium">
-                  {vaults.filter((v) => v.balance < 0).length} MoBo thấu chi / vay nợ ngân hàng
-                </span>
-              </div>
-
-              {/* Thẻ 3: Tài Sản Ròng */}
-              <div className="bg-slate-50 border-2 border-[#0C2C47]/20 rounded-2xl p-4.5 shadow-2xs bg-gradient-to-br from-slate-50 to-blue-50/40">
-                <span className="text-[11px] font-black text-[#0C2C47] uppercase tracking-wider block">
-                  3. Tài Sản Ròng Thực Có
-                </span>
-                <span className={`text-2xl sm:text-3xl font-black mt-1.5 block tracking-tight ${netWorth < 0 ? "text-rose-600" : "text-[#0C2C47]"}`}>
-                  {netWorth < 0 ? `-${Math.abs(netWorth).toLocaleString("vi-VN")} ₫` : `${netWorth.toLocaleString("vi-VN")} ₫`}
-                </span>
-                <span className="text-xs text-slate-500 mt-1 block font-medium">
-                  = Tiền khả dụng (+) trừ (-) Tổng dư nợ ngân hàng
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* ======================================================== */}
           {/* KHỐI BIỂU ĐỒ SỨC KHỎE TÀI CHÍNH TOÀN DIỆN */}
           {/* ======================================================== */}
           <FinancialHealthChart
@@ -1938,11 +1873,13 @@ export default function Home() {
               </div>
 
               <button
-                onClick={() => setShowVaultModal(true)}
-                className="bg-[#0C2C47] hover:bg-[#0C2C47]/90 text-white px-4 py-2.5 rounded-xl text-xs font-black flex items-center space-x-2 shadow-sm transition active:scale-95 cursor-pointer self-start sm:self-auto"
+                type="button"
+                onClick={() => setActiveTab("settings")}
+                className="text-xs font-bold text-slate-500 hover:text-[#0C2C47] bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-xl flex items-center space-x-1.5 transition cursor-pointer"
+                title="Quản lý tạo mới, chỉnh sửa MoBo trong Cài Đặt Hệ Thống"
               >
-                <PlusCircle className="w-4 h-4" />
-                <span>+ Tạo MoBo Mới</span>
+                <Settings className="w-3.5 h-3.5 text-slate-500" />
+                <span>Quản lý MoBo ➔</span>
               </button>
             </div>
 
@@ -1981,24 +1918,7 @@ export default function Home() {
                           </span>
                         </div>
 
-                        <div className="flex items-center space-x-1 shrink-0">
-                          {/* Sửa MoBo */}
-                          <button
-                            onClick={() => openEditVaultModal(vault)}
-                            title="Sửa thông tin MoBo"
-                            className="p-1.5 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-white transition cursor-pointer border border-transparent hover:border-slate-200"
-                          >
-                            <Edit className="w-3.5 h-3.5" />
-                          </button>
-                          {/* Xóa MoBo */}
-                          <button
-                            onClick={() => openDeleteVaultModal(vault)}
-                            title="Xóa MoBo (yêu cầu số dư 0đ hoặc kết chuyển)"
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-white transition cursor-pointer border border-transparent hover:border-slate-200"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
+                        {/* Thao tác sửa/xóa MoBo đã được chuyển vào phần Cấu hình cài đặt */}
                       </div>
 
                       <div className="mt-2.5 pt-2 border-t border-slate-200/60 flex items-baseline justify-between">
@@ -2062,12 +1982,12 @@ export default function Home() {
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
-                  onClick={handleOpenCreateAgreement}
-                  className="bg-indigo-700 hover:bg-indigo-800 text-white px-3.5 py-2 rounded-xl text-xs font-black shadow-xs cursor-pointer flex items-center space-x-1.5 transition active:scale-95"
-                  title="Tạo văn bản thỏa thuận vay mượn có ID chia sẻ để 2 bên cùng ký điện tử"
+                  onClick={() => setActiveTab("settings")}
+                  className="text-xs font-bold text-slate-500 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-xl flex items-center space-x-1.5 transition cursor-pointer"
+                  title="Tạo thỏa thuận nợ mới và quản lý sổ nợ trong Cài Đặt Hệ Thống"
                 >
-                  <PenTool className="w-4 h-4" />
-                  <span>📝 Ký Thỏa Thuận (Chia Sẻ Link)</span>
+                  <Settings className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>Quản lý sổ nợ ➔</span>
                 </button>
               </div>
             </div>
@@ -2311,23 +2231,7 @@ export default function Home() {
                                 {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                               </button>
 
-                              <button
-                                type="button"
-                                onClick={() => handleOpenEditLoan(loan)}
-                                className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition cursor-pointer"
-                                title="Sửa"
-                              >
-                                <Edit className="w-3.5 h-3.5" />
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => setLoanToDelete(loan)}
-                                className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
-                                title="Xóa"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
+                              {/* Thao tác sửa/xóa khoản nợ đã được chuyển vào phần Cấu hình cài đặt */}
                             </div>
                           </div>
                         </div>
@@ -2766,25 +2670,7 @@ export default function Home() {
                               {flow.amount.toLocaleString("vi-VN")} ₫
                             </span>
 
-                            {/* Nút Sửa & Xóa giao dịch */}
-                            <div className="flex items-center space-x-1 pl-2 border-l border-slate-200">
-                              <button
-                                type="button"
-                                onClick={() => handleOpenEditFlow(flow)}
-                                className="p-1.5 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-blue-50 transition cursor-pointer"
-                                title="Sửa số liệu (1=1k)"
-                              >
-                                <Edit className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setFlowToDelete(flow)}
-                                className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
-                                title="Xóa giao dịch"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
+                            {/* Thao tác sửa/xóa giao dịch đã được chuyển vào phần Cấu hình cài đặt */}
                           </div>
                         </div>
                       ))}
@@ -3243,27 +3129,8 @@ export default function Home() {
                         </div>
                       </div>
 
-                      {/* Các nút hành động: Thực hiện ngay, Sửa, Xóa */}
-                      <div className="pt-2 border-t border-slate-200/60 flex items-center justify-between">
-                        <div className="flex items-center space-x-1">
-                          <button
-                            type="button"
-                            onClick={() => handleOpenEditFlow(plan)}
-                            className="p-1.5 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-white border border-transparent hover:border-slate-200 transition cursor-pointer"
-                            title="Sửa kế hoạch (1=1k)"
-                          >
-                            <Edit className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setFlowToDelete(plan)}
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-white border border-transparent hover:border-slate-200 transition cursor-pointer"
-                            title="Xóa kế hoạch"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-
+                      {/* Nút hành động: Thực hiện ngay (Sửa/xóa kế hoạch nằm trong Cấu hình cài đặt) */}
+                      <div className="pt-2 border-t border-slate-200/60 flex items-center justify-end">
                         <button
                           type="button"
                           onClick={() => handleExecutePlannedFlow(plan)}
@@ -4250,6 +4117,304 @@ export default function Home() {
                   </div>
                 </div>
               </div>
+            </div>
+          </div>
+
+          {/* 7.7 QUẢN LÝ DANH MỤC MOBO (TẠO MỚI, SỬA, XÓA) */}
+          <div className="bg-white p-5 sm:p-6 rounded-2xl border-2 border-blue-200 shadow-md space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-blue-100 pb-4">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-xl bg-[#0C2C47] text-white flex items-center justify-center shadow-md">
+                  <Wallet className="w-5 h-5 text-amber-300" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h4 className="text-base font-black text-[#0C2C47]">
+                      Quản Lý Danh Mục MoBo (Money Box)
+                    </h4>
+                    <span className="text-[10px] font-black bg-blue-100 text-blue-800 px-2.5 py-0.5 rounded-full">
+                      {vaults.length} MoBo
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 font-medium">
+                    Tạo MoBo mới, chỉnh sửa thông tin/hạn mức, khóa quỹ và xóa MoBo
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowVaultModal(true)}
+                className="px-4 py-2.5 rounded-xl bg-[#0C2C47] hover:bg-[#0C2C47]/90 text-white text-xs font-black shadow-xs flex items-center space-x-1.5 transition active:scale-95 cursor-pointer self-start sm:self-auto"
+              >
+                <PlusCircle className="w-4 h-4" />
+                <span>+ Tạo MoBo Mới</span>
+              </button>
+            </div>
+
+            {/* Danh Sách MoBo với đầy đủ thao tác Sửa / Xóa */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+              {vaults.map((vault) => {
+                const isNegative = vault.balance < 0;
+                return (
+                  <div
+                    key={vault.id}
+                    className={`p-4 rounded-xl border transition shadow-2xs flex flex-col justify-between space-y-3 ${
+                      isNegative
+                        ? "bg-rose-50/40 border-rose-200"
+                        : "bg-slate-50/80 border-slate-200 hover:border-blue-300"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <div className="flex items-center space-x-1.5 flex-wrap">
+                          <span className="font-black text-slate-900 text-sm">{vault.name}</span>
+                          {isNegative && (
+                            <span className="bg-rose-100 text-rose-800 text-[10px] font-black px-2 py-0.5 rounded">
+                              Vay nợ
+                            </span>
+                          )}
+                          {vault.isLocked && (
+                            <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-1.5 py-0.5 rounded flex items-center space-x-1">
+                              <Lock className="w-3 h-3" />
+                              <span>Khóa</span>
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-[11px] text-slate-500 mt-0.5 block truncate max-w-[200px]">
+                          {vault.desc || "Không có ghi chú"}
+                        </span>
+                      </div>
+
+                      {/* Cụm Thao Tác Sửa / Xóa MoBo */}
+                      <div className="flex items-center space-x-1 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => openEditVaultModal(vault)}
+                          className="p-1.5 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-white border border-transparent hover:border-slate-200 transition cursor-pointer"
+                          title="Sửa MoBo"
+                        >
+                          <Edit className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openDeleteVaultModal(vault)}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-white border border-transparent hover:border-slate-200 transition cursor-pointer"
+                          title="Xóa MoBo"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-200/60 flex items-baseline justify-between text-xs">
+                      <span className="text-slate-500">
+                        {isNegative ? "Dư nợ:" : "Số dư:"}
+                      </span>
+                      <span className={`text-base font-black ${isNegative ? "text-rose-600" : "text-[#0C2C47]"}`}>
+                        {isNegative
+                          ? `-${Math.abs(vault.balance).toLocaleString("vi-VN")} ₫`
+                          : `${vault.balance.toLocaleString("vi-VN")} ₫`}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 7.8 QUẢN LÝ SỔ VAY & MƯỢN (TẠO MỚI, SỬA, XÓA) */}
+          <div className="bg-white p-5 sm:p-6 rounded-2xl border-2 border-indigo-200 shadow-md space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-indigo-100 pb-4">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-xl bg-indigo-700 text-white flex items-center justify-center shadow-md">
+                  <Handshake className="w-5 h-5 text-indigo-200" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h4 className="text-base font-black text-[#0C2C47]">
+                      Quản Lý Sổ Vay & Mượn (Chủ Nợ & Con Nợ)
+                    </h4>
+                    <span className="text-[10px] font-black bg-indigo-100 text-indigo-800 px-2.5 py-0.5 rounded-full">
+                      {loans.length} khoản nợ
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 font-medium">
+                    Tạo thỏa thuận nợ mới, chỉnh sửa thông tin, lãi suất và xóa bỏ khoản nợ
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleOpenCreateAgreement}
+                className="px-4 py-2.5 rounded-xl bg-indigo-700 hover:bg-indigo-800 text-white text-xs font-black shadow-xs flex items-center space-x-1.5 transition active:scale-95 cursor-pointer self-start sm:self-auto"
+              >
+                <PenTool className="w-4 h-4" />
+                <span>📝 Ký Thỏa Thuận (Chia Sẻ Link)</span>
+              </button>
+            </div>
+
+            {/* Danh sách các khoản nợ kèm Sửa / Xóa */}
+            {loans.length === 0 ? (
+              <div className="p-8 text-center text-slate-400 text-xs bg-slate-50 rounded-xl border border-slate-200">
+                Chưa có khoản vay mượn nào trong hệ thống.
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                {loans.map((loan) => {
+                  const isCreditor = loan.role === "creditor";
+                  const isSettled = loan.status === "settled" || loan.remainingAmount <= 0;
+                  return (
+                    <div
+                      key={loan.id}
+                      className={`p-3.5 rounded-xl border transition shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                        isSettled
+                          ? "bg-slate-50 border-slate-200 opacity-70"
+                          : isCreditor
+                          ? "bg-emerald-50/30 border-emerald-200"
+                          : "bg-rose-50/30 border-rose-200"
+                      }`}
+                    >
+                      <div className="space-y-1">
+                        <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] font-black ${
+                              isCreditor
+                                ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
+                                : "bg-rose-100 text-rose-800 border border-rose-300"
+                            }`}
+                          >
+                            {isCreditor ? "🟢 CHỦ NỢ" : "🔴 CON NỢ"}
+                          </span>
+                          <span className="font-bold text-slate-900 text-xs sm:text-sm">{loan.title}</span>
+                          {loan.agreementId && (
+                            <Link
+                              href={`/agreement/${loan.agreementId}`}
+                              target="_blank"
+                              className="text-indigo-700 font-bold hover:underline text-[11px] inline-flex items-center space-x-0.5"
+                            >
+                              <span>#{loan.agreementId}</span>
+                              <FileText className="w-3 h-3 text-indigo-500" />
+                            </Link>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-slate-500">
+                          Chủ nợ: <b>{loan.agreementCreditorName || (isCreditor ? "Tôi" : loan.partnerName)}</b> • Con nợ: <b>{loan.agreementDebtorName || (!isCreditor ? "Tôi" : loan.partnerName)}</b> • Gốc: {loan.amount.toLocaleString("vi-VN")}₫
+                          {loan.vaultName && ` • MoBo: ${loan.vaultName}`}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100">
+                        <div className="text-left sm:text-right">
+                          <div className="text-[10px] text-slate-400 font-medium">Dư nợ còn lại</div>
+                          <div className={`text-sm sm:text-base font-black ${isCreditor ? "text-emerald-600" : "text-rose-600"}`}>
+                            {loan.remainingAmount.toLocaleString("vi-VN")} ₫
+                          </div>
+                        </div>
+
+                        <div className="flex items-center space-x-1 pl-2 border-l border-slate-200">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEditLoan(loan)}
+                            className="p-1.5 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-white border border-transparent hover:border-slate-200 transition cursor-pointer"
+                            title="Sửa thông tin khoản nợ"
+                          >
+                            <Edit className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setLoanToDelete(loan)}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-white border border-transparent hover:border-slate-200 transition cursor-pointer"
+                            title="Xóa khoản nợ"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* 7.9 QUẢN LÝ & CHỈNH SỬA GIAO DỊCH DÒNG TIỀN (SỬA / XÓA) */}
+          <div className="bg-white p-5 sm:p-6 rounded-2xl border-2 border-purple-200 shadow-md space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-purple-100 pb-4">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-xl bg-purple-700 text-white flex items-center justify-center shadow-md">
+                  <ArrowRightLeft className="w-5 h-5 text-purple-200" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h4 className="text-base font-black text-[#0C2C47]">
+                      Quản Lý & Chỉnh Sửa Giao Dịch Dòng Tiền
+                    </h4>
+                    <span className="text-[10px] font-black bg-purple-100 text-purple-800 px-2.5 py-0.5 rounded-full">
+                      {flows.filter(f => f.isActual).length} giao dịch
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 font-medium">
+                    Xem toàn bộ lịch sử, chỉnh sửa số liệu hoặc xóa bỏ giao dịch sai sót
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Danh sách các giao dịch phát sinh kèm nút Sửa / Xóa */}
+            <div className="divide-y divide-slate-100 border border-slate-200 rounded-2xl overflow-hidden bg-white max-h-96 overflow-y-auto">
+              {flows.filter(f => f.isActual).map((flow) => (
+                <div key={flow.id} className="p-3 hover:bg-slate-50 transition flex items-center justify-between text-xs">
+                  <div className="space-y-1">
+                    <div className="flex items-center space-x-2">
+                      <span className="font-bold text-slate-900">{flow.title}</span>
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-600">
+                        {flow.tag}
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-slate-500 flex items-center space-x-1.5">
+                      <span>{flow.from} ➔ {flow.to}</span>
+                      <span>•</span>
+                      <span>{flow.date || flow.rawDate}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center space-x-2.5">
+                    <span
+                      className={`text-sm font-black ${
+                        flow.type === "income"
+                          ? "text-emerald-600"
+                          : flow.type === "expense"
+                          ? "text-rose-600"
+                          : "text-slate-800"
+                      }`}
+                    >
+                      {flow.type === "income" ? "+" : flow.type === "expense" ? "-" : ""}
+                      {flow.amount.toLocaleString("vi-VN")} ₫
+                    </span>
+
+                    <div className="flex items-center space-x-1 pl-2 border-l border-slate-200">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenEditFlow(flow)}
+                        className="p-1.5 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-blue-50 transition cursor-pointer"
+                        title="Sửa giao dịch (1=1k)"
+                      >
+                        <Edit className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setFlowToDelete(flow)}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
+                        title="Xóa giao dịch"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
 
