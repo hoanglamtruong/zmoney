@@ -3752,31 +3752,17 @@ export default function Home() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Loại giao dịch</label>
-                  <select
-                    value={flowForm.type}
-                    onChange={(e) => setFlowForm({ ...flowForm, type: e.target.value as any })}
-                    className="w-full p-2.5 rounded-lg border border-slate-300 text-sm"
-                  >
-                    <option value="expense">Chi tiền (Expense)</option>
-                    <option value="income">Thu tiền (Income)</option>
-                    <option value="transfer">Chuyển nội bộ giữa 2 Kho</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Số tiền (VNĐ)</label>
-                  <input
-                    type="number"
-                    required
-                    placeholder="0"
-                    value={flowForm.amount}
-                    onChange={(e) => setFlowForm({ ...flowForm, amount: e.target.value })}
-                    className="w-full p-2.5 rounded-lg border border-slate-300 text-sm font-bold text-[#0C2C47]"
-                  />
-                </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Loại giao dịch</label>
+                <select
+                  value={flowForm.type}
+                  onChange={(e) => setFlowForm({ ...flowForm, type: e.target.value as any })}
+                  className="w-full p-2.5 rounded-lg border border-slate-300 text-sm"
+                >
+                  <option value="expense">Chi tiền (Expense)</option>
+                  <option value="income">Thu tiền (Income)</option>
+                  <option value="transfer">Chuyển nội bộ giữa 2 Kho</option>
+                </select>
               </div>
 
               <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200">
@@ -3862,6 +3848,18 @@ export default function Home() {
                     <option value="planned">Dự kiến kế hoạch (Chưa trừ tiền)</option>
                   </select>
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Số tiền (VNĐ)</label>
+                <input
+                  type="number"
+                  required
+                  placeholder="0"
+                  value={flowForm.amount}
+                  onChange={(e) => setFlowForm({ ...flowForm, amount: e.target.value })}
+                  className="w-full p-2.5 rounded-lg border border-slate-300 text-base font-bold text-[#0C2C47]"
+                />
               </div>
 
               <div className="pt-2 flex items-center justify-end space-x-2">
@@ -4553,72 +4551,6 @@ export default function Home() {
             </div>
 
             <form onSubmit={handleQuickIncomeSubmit} className="space-y-4">
-              {/* MÀN HÌNH SỐ TIỀN CỰC TO NỀN TỐI CHỮ SÁNG TRÁNH NHẬP SAI */}
-              <div className="bg-[#08131d] border-2 border-emerald-500 rounded-2xl p-5 sm:p-6 text-center shadow-2xl shadow-emerald-950/60 ring-1 ring-emerald-500/30">
-                <span className="block text-xs font-black text-emerald-400 uppercase tracking-widest mb-2">
-                  SỐ TIỀN THU NHẬN (VNĐ)
-                </span>
-                <div className="flex items-center justify-center space-x-2 py-1">
-                  <input
-                    type="number"
-                    inputMode="numeric"
-                    required
-                    placeholder="0"
-                    value={quickIncomeForm.amount}
-                    onChange={(e) => setQuickIncomeForm({ ...quickIncomeForm, amount: e.target.value })}
-                    className="w-full text-center text-4xl sm:text-5xl font-black text-emerald-300 bg-transparent focus:outline-none placeholder-slate-700 tracking-tight font-mono selection:bg-emerald-500 selection:text-black cursor-pointer"
-                  />
-                  <span className="text-3xl sm:text-4xl font-black text-emerald-400">₫</span>
-                </div>
-                {quickIncomeForm.amount && !isNaN(parseFloat(quickIncomeForm.amount)) ? (
-                  <div className="mt-3 pt-2.5 border-t border-slate-800 flex flex-col items-center">
-                    <span className="text-sm sm:text-base font-black text-amber-300 tracking-wide">
-                      = {parseFloat(quickIncomeForm.amount).toLocaleString("vi-VN")} Đồng
-                    </span>
-                  </div>
-                ) : (
-                  <p className="text-xs text-slate-500 mt-2">Chạm các nút mệnh giá hoặc bấm vào ô số để gõ</p>
-                )}
-              </div>
-
-              {/* CÁC MỆNH GIÁ NHẬP NHANH: 1k - 2k - 10k - 20k - 50k - 100k - 200k - 500k + XÓA (ĐÃ BỎ 3K) */}
-              <div>
-                <label className="block text-[11px] font-black text-slate-600 uppercase mb-1.5">
-                  Mệnh giá nhập nhanh (Cộng dồn)
-                </label>
-                <div className="grid grid-cols-5 gap-1.5 text-xs font-black">
-                  {[
-                    { label: "+1K", val: 1000 },
-                    { label: "+2K", val: 2000 },
-                    { label: "+10K", val: 10000 },
-                    { label: "+20K", val: 20000 },
-                    { label: "+50K", val: 50000 },
-                    { label: "+100K", val: 100000 },
-                    { label: "+200K", val: 200000 },
-                    { label: "+500K", val: 500000 },
-                  ].map((item) => (
-                    <button
-                      key={item.label}
-                      type="button"
-                      onClick={() => {
-                        const cur = parseFloat(quickIncomeForm.amount) || 0;
-                        setQuickIncomeForm({ ...quickIncomeForm, amount: String(cur + item.val) });
-                      }}
-                      className="py-2.5 px-1 rounded-xl bg-slate-100 hover:bg-emerald-100 hover:text-emerald-800 border border-slate-300 transition text-slate-800 active:scale-95 shadow-xs cursor-pointer"
-                    >
-                      {item.label}
-                    </button>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={() => setQuickIncomeForm({ ...quickIncomeForm, amount: "" })}
-                    className="col-span-2 py-2.5 px-1 rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-100 border border-rose-300 transition active:scale-95 font-black cursor-pointer"
-                  >
-                    Xóa số
-                  </button>
-                </div>
-              </div>
-
               {/* CHỌN KHO NHẬN TIỀN (NGUỒN ĐÍCH) */}
               <div>
                 <label className="block text-xs font-black text-[#0C2C47] uppercase mb-1.5">
@@ -4733,6 +4665,72 @@ export default function Home() {
                 )}
               </div>
 
+              {/* MÀN HÌNH SỐ TIỀN CỰC TO NỀN TỐI CHỮ SÁNG TRÁNH NHẬP SAI (NHẬP SAU CÙNG) */}
+              <div className="bg-[#08131d] border-2 border-emerald-500 rounded-2xl p-5 sm:p-6 text-center shadow-2xl shadow-emerald-950/60 ring-1 ring-emerald-500/30">
+                <span className="block text-xs font-black text-emerald-400 uppercase tracking-widest mb-2">
+                  SỐ TIỀN THU NHẬN (VNĐ)
+                </span>
+                <div className="flex items-center justify-center space-x-2 py-1">
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    required
+                    placeholder="0"
+                    value={quickIncomeForm.amount}
+                    onChange={(e) => setQuickIncomeForm({ ...quickIncomeForm, amount: e.target.value })}
+                    className="w-full text-center text-4xl sm:text-5xl font-black text-emerald-300 bg-transparent focus:outline-none placeholder-slate-700 tracking-tight font-mono selection:bg-emerald-500 selection:text-black cursor-pointer"
+                  />
+                  <span className="text-3xl sm:text-4xl font-black text-emerald-400">₫</span>
+                </div>
+                {quickIncomeForm.amount && !isNaN(parseFloat(quickIncomeForm.amount)) ? (
+                  <div className="mt-3 pt-2.5 border-t border-slate-800 flex flex-col items-center">
+                    <span className="text-sm sm:text-base font-black text-amber-300 tracking-wide">
+                      = {parseFloat(quickIncomeForm.amount).toLocaleString("vi-VN")} Đồng
+                    </span>
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-500 mt-2">Chạm các nút mệnh giá hoặc bấm vào ô số để gõ</p>
+                )}
+              </div>
+
+              {/* CÁC MỆNH GIÁ NHẬP NHANH: 1k - 2k - 10k - 20k - 50k - 100k - 200k - 500k + XÓA (ĐÃ BỎ 3K) */}
+              <div>
+                <label className="block text-[11px] font-black text-slate-600 uppercase mb-1.5">
+                  Mệnh giá nhập nhanh (Cộng dồn)
+                </label>
+                <div className="grid grid-cols-5 gap-1.5 text-xs font-black">
+                  {[
+                    { label: "+1K", val: 1000 },
+                    { label: "+2K", val: 2000 },
+                    { label: "+10K", val: 10000 },
+                    { label: "+20K", val: 20000 },
+                    { label: "+50K", val: 50000 },
+                    { label: "+100K", val: 100000 },
+                    { label: "+200K", val: 200000 },
+                    { label: "+500K", val: 500000 },
+                  ].map((item) => (
+                    <button
+                      key={item.label}
+                      type="button"
+                      onClick={() => {
+                        const cur = parseFloat(quickIncomeForm.amount) || 0;
+                        setQuickIncomeForm({ ...quickIncomeForm, amount: String(cur + item.val) });
+                      }}
+                      className="py-2.5 px-1 rounded-xl bg-slate-100 hover:bg-emerald-100 hover:text-emerald-800 border border-slate-300 transition text-slate-800 active:scale-95 shadow-xs cursor-pointer"
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => setQuickIncomeForm({ ...quickIncomeForm, amount: "" })}
+                    className="col-span-2 py-2.5 px-1 rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-100 border border-rose-300 transition active:scale-95 font-black cursor-pointer"
+                  >
+                    Xóa số
+                  </button>
+                </div>
+              </div>
+
               {/* NÚT BẤM XÁC NHẬN TO RÕ */}
               <div className="pt-2 flex items-center gap-3">
                 <button
@@ -4775,72 +4773,6 @@ export default function Home() {
             </div>
 
             <form onSubmit={handleQuickExpenseSubmit} className="space-y-4">
-              {/* MÀN HÌNH SỐ TIỀN CỰC TO NỀN TỐI CHỮ SÁNG TRÁNH NHẬP SAI */}
-              <div className="bg-[#180a0d] border-2 border-rose-500 rounded-2xl p-5 sm:p-6 text-center shadow-2xl shadow-rose-950/60 ring-1 ring-rose-500/30">
-                <span className="block text-xs font-black text-rose-400 uppercase tracking-widest mb-2">
-                  SỐ TIỀN CHI RA (VNĐ)
-                </span>
-                <div className="flex items-center justify-center space-x-2 py-1">
-                  <input
-                    type="number"
-                    inputMode="numeric"
-                    required
-                    placeholder="0"
-                    value={quickExpenseForm.amount}
-                    onChange={(e) => setQuickExpenseForm({ ...quickExpenseForm, amount: e.target.value })}
-                    className="w-full text-center text-4xl sm:text-5xl font-black text-rose-300 bg-transparent focus:outline-none placeholder-slate-700 tracking-tight font-mono selection:bg-rose-500 selection:text-black cursor-pointer"
-                  />
-                  <span className="text-3xl sm:text-4xl font-black text-rose-400">₫</span>
-                </div>
-                {quickExpenseForm.amount && !isNaN(parseFloat(quickExpenseForm.amount)) ? (
-                  <div className="mt-3 pt-2.5 border-t border-slate-800 flex flex-col items-center">
-                    <span className="text-sm sm:text-base font-black text-amber-300 tracking-wide">
-                      = {parseFloat(quickExpenseForm.amount).toLocaleString("vi-VN")} Đồng
-                    </span>
-                  </div>
-                ) : (
-                  <p className="text-xs text-slate-500 mt-2">Chạm các nút mệnh giá hoặc bấm vào ô số để gõ</p>
-                )}
-              </div>
-
-              {/* CÁC MỆNH GIÁ NHẬP NHANH: 1k - 2k - 10k - 20k - 50k - 100k - 200k - 500k + XÓA (ĐÃ BỎ 3K) */}
-              <div>
-                <label className="block text-[11px] font-black text-slate-600 uppercase mb-1.5">
-                  Mệnh giá nhập nhanh (Cộng dồn)
-                </label>
-                <div className="grid grid-cols-5 gap-1.5 text-xs font-black">
-                  {[
-                    { label: "+1K", val: 1000 },
-                    { label: "+2K", val: 2000 },
-                    { label: "+10K", val: 10000 },
-                    { label: "+20K", val: 20000 },
-                    { label: "+50K", val: 50000 },
-                    { label: "+100K", val: 100000 },
-                    { label: "+200K", val: 200000 },
-                    { label: "+500K", val: 500000 },
-                  ].map((item) => (
-                    <button
-                      key={item.label}
-                      type="button"
-                      onClick={() => {
-                        const cur = parseFloat(quickExpenseForm.amount) || 0;
-                        setQuickExpenseForm({ ...quickExpenseForm, amount: String(cur + item.val) });
-                      }}
-                      className="py-2.5 px-1 rounded-xl bg-slate-100 hover:bg-rose-100 hover:text-rose-800 border border-slate-300 transition text-slate-800 active:scale-95 shadow-xs cursor-pointer"
-                    >
-                      {item.label}
-                    </button>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={() => setQuickExpenseForm({ ...quickExpenseForm, amount: "" })}
-                    className="col-span-2 py-2.5 px-1 rounded-xl bg-slate-200 text-slate-700 hover:bg-slate-300 border border-slate-300 transition active:scale-95 font-black cursor-pointer"
-                  >
-                    Xóa số
-                  </button>
-                </div>
-              </div>
-
               {/* CHỌN KHO CHI TIỀN (NGUỒN XUẤT) KÈM SỐ DƯ */}
               <div>
                 <label className="block text-xs font-black text-[#0C2C47] uppercase mb-1.5">
@@ -4959,6 +4891,72 @@ export default function Home() {
                     />
                   </div>
                 )}
+              </div>
+
+              {/* MÀN HÌNH SỐ TIỀN CỰC TO NỀN TỐI CHỮ SÁNG TRÁNH NHẬP SAI (NHẬP SAU CÙNG) */}
+              <div className="bg-[#180a0d] border-2 border-rose-500 rounded-2xl p-5 sm:p-6 text-center shadow-2xl shadow-rose-950/60 ring-1 ring-rose-500/30">
+                <span className="block text-xs font-black text-rose-400 uppercase tracking-widest mb-2">
+                  SỐ TIỀN CHI RA (VNĐ)
+                </span>
+                <div className="flex items-center justify-center space-x-2 py-1">
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    required
+                    placeholder="0"
+                    value={quickExpenseForm.amount}
+                    onChange={(e) => setQuickExpenseForm({ ...quickExpenseForm, amount: e.target.value })}
+                    className="w-full text-center text-4xl sm:text-5xl font-black text-rose-300 bg-transparent focus:outline-none placeholder-slate-700 tracking-tight font-mono selection:bg-rose-500 selection:text-black cursor-pointer"
+                  />
+                  <span className="text-3xl sm:text-4xl font-black text-rose-400">₫</span>
+                </div>
+                {quickExpenseForm.amount && !isNaN(parseFloat(quickExpenseForm.amount)) ? (
+                  <div className="mt-3 pt-2.5 border-t border-slate-800 flex flex-col items-center">
+                    <span className="text-sm sm:text-base font-black text-amber-300 tracking-wide">
+                      = {parseFloat(quickExpenseForm.amount).toLocaleString("vi-VN")} Đồng
+                    </span>
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-500 mt-2">Chạm các nút mệnh giá hoặc bấm vào ô số để gõ</p>
+                )}
+              </div>
+
+              {/* CÁC MỆNH GIÁ NHẬP NHANH: 1k - 2k - 10k - 20k - 50k - 100k - 200k - 500k + XÓA (ĐÃ BỎ 3K) */}
+              <div>
+                <label className="block text-[11px] font-black text-slate-600 uppercase mb-1.5">
+                  Mệnh giá nhập nhanh (Cộng dồn)
+                </label>
+                <div className="grid grid-cols-5 gap-1.5 text-xs font-black">
+                  {[
+                    { label: "+1K", val: 1000 },
+                    { label: "+2K", val: 2000 },
+                    { label: "+10K", val: 10000 },
+                    { label: "+20K", val: 20000 },
+                    { label: "+50K", val: 50000 },
+                    { label: "+100K", val: 100000 },
+                    { label: "+200K", val: 200000 },
+                    { label: "+500K", val: 500000 },
+                  ].map((item) => (
+                    <button
+                      key={item.label}
+                      type="button"
+                      onClick={() => {
+                        const cur = parseFloat(quickExpenseForm.amount) || 0;
+                        setQuickExpenseForm({ ...quickExpenseForm, amount: String(cur + item.val) });
+                      }}
+                      className="py-2.5 px-1 rounded-xl bg-slate-100 hover:bg-rose-100 hover:text-rose-800 border border-slate-300 transition text-slate-800 active:scale-95 shadow-xs cursor-pointer"
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => setQuickExpenseForm({ ...quickExpenseForm, amount: "" })}
+                    className="col-span-2 py-2.5 px-1 rounded-xl bg-slate-200 text-slate-700 hover:bg-slate-300 border border-slate-300 transition active:scale-95 font-black cursor-pointer"
+                  >
+                    Xóa số
+                  </button>
+                </div>
               </div>
 
               {/* NÚT BẤM XÁC NHẬN TO RÕ */}
@@ -5330,6 +5328,43 @@ export default function Home() {
             </div>
 
             <form onSubmit={handleUpdateFlow} className="space-y-4">
+              {/* Tên mục / tiêu đề */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tiêu đề / Mục đích</label>
+                <input
+                  type="text"
+                  required
+                  value={editFlowForm.title}
+                  onChange={(e) => setEditFlowForm({ ...editFlowForm, title: e.target.value })}
+                  className="w-full p-2.5 rounded-xl border border-slate-300 text-sm font-bold text-slate-800 focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+
+              {/* Ngày phát sinh / dự kiến */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    {editingFlow.isActual ? "Ngày phát sinh" : "Ngày dự kiến"}
+                  </label>
+                  <input
+                    type="date"
+                    value={editFlowForm.flowDate}
+                    onChange={(e) => setEditFlowForm({ ...editFlowForm, flowDate: e.target.value })}
+                    className="w-full p-2.5 rounded-xl border border-slate-300 text-xs font-bold bg-white cursor-pointer"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Nhãn giao dịch</label>
+                  <input
+                    type="text"
+                    value={editFlowForm.tag}
+                    onChange={(e) => setEditFlowForm({ ...editFlowForm, tag: e.target.value })}
+                    className="w-full p-2.5 rounded-xl border border-slate-300 text-xs"
+                    placeholder="Nhãn..."
+                  />
+                </div>
+              </div>
+
               {/* Màn hình nhập số tiền cực to nền tối chữ sáng quy ước 1 = 1.000 */}
               <div className="bg-[#091522] border-2 border-blue-500 rounded-2xl p-5 text-center shadow-xl ring-1 ring-blue-500/30">
                 <div className="flex items-center justify-between text-xs font-black text-blue-400 uppercase tracking-wider mb-2">
@@ -5389,43 +5424,6 @@ export default function Home() {
                       {btn.label}
                     </button>
                   ))}
-                </div>
-              </div>
-
-              {/* Tên mục / tiêu đề */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tiêu đề / Mục đích</label>
-                <input
-                  type="text"
-                  required
-                  value={editFlowForm.title}
-                  onChange={(e) => setEditFlowForm({ ...editFlowForm, title: e.target.value })}
-                  className="w-full p-2.5 rounded-xl border border-slate-300 text-sm font-bold text-slate-800 focus:border-blue-500 focus:outline-none"
-                />
-              </div>
-
-              {/* Ngày phát sinh / dự kiến */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                    {editingFlow.isActual ? "Ngày phát sinh" : "Ngày dự kiến"}
-                  </label>
-                  <input
-                    type="date"
-                    value={editFlowForm.flowDate}
-                    onChange={(e) => setEditFlowForm({ ...editFlowForm, flowDate: e.target.value })}
-                    className="w-full p-2.5 rounded-xl border border-slate-300 text-xs font-bold bg-white cursor-pointer"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Nhãn giao dịch</label>
-                  <input
-                    type="text"
-                    value={editFlowForm.tag}
-                    onChange={(e) => setEditFlowForm({ ...editFlowForm, tag: e.target.value })}
-                    className="w-full p-2.5 rounded-xl border border-slate-300 text-xs"
-                    placeholder="Nhãn..."
-                  />
                 </div>
               </div>
 
