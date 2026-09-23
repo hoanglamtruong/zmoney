@@ -1,0 +1,197 @@
+import { Pool } from "pg";
+
+const globalForPg = globalThis as unknown as {
+  pgPool: Pool | undefined;
+};
+
+export const pool =
+  globalForPg.pgPool ??
+  new Pool({
+    connectionString:
+      process.env.DATABASE_URL ||
+      "postgresql://zmoney:zmoney_secure_pass@localhost:5442/zmoney_db",
+  });
+
+if (process.env.NODE_ENV !== "production") globalForPg.pgPool = pool;
+
+export async function initDatabase() {
+  const client = await pool.connect();
+  try {
+    // 1. Kho chứa (Pool)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS vaults (
+        id VARCHAR(50) PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        type VARCHAR(50) NOT NULL,
+        balance NUMERIC(18, 2) NOT NULL DEFAULT 0,
+        description TEXT,
+        is_locked BOOLEAN NOT NULL DEFAULT false,
+        locked_amount NUMERIC(18, 2) NOT NULL DEFAULT 0,
+        is_closed BOOLEAN NOT NULL DEFAULT false,
+        last_recorded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // 2. Dòng chảy (Flow)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS flows (
+        id VARCHAR(50) PRIMARY KEY,
+        title VARCHAR(255) NOT NULL,
+        amount NUMERIC(18, 2) NOT NULL,
+        type VARCHAR(50) NOT NULL,
+        from_vault_id VARCHAR(50),
+        to_vault_id VARCHAR(50),
+        from_title VARCHAR(255),
+        to_title VARCHAR(255),
+        tag VARCHAR(100),
+        is_actual BOOLEAN NOT NULL DEFAULT true,
+        priority VARCHAR(20) NOT NULL DEFAULT 'medium',
+        flow_date DATE NOT NULL DEFAULT CURRENT_DATE,
+        parent_flow_id VARCHAR(50),
+        is_reconcile BOOLEAN NOT NULL DEFAULT false,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+      ALTER TABLE flows ADD COLUMN IF NOT EXISTS priority VARCHAR(20) NOT NULL DEFAULT 'medium';
+    `);
+
+    // 3. Nghĩa vụ (Obligation - Nợ & Thuế)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS obligations (
+        id VARCHAR(50) PRIMARY KEY,
+        title VARCHAR(255) NOT NULL,
+        type VARCHAR(50) NOT NULL, -- 'receivable' (phải thu) | 'payable' (phải trả) | 'tax' (thuế)
+        role VARCHAR(50) NOT NULL DEFAULT 'debtor', -- 'creditor' (chủ nợ - phải thu) | 'debtor' (con nợ - phải trả)
+        amount NUMERIC(18, 2) NOT NULL,
+        partner VARCHAR(255),
+        formula VARCHAR(255),
+        interest VARCHAR(100),
+        due_date DATE,
+        status VARCHAR(50) DEFAULT 'normal',
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // 4. Đối chiếu số dư (Reconciliation audits)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS reconciliations (
+        id VARCHAR(50) PRIMARY KEY,
+        vault_id VARCHAR(50) NOT NULL REFERENCES vaults(id) ON DELETE CASCADE,
+        system_balance NUMERIC(18, 2) NOT NULL,
+        actual_balance NUMERIC(18, 2) NOT NULL,
+        difference NUMERIC(18, 2) NOT NULL,
+        reason TEXT,
+        action_taken VARCHAR(100),
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // 5. Khoản Vay & Cho Vay (Chủ Nợ & Con Nợ)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS loans (
+        id VARCHAR(50) PRIMARY KEY,
+        title VARCHAR(255) NOT NULL,
+        role VARCHAR(50) NOT NULL, -- 'creditor' (Tôi là Chủ Nợ) | 'debtor' (Tôi là Con Nợ)
+        partner_name VARCHAR(255) NOT NULL,
+        linked_vault_id VARCHAR(50) REFERENCES vaults(id) ON DELETE SET NULL,
+        start_date DATE NOT NULL DEFAULT CURRENT_DATE,
+        due_date DATE,
+        amount NUMERIC(18, 2) NOT NULL,
+        paid_amount NUMERIC(18, 2) NOT NULL DEFAULT 0,
+        interest_rate NUMERIC(6, 2) DEFAULT 0,
+        interest_type VARCHAR(50) DEFAULT 'none',
+        interest_due_term VARCHAR(100) DEFAULT 'end_term',
+        confirmed_creditor BOOLEAN NOT NULL DEFAULT true,
+        confirmed_debtor BOOLEAN NOT NULL DEFAULT false,
+        status VARCHAR(50) NOT NULL DEFAULT 'active',
+        notes TEXT,
+        agreement_id VARCHAR(50),
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+
+      ALTER TABLE loans ADD COLUMN IF NOT EXISTS agreement_id VARCHAR(50);
+
+      -- 6. Thỏa Thuận Ký Điện Tử (Agreements)
+      CREATE TABLE IF NOT EXISTS agreements (
+        id VARCHAR(50) PRIMARY KEY,
+        loan_id VARCHAR(50) REFERENCES loans(id) ON DELETE SET NULL,
+        title VARCHAR(255) NOT NULL,
+        creator_role VARCHAR(50) NOT NULL DEFAULT 'creditor',
+        creditor_name VARCHAR(255) NOT NULL,
+        creditor_contact VARCHAR(100),
+        debtor_name VARCHAR(255) NOT NULL,
+        debtor_contact VARCHAR(100),
+        amount NUMERIC(18, 2) NOT NULL,
+        interest_rate NUMERIC(6, 2) DEFAULT 0,
+        interest_type VARCHAR(50) DEFAULT 'none',
+        interest_due_term VARCHAR(100) DEFAULT 'end_term',
+        start_date DATE NOT NULL DEFAULT CURRENT_DATE,
+        due_date DATE,
+        linked_vault_id VARCHAR(50) REFERENCES vaults(id) ON DELETE SET NULL,
+        terms TEXT,
+        creditor_signature TEXT,
+        creditor_signed_at TIMESTAMP WITH TIME ZONE,
+        debtor_signature TEXT,
+        debtor_signed_at TIMESTAMP WITH TIME ZONE,
+        status VARCHAR(50) NOT NULL DEFAULT 'pending',
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+
+      -- 7. Danh Mục Nhãn Giao Dịch (Tags)
+      CREATE TABLE IF NOT EXISTS tags (
+        id VARCHAR(50) PRIMARY KEY,
+        name VARCHAR(100) NOT NULL UNIQUE,
+        type VARCHAR(20) NOT NULL DEFAULT 'both', -- 'income' | 'expense' | 'both'
+        color VARCHAR(50) DEFAULT 'blue',
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Seed data tags nếu bảng tags trống
+    const { rows: tagCount } = await client.query(`SELECT COUNT(*) FROM tags;`);
+    if (parseInt(tagCount[0].count, 10) === 0) {
+      await client.query(`
+        INSERT INTO tags (id, name, type, color) VALUES
+          ('tag_1', 'Doanh thu', 'income', 'emerald'),
+          ('tag_2', 'Thu nợ', 'income', 'emerald'),
+          ('tag_3', 'Tiền thưởng', 'income', 'emerald'),
+          ('tag_4', 'Chi phí', 'expense', 'rose'),
+          ('tag_5', 'Ăn uống', 'expense', 'amber'),
+          ('tag_6', 'Nhập hàng', 'expense', 'rose'),
+          ('tag_7', 'Trả nợ', 'expense', 'rose'),
+          ('tag_8', 'Thuế', 'expense', 'purple'),
+          ('tag_9', 'Vận hành', 'expense', 'indigo'),
+          ('tag_10', 'Nội bộ', 'both', 'blue'),
+          ('tag_11', 'Khác', 'both', 'slate'),
+          ('tag_12', 'Chênh lệch', 'both', 'cyan')
+        ON CONFLICT (name) DO NOTHING;
+      `);
+    }
+
+    // Seed data nếu bảng vaults trống
+    const { rows: vaultCount } = await client.query(`SELECT COUNT(*) FROM vaults;`);
+    if (parseInt(vaultCount[0].count, 10) === 0) {
+      await client.query(`
+        INSERT INTO vaults (id, name, type, balance, description, is_locked, locked_amount) VALUES
+          ('v1', 'Ví Tiền Mặt', 'cash', 15400000, 'Tiền mặt két sắt', false, 0),
+          ('v2', 'Tài Khoản MB Bank', 'bank', 142850000, 'TK kinh doanh chính', false, 0),
+          ('v3', 'Quỹ Dự Phòng Thuế (Khóa)', 'reserve', 12000000, 'Quỹ dự phòng nộp thuế theo kỳ', true, 9600000),
+          ('v4', 'Ví MoMo Kinh Doanh', 'ewallet', 6200000, 'Thanh toán đơn lẻ', false, 0);
+
+        INSERT INTO flows (id, title, amount, type, from_vault_id, to_vault_id, from_title, to_title, tag, is_actual, flow_date) VALUES
+          ('f1', 'Khách trả tiền hợp đồng quảng cáo', 25000000, 'income', NULL, 'v2', 'Khách hàng ZeeBee', 'Tài Khoản MB Bank', 'Doanh thu', true, '2026-09-08'),
+          ('f2', 'Rút tiền mặt bổ sung quỹ két', 10000000, 'transfer', 'v2', 'v1', 'Tài Khoản MB Bank', 'Ví Tiền Mặt', 'Nội bộ', true, '2026-09-07'),
+          ('f3', 'Chi phí máy chủ & dịch vụ cloud', 3500000, 'expense', 'v2', NULL, 'Tài Khoản MB Bank', 'Cloudflare/AWS', 'Vận hành', true, '2026-09-06'),
+          ('f4', 'Thu hồi nợ đối tác vật tư', 12000000, 'income', NULL, 'v2', 'Công ty In Ấn ABC', 'Tài Khoản MB Bank', 'Thu nợ', true, '2026-09-05'),
+          ('f5', 'Doanh thu khóa học Online (Dự kiến)', 15000000, 'income', NULL, 'v2', 'Học viên K12', 'Tài Khoản MB Bank', 'Doanh thu', false, '2026-09-15');
+
+        INSERT INTO obligations (id, title, type, role, amount, partner, formula, interest, due_date, status) VALUES
+          ('o1', 'Hợp đồng thiết kế Zlink (Phải thu)', 'receivable', 'creditor', 30000000, 'Công ty Cổ Phần X', NULL, '0%', '2026-09-15', 'normal'),
+          ('o2', 'Nhà cung cấp thiết bị Dell (Phải trả)', 'payable', 'debtor', 18500000, 'Đại lý Phân Phối ICT', NULL, '1.2%/tháng', '2026-09-10', 'urgent'),
+          ('o3', 'Thuế GTGT & TNCN Quý 3/2026', 'tax', 'debtor', 9600000, 'Chi cục Thuế khu vực', 'Khoán 1.5% doanh thu dòng chảy', NULL, '2026-09-30', 'normal');
+      `);
+    }
+  } finally {
+    client.release();
+  }
+}

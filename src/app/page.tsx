@@ -1,0 +1,7951 @@
+"use client";
+
+import { useState, useEffect, useMemo } from "react";
+import Link from "next/link";
+import {
+  Wallet, Handshake, Users, UserCheck, BadgePercent, CreditCard, 
+  ArrowRightLeft,
+  FileText,
+  TrendingUp,
+  AlertTriangle,
+  PlusCircle,
+  ArrowUpRight,
+  ArrowDownLeft,
+  Building2,
+  Calendar,
+  Filter,
+  X,
+  RefreshCw,
+  Tag,
+  CheckCircle2,
+  Lock,
+  Scale,
+  Clock,
+  Sparkles,
+  Search,
+  SlidersHorizontal,
+  ChevronRight,
+  PieChart,
+  Calculator,
+  LineChart,
+  Download,
+  Settings,
+  Bell,
+  Layers,
+  HelpCircle,
+  DollarSign,
+  ShieldAlert,
+  Printer,
+  ChevronDown,
+  ChevronUp,
+  Info,
+  Volume2,
+  Volume1,
+  VolumeX,
+  Play,
+  Square,
+  Minus,
+  Plus,
+  Coins,
+  ReceiptText,
+  Check,
+  Target,
+  PiggyBank,
+  Edit,
+  Trash2,
+  Eye,
+  PenTool,
+  Share2,
+  Copy
+} from "lucide-react";
+import {
+  playCoinSound,
+  playCashCounterSound,
+  playWarningAlertSound,
+  playGoalReachedSound,
+  playEventSound,
+  stopAllSounds,
+} from "@/lib/sound";
+import FinancialHealthChart from "@/components/FinancialHealthChart";
+import FinancialTrendsChart from "@/components/FinancialTrendsChart";
+
+interface Loan {
+  id: string;
+  title: string;
+  role: "creditor" | "debtor";
+  partnerName: string;
+  linkedVaultId: string | null;
+  vaultName?: string;
+  vaultType?: string;
+  startDate: string;
+  startDateFormatted?: string;
+  dueDate: string | null;
+  dueDateFormatted?: string;
+  amount: number;
+  paidAmount: number;
+  remainingAmount: number;
+  interestRate: number;
+  interestType: "none" | "monthly" | "yearly" | "fixed_sum";
+  interestDueTerm: string;
+  confirmedCreditor: boolean;
+  confirmedDebtor: boolean;
+  status: "active" | "settled" | "overdue";
+  notes?: string;
+  agreementId?: string;
+  createdAt?: string;
+  agreementCreditorName?: string;
+  agreementCreditorContact?: string;
+  agreementDebtorName?: string;
+  agreementDebtorContact?: string;
+  agreementStatus?: string;
+  creditorSignedAt?: string;
+  debtorSignedAt?: string;
+}
+
+interface Vault {
+  id: string;
+  name: string;
+  type: string;
+  balance: number;
+  desc?: string;
+  isLocked?: boolean;
+  lockedAmount?: number;
+  lastRecordedAt?: string;
+  daysInactive?: number;
+}
+
+interface TagItem {
+  id: string;
+  name: string;
+  type: "income" | "expense" | "both";
+  color?: string;
+  flowCount?: number;
+  incomeSum?: number;
+  expenseSum?: number;
+  createdAt?: string;
+}
+
+interface Flow {
+  id: string;
+  title: string;
+  amount: number;
+  type: "income" | "expense" | "transfer";
+  fromVaultId?: string;
+  toVaultId?: string;
+  from: string;
+  to: string;
+  tag: string;
+  isActual: boolean;
+  priority?: "high" | "medium" | "low";
+  isReconcile?: boolean;
+  date: string;
+  rawDate?: string;
+}
+
+interface Obligation {
+  id: string;
+  title: string;
+  type: "receivable" | "payable" | "tax";
+  role: "creditor" | "debtor";
+  amount: number;
+  partner?: string;
+  formula?: string;
+  interest?: string;
+  dueDate?: string;
+  status: string;
+}
+
+interface ReminderConfig {
+  enabled: boolean;
+  mode: "daily" | "countdown";
+  dailyTime: string; // Khung giờ chốt sổ & xem tài chính
+  reconcileTime?: string; // Khung giờ kiểm kê kho & đối chiếu
+  countdownMinutes: number;
+  soundType?: "coin" | "cash_counter";
+  durationSeconds?: number;
+  lastTriggeredDate?: string;
+  countdownTarget?: number;
+  volume?: number; // Âm lượng 0 - 100, mặc định 80
+}
+
+interface FinancialSystemSettings {
+  plannedAdvanceNoticeDays: number; // Số ngày nhắc trước sự kiện dự chi/thu (ví dụ: 3 ngày)
+  enablePlannedNotice: boolean; // Bật/tắt thông báo sự kiện dự chi/thu
+  plannedNoticeScope: "all" | "selective"; // 'all': thông báo tất cả sự kiện; 'selective': chỉ thông báo các sự kiện được gán
+  plannedSelectedFlowIds: string[]; // Danh sách id sự kiện dự chi/thu được gán thông báo
+  maxNegativeDebtAllowed: number; // Ngưỡng âm nợ cho phép (VNĐ, ví dụ: 50.000.000)
+  minVaultBalanceAllowed: number; // Ngưỡng tiền tối thiểu trong mỗi kho (VNĐ, ví dụ: 2.000.000)
+  savingsGoalAmount: number; // Mục tiêu tiết kiệm tích lũy (VNĐ, ví dụ: 200.000.000)
+  savingsGoalDeadline: string; // Hạn chót mục tiêu tiết kiệm
+}
+
+interface Reconciliation {
+  id: string;
+  vaultId: string;
+  vaultName: string;
+  systemBalance: number;
+  actualBalance: number;
+  difference: number;
+  reason: string;
+  actionTaken: string;
+  createdAt: string;
+}
+
+export default function Home() {
+  const [vaults, setVaults] = useState<Vault[]>([]);
+  const [flows, setFlows] = useState<Flow[]>([]);
+  const [obligations, setObligations] = useState<Obligation[]>([]);
+  const [reconciles, setReconciles] = useState<Reconciliation[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Tab điều hướng chính chuẩn 7 mục SITEMAP
+  const [activeTab, setActiveTab] = useState<"home" | "settings">("home");
+
+  // Modals
+  const [showQuickRecordModal, setShowQuickRecordModal] = useState(false);
+  const [showQuickIncomeModal, setShowQuickIncomeModal] = useState(false);
+  const [showQuickExpenseModal, setShowQuickExpenseModal] = useState(false);
+  const [showReminderModal, setShowReminderModal] = useState(false);
+  const [showAlarmAlertModal, setShowAlarmAlertModal] = useState(false);
+
+  // Helper lấy chuỗi ngày giờ hiện tại theo chuẩn Việt Nam (YYYY-MM-DD và HH:mm)
+  const getCurrentDateTime = () => {
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const dateStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+    const timeStr = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+    return { dateStr, timeStr };
+  };
+
+  // Form Nhập Nhanh THU (+)
+  const [quickIncomeForm, setQuickIncomeForm] = useState({
+    amount: "",
+    toVaultId: "",
+    tag: "Doanh thu",
+    title: "",
+    isExpected: false, // true = người dùng tick chọn Dự kiến ngày, false = mặc định ngày hôm nay
+    isActual: true,
+    flowDate: new Date().toISOString().split("T")[0],
+    priority: "medium" as "high" | "medium" | "low",
+  });
+
+  // Form Nhập Nhanh CHI (-)
+  const [quickExpenseForm, setQuickExpenseForm] = useState({
+    amount: "",
+    fromVaultId: "",
+    tag: "Chi phí",
+    title: "",
+    isExpected: false, // true = người dùng tick chọn Dự kiến ngày, false = mặc định ngày hôm nay
+    isActual: true,
+    flowDate: new Date().toISOString().split("T")[0],
+    priority: "medium" as "high" | "medium" | "low",
+  });
+
+  // Bộ điều khiển Sắp xếp & Lọc Kế Hoạch Sắp Tới (Dự Thu / Dự Chi)
+  const [plannedSortBy, setPlannedSortBy] = useState<"time_asc" | "time_desc" | "priority_desc" | "priority_asc">("time_asc");
+  const [plannedTypeFilter, setPlannedTypeFilter] = useState<"all" | "income" | "expense">("all");
+  const [plannedPriorityFilter, setPlannedPriorityFilter] = useState<"all" | "high" | "medium" | "low">("all");
+
+  // Cấu hình Chuông & Nhắc nhở Tài chính
+  const [reminderConfig, setReminderConfig] = useState<ReminderConfig>({
+    enabled: true,
+    mode: "daily",
+    dailyTime: "20:00",
+    reconcileTime: "09:00",
+    countdownMinutes: 60,
+    soundType: "coin",
+    durationSeconds: 4,
+    volume: 80,
+  });
+  const [countdownText, setCountdownText] = useState("");
+  const [isPlayingSoundTest, setIsPlayingSoundTest] = useState<"alert" | "income" | "expense" | "goal" | null>(null);
+
+  // Cấu hình Hệ thống & Ngưỡng kiểm soát tài chính
+  // State danh mục nhãn giao dịch
+  const [tags, setTags] = useState<TagItem[]>([]);
+  const [tagSettingsFilter, setTagSettingsFilter] = useState<"all" | "income" | "expense" | "both">("all");
+  const [showAddTagModal, setShowAddTagModal] = useState(false);
+  const [newTagName, setNewTagName] = useState("");
+  const [newTagType, setNewTagType] = useState<"income" | "expense" | "both">("both");
+  const [newTagColor, setNewTagColor] = useState("blue");
+  const [editingTag, setEditingTag] = useState<TagItem | null>(null);
+  const [tagToDelete, setTagToDelete] = useState<TagItem | null>(null);
+
+  // Hàm nạp danh mục nhãn
+  const fetchTags = async () => {
+    try {
+      const res = await fetch("/api/tags");
+      const json = await res.json();
+      if (json.success && Array.isArray(json.data)) {
+        setTags(json.data);
+      }
+    } catch (err) {
+      console.error("Lỗi nạp danh mục nhãn:", err);
+    }
+  };
+
+  // Thêm nhãn mới
+  const handleCreateTag = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTagName.trim()) return;
+    try {
+      const res = await fetch("/api/tags", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newTagName.trim(), type: newTagType, color: newTagColor }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setNewTagName("");
+        setShowAddTagModal(false);
+        await fetchTags();
+        handleTestSound("income");
+      } else {
+        alert(data.error || "Không thể tạo nhãn");
+      }
+    } catch (err) {
+      console.error("Lỗi tạo nhãn:", err);
+      alert("Đã xảy ra lỗi khi tạo nhãn");
+    }
+  };
+
+  // Cập nhật nhãn
+  const handleUpdateTag = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingTag || !editingTag.name.trim()) return;
+    try {
+      const res = await fetch("/api/tags", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: editingTag.id,
+          name: editingTag.name.trim(),
+          type: editingTag.type,
+          color: editingTag.color || "blue",
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setEditingTag(null);
+        await fetchTags();
+        await fetchData();
+        handleTestSound("goal");
+      } else {
+        alert(data.error || "Không thể cập nhật nhãn");
+      }
+    } catch (err) {
+      console.error("Lỗi cập nhật nhãn:", err);
+      alert("Đã xảy ra lỗi khi cập nhật nhãn");
+    }
+  };
+
+  // Xóa nhãn
+  const handleDeleteTag = async () => {
+    if (!tagToDelete) return;
+    try {
+      const res = await fetch(`/api/tags?id=${tagToDelete.id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (data.success) {
+        setTagToDelete(null);
+        await fetchTags();
+        await fetchData();
+        handleTestSound("expense");
+      } else {
+        alert(data.error || "Không thể xóa nhãn");
+      }
+    } catch (err) {
+      console.error("Lỗi xóa nhãn:", err);
+      alert("Đã xảy ra lỗi khi xóa nhãn");
+    }
+  };
+
+  const [systemSettings, setSystemSettings] = useState<FinancialSystemSettings>({
+    plannedAdvanceNoticeDays: 3, // Báo trước 3 ngày trước khi đến hạn dự chi/thu
+    enablePlannedNotice: true,
+    plannedNoticeScope: "all", // 'all' hoặc 'selective'
+    plannedSelectedFlowIds: [], // các id sự kiện dự chi/thu được gán thông báo
+    maxNegativeDebtAllowed: 50000000, // 50 triệu VNĐ
+    minVaultBalanceAllowed: 2000000, // 2 triệu VNĐ
+    savingsGoalAmount: 200000000, // 200 triệu VNĐ
+    savingsGoalDeadline: "2026-12-31",
+  });
+
+  const handleSaveSystemSettings = (newSettings: FinancialSystemSettings) => {
+    setSystemSettings(newSettings);
+    try {
+      localStorage.setItem("zmoney_system_settings", JSON.stringify(newSettings));
+    } catch (_) {}
+  };
+
+  const [notificationPermission, setNotificationPermission] = useState<string>("default");
+  const [showVaultModal, setShowVaultModal] = useState(false);
+  const [showReconcileModal, setShowReconcileModal] = useState(false);
+  const [selectedVaultForReconcile, setSelectedVaultForReconcile] = useState<Vault | null>(null);
+  const [selectedVaultDetail, setSelectedVaultDetail] = useState<Vault | null>(null);
+
+  // Form Thêm MoBo (Money Box)
+  const [vaultForm, setVaultForm] = useState({
+    name: "",
+    type: "bank",
+    balanceUnits: "", // Quy ước 1 = 1.000 VNĐ
+    isNegativeDebt: false, // Ngữ cảnh đang vay nợ tại ngân hàng / thấu chi (-)
+    description: "",
+    isLocked: false,
+    lockedAmountUnits: "", // Quy ước 1 = 1.000 VNĐ
+  });
+
+  // State Modal Sửa MoBo (Money Box)
+  const [editingVault, setEditingVault] = useState<Vault | null>(null);
+  const [editVaultForm, setEditVaultForm] = useState({
+    name: "",
+    type: "bank",
+    balanceUnits: "",
+    isNegativeDebt: false,
+    description: "",
+    isLocked: false,
+    lockedAmountUnits: "",
+  });
+
+  // State Modal Xóa MoBo (Money Box)
+  const [deletingVault, setDeletingVault] = useState<Vault | null>(null);
+  // ==========================================
+  // STATE CHỦ NỢ & CON NỢ (VAY - MƯỢN)
+  // ==========================================
+  const [loans, setLoans] = useState<Loan[]>([]);
+  const [loanTabFilter, setLoanTabFilter] = useState<"all" | "creditor" | "debtor">("all");
+  const [expandedLoanIds, setExpandedLoanIds] = useState<string[]>([]);
+  const toggleLoanExpand = (id: string) => {
+    setExpandedLoanIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+  const [showLoanModal, setShowLoanModal] = useState(false);
+  const [editingLoan, setEditingLoan] = useState<Loan | null>(null);
+  const [loanForm, setLoanForm] = useState({
+    title: "",
+    role: "debtor" as "creditor" | "debtor",
+    partnerName: "",
+    linkedVaultId: "",
+    startDate: new Date().toISOString().split("T")[0],
+    dueDate: "",
+    amountUnits: "", // Quy ước 1 = 1.000 VNĐ
+    interestRate: "0",
+    interestType: "none" as "none" | "monthly" | "yearly" | "fixed_sum",
+    interestDueTerm: "end_term",
+    confirmedCreditor: false,
+    confirmedDebtor: true,
+    notes: "",
+    syncMoBo: false,
+  });
+
+  const [activePayingLoan, setActivePayingLoan] = useState<Loan | null>(null);
+  const [payingAmountUnits, setPayingAmountUnits] = useState("");
+  const [payingVaultId, setPayingVaultId] = useState("");
+  const [payingNote, setPayingNote] = useState("");
+  const [loanToDelete, setLoanToDelete] = useState<Loan | null>(null);
+
+  // STATE THỎA THUẬN KÝ ĐIỆN TỬ (ID LIÊN KẾT & CHỮ KÝ CANVAS)
+  const [showAgreementModal, setShowAgreementModal] = useState(false);
+  const [agreementForm, setAgreementForm] = useState({
+    title: "",
+    creatorRole: "creditor" as "creditor" | "debtor",
+    creditorName: "",
+    creditorContact: "",
+    debtorName: "",
+    debtorContact: "",
+    amountUnits: "", // 1 = 1.000 VNĐ
+    interestRate: "0",
+    interestType: "none" as "none" | "monthly" | "yearly" | "fixed_sum",
+    interestDueTerm: "end_term",
+    startDate: new Date().toISOString().split("T")[0],
+    dueDate: "",
+    linkedVaultId: "",
+    terms: "Hai bên cam kết tự nguyện thỏa thuận vay và cho vay đúng theo các điều khoản ghi trong thỏa thuận này.",
+    autoActivate: true,
+  });
+  const [createdAgreementResult, setCreatedAgreementResult] = useState<any | null>(null);
+  const [agreementLinkCopied, setAgreementLinkCopied] = useState(false);
+  const [isCreatingAgreement, setIsCreatingAgreement] = useState(false);
+
+  const [targetTransferVaultId, setTargetTransferVaultId] = useState<string>("");
+
+  // Form Ghi Nhanh / Tạo Dòng Chảy
+  const [flowForm, setFlowForm] = useState({
+    title: "",
+    amount: "",
+    type: "expense",
+    fromVaultId: "",
+    toVaultId: "",
+    fromTitle: "",
+    toTitle: "",
+    tag: "Chi tiêu",
+    isActual: true,
+    flowDate: new Date().toISOString().split("T")[0],
+  });
+
+  // State Modal Trung Tâm Thông Báo Hệ Thống
+  const [notifCenterTab, setNotifCenterTab] = useState<"alerts" | "history">("alerts");
+  const [readAlertIds, setReadAlertIds] = useState<string[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("zmoney_read_alert_ids");
+        return saved ? JSON.parse(saved) : [];
+      } catch (_) {
+        return [];
+      }
+    }
+    return [];
+  });
+
+  // State Bộ Lọc Thu Chi Trang Chủ (Khối 3)
+  const [homeFilterRange, setHomeFilterRange] = useState<"all" | "today" | "7days" | "month" | "custom">("all");
+  const [homeFilterStartDate, setHomeFilterStartDate] = useState<string>("");
+  const [homeFilterEndDate, setHomeFilterEndDate] = useState<string>("");
+  const [homeFilterType, setHomeFilterType] = useState<"all" | "income" | "expense" | "transfer">("all");
+  const [homeFilterVault, setHomeFilterVault] = useState<string>("");
+  const [homeFilterTag, setHomeFilterTag] = useState<string>("");
+
+  // Form Đối Chiếu Số Dư Thực Tế (Mục 2.6)
+  const [reconcileForm, setReconcileForm] = useState({
+    actualBalance: "",
+    reason: "Đối chiếu kiểm đếm định kỳ",
+    assignAsFlow: false,
+    flowTag: "Chênh lệch đối chiếu",
+  });
+
+  // State Modal Trung Tâm Thông Báo Hệ Thống (Xem tất cả cảnh báo: Dự chi/thu, Ngưỡng nợ, Hạn mức kho, Miss báo cáo...)
+  const [showNotificationCenterModal, setShowNotificationCenterModal] = useState(false);
+
+  // State Modal Sửa / Xóa Dòng Chảy & Sự Kiện Dự Chi / Thu
+  const [editingFlow, setEditingFlow] = useState<Flow | null>(null);
+  const [editFlowForm, setEditFlowForm] = useState({
+    title: "",
+    amountUnits: "", // Lưu dạng đơn vị (quy ước 1 = 1.000 VNĐ)
+    flowDate: "",
+    tag: "",
+    fromVaultId: "",
+    toVaultId: "",
+    priority: "medium" as "high" | "medium" | "low",
+  });
+  const [flowToDelete, setFlowToDelete] = useState<Flow | null>(null);
+
+  // State Modal Popup Chỉnh Sửa Số Liệu Cài Đặt (Quy ước 1 = 1.000 VNĐ)
+  const [settingEditModal, setSettingEditModal] = useState<{
+    isOpen: boolean;
+    key: "maxNegativeDebtAllowed" | "minVaultBalanceAllowed" | "savingsGoalAmount" | null;
+    title: string;
+    description: string;
+    currentValue: number;
+    inputUnits: string; // nhập số dạng 1 = 1.000 VNĐ
+  }>({
+    isOpen: false,
+    key: null,
+    title: "",
+    description: "",
+    currentValue: 0,
+    inputUnits: "",
+  });
+
+  // Filter Sổ Ghi Tổng (Mục 2.2)
+  const [filterVault, setFilterVault] = useState("");
+  const [filterTag, setFilterTag] = useState("");
+  const [filterStatus, setFilterStatus] = useState("all");
+  const [filterStartDate, setFilterStartDate] = useState("");
+  const [filterEndDate, setFilterEndDate] = useState("");
+
+  // Máy tính Mục 4: Định Giá & Hòa Vốn
+  const [pricingCalc, setPricingCalc] = useState({
+    productName: "Gói Dịch Vụ Thiết Kế Web Pro",
+    variableCost: 2500000, // Chi phí biến đổi (hosting, nhân công...)
+    fixedCostAlloc: 1500000, // Chi phí cố định phân bổ
+    targetMarginPct: 40, // Biên lợi nhuận mong muốn (%)
+    expectedUnits: 10, // Sản lượng dự kiến
+  });
+
+  // Máy tính Mục 5: Giả lập kịch bản dòng tiền
+  const [simulationParams, setSimulationParams] = useState({
+    delayExpenses: false,
+    speedupReceivables: false,
+    increasePricePct: 0,
+  });
+
+  const fetchData = async () => {
+    try {
+      setLoading(true);
+      // 1. Vaults
+      const vRes = await fetch("/api/vaults");
+      const vData = await vRes.json();
+      if (vData.success) setVaults(vData.data);
+
+      // 2. Flows (với filter)
+      const q = new URLSearchParams();
+      if (filterVault) q.append("vaultId", filterVault);
+      if (filterTag) q.append("tag", filterTag);
+      if (filterStatus !== "all") q.append("status", filterStatus);
+      if (filterStartDate) q.append("startDate", filterStartDate);
+      if (filterEndDate) q.append("endDate", filterEndDate);
+
+      const fRes = await fetch(`/api/flows?${q.toString()}`);
+      const fData = await fRes.json();
+      if (fData.success) setFlows(fData.data);
+
+      // 3. Obligations
+      const oRes = await fetch("/api/obligations");
+      const oData = await oRes.json();
+      if (oData.success) setObligations(oData.data);
+
+      // 4. Reconciliations
+      const rRes = await fetch("/api/reconcile");
+      const rData = await rRes.json();
+      if (rData.success) setReconciles(rData.data);
+      // 5. Loans (Chủ Nợ & Con NỢ)
+      const lRes = await fetch("/api/loans");
+      const lData = await lRes.json();
+      if (lData.success) setLoans(lData.data);
+
+      // 6. Tags (Danh mục nhãn)
+      const tRes = await fetch("/api/tags");
+      const tData = await tRes.json();
+      if (tData.success) setTags(tData.data);
+    } catch (err) {
+      console.error("Lỗi nạp dữ liệu:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, [filterVault, filterTag, filterStatus, filterStartDate, filterEndDate]);
+
+  // Khởi tạo notification permission và load config từ localStorage
+  useEffect(() => {
+    if (typeof window !== "undefined" && "Notification" in window) {
+      setNotificationPermission(Notification.permission);
+    }
+    try {
+      const saved = localStorage.getItem("zmoney_reminder_config");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        setReminderConfig((prev) => ({ ...prev, ...parsed }));
+      }
+    } catch (_) {}
+
+    try {
+      const savedSettings = localStorage.getItem("zmoney_system_settings");
+      if (savedSettings) {
+        const parsedSettings = JSON.parse(savedSettings);
+        setSystemSettings((prev) => ({ ...prev, ...parsedSettings }));
+      }
+    } catch (_) {}
+  }, []);
+
+  // Vòng lặp Timer kiểm tra nhắc nhở
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (!reminderConfig.enabled) return;
+
+      const now = new Date();
+      const currentHHMM = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+      const todayStr = now.toISOString().split("T")[0];
+
+      if (reminderConfig.mode === "daily") {
+        if (currentHHMM === reminderConfig.dailyTime && reminderConfig.lastTriggeredDate !== todayStr) {
+          triggerAlarm(todayStr);
+        }
+      } else if (reminderConfig.mode === "countdown" && reminderConfig.countdownTarget) {
+        const diff = reminderConfig.countdownTarget - Date.now();
+        if (diff <= 0) {
+          triggerAlarm();
+          setReminderConfig((prev) => {
+            const upd = { ...prev, countdownTarget: undefined };
+            try { localStorage.setItem("zmoney_reminder_config", JSON.stringify(upd)); } catch (_) {}
+            return upd;
+          });
+          setCountdownText("");
+        } else {
+          const m = Math.floor(diff / 60000);
+          const s = Math.floor((diff % 60000) / 1000);
+          setCountdownText(`${m}p ${s}s`);
+        }
+      }
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [reminderConfig]);
+
+  const triggerAlarm = (todayStr?: string) => {
+    if (todayStr) {
+      setReminderConfig((prev) => {
+        const upd = { ...prev, lastTriggeredDate: todayStr };
+        try { localStorage.setItem("zmoney_reminder_config", JSON.stringify(upd)); } catch (_) {}
+        return upd;
+      });
+    }
+
+    const vol = (reminderConfig.volume ?? 80) / 100;
+    // Báo thức sự kiện nhắc nhở tài chính kích hoạt chuông cảnh báo 3 hồi ngắt quãng
+    playWarningAlertSound(vol, 3);
+
+    setShowAlarmAlertModal(true);
+
+    if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
+      try {
+        new Notification("⏰ Zmoney: Đến giờ chốt sổ & xem tài chính!", {
+          body: "Chuông nhắc nhở kiểm tra dòng tiền và tài sản ròng hôm nay đã kích hoạt.",
+        });
+      } catch (_) {}
+    }
+  };
+
+  const handleTestSound = (event: "alert" | "income" | "expense" | "goal") => {
+    stopAllSounds();
+    setIsPlayingSoundTest(event);
+    const vol = (reminderConfig.volume ?? 80) / 100;
+    playEventSound(event, vol, 3);
+    setTimeout(() => {
+      setIsPlayingSoundTest((cur) => (cur === event ? null : cur));
+    }, 2400);
+  };
+
+  const handleStopSoundTest = () => {
+    stopAllSounds();
+    setIsPlayingSoundTest(null);
+  };
+
+  const handleSaveReminder = (newConfig: ReminderConfig) => {
+    setReminderConfig(newConfig);
+    try {
+      localStorage.setItem("zmoney_reminder_config", JSON.stringify(newConfig));
+    } catch (_) {}
+  };
+
+  const requestNotifyPermission = async () => {
+    if (typeof window !== "undefined" && "Notification" in window) {
+      try {
+        const res = await Notification.requestPermission();
+        setNotificationPermission(res);
+        if (res === "granted") {
+          alert("Đã cấp quyền thông báo thành công!");
+        }
+      } catch (err: any) {
+        alert("Lỗi xin quyền: " + err.message);
+      }
+    }
+  };
+
+  // Submit Nhập Nhanh THU (+)
+  const handleQuickIncomeSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const amount = parseFloat(quickIncomeForm.amount);
+    if (isNaN(amount) || amount <= 0) {
+      return alert("Vui lòng nhập số tiền thu hợp lệ (> 0)");
+    }
+    if (!quickIncomeForm.toVaultId) {
+      return alert("Vui lòng chọn Kho nhận tiền");
+    }
+
+    const v = vaults.find((item) => item.id === quickIncomeForm.toVaultId);
+    const vaultName = v ? v.name : "Kho nhận";
+    const title = quickIncomeForm.title.trim() || `Thu: ${quickIncomeForm.tag} ➔ ${vaultName}`;
+
+    const isActual = quickIncomeForm.isExpected ? false : true;
+    const flowDate = quickIncomeForm.isExpected 
+      ? (quickIncomeForm.flowDate || new Date().toISOString().split("T")[0])
+      : new Date().toISOString().split("T")[0];
+
+    try {
+      const res = await fetch("/api/flows", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: isActual ? title : `[Dự kiến] ${title}`,
+          amount,
+          type: "income",
+          fromVaultId: null,
+          toVaultId: quickIncomeForm.toVaultId,
+          fromTitle: "Nguồn thu bên ngoài",
+          toTitle: vaultName,
+          tag: quickIncomeForm.tag,
+          isActual,
+          flowDate,
+          priority: quickIncomeForm.priority || "medium",
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setShowQuickIncomeModal(false);
+        setQuickIncomeForm({
+          amount: "",
+          toVaultId: vaults[0]?.id || "",
+          tag: "Doanh thu",
+          title: "",
+          isExpected: false,
+          isActual: true,
+          flowDate: new Date().toISOString().split("T")[0],
+          priority: "medium",
+        });
+        if (isActual) playCoinSound(1.2);
+        await fetchData();
+      } else {
+        alert("Lỗi: " + data.error);
+      }
+    } catch (err: any) {
+      alert("Lỗi ghi nhận thu: " + err.message);
+    }
+  };
+
+  // Submit Nhập Nhanh CHI (-)
+  const handleQuickExpenseSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const amount = parseFloat(quickExpenseForm.amount);
+    if (isNaN(amount) || amount <= 0) {
+      return alert("Vui lòng nhập số tiền chi hợp lệ (> 0)");
+    }
+    if (!quickExpenseForm.fromVaultId) {
+      return alert("Vui lòng chọn Kho xuất tiền chi");
+    }
+
+    const v = vaults.find((item) => item.id === quickExpenseForm.fromVaultId);
+    const vaultName = v ? v.name : "Kho chi";
+    const title = quickExpenseForm.title.trim() || `Chi: ${quickExpenseForm.tag} từ ${vaultName}`;
+
+    const isActual = quickExpenseForm.isExpected ? false : true;
+    const flowDate = quickExpenseForm.isExpected 
+      ? (quickExpenseForm.flowDate || new Date().toISOString().split("T")[0])
+      : new Date().toISOString().split("T")[0];
+
+    try {
+      const res = await fetch("/api/flows", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: isActual ? title : `[Dự kiến] ${title}`,
+          amount,
+          type: "expense",
+          fromVaultId: quickExpenseForm.fromVaultId,
+          toVaultId: null,
+          fromTitle: vaultName,
+          toTitle: "Bên nhận chi",
+          tag: quickExpenseForm.tag,
+          isActual,
+          flowDate,
+          priority: quickExpenseForm.priority || "medium",
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setShowQuickExpenseModal(false);
+        setQuickExpenseForm({
+          amount: "",
+          fromVaultId: vaults[0]?.id || "",
+          tag: "Chi phí",
+          title: "",
+          isExpected: false,
+          isActual: true,
+          flowDate: new Date().toISOString().split("T")[0],
+          priority: "medium",
+        });
+        if (isActual) playCashCounterSound(1.5);
+        await fetchData();
+      } else {
+        alert("Lỗi: " + data.error);
+      }
+    } catch (err: any) {
+      alert("Lỗi ghi nhận chi: " + err.message);
+    }
+  };
+
+  // Submit MoBo (Money Box) Mới
+  const handleCreateVault = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!vaultForm.name.trim()) return alert("Vui lòng nhập tên MoBo");
+    try {
+      const units = parseFloat(vaultForm.balanceUnits) || 0;
+      let realBalance = Math.round(units * 1000);
+      if (vaultForm.isNegativeDebt) {
+        realBalance = -Math.abs(realBalance);
+      }
+      const lockedUnits = parseFloat(vaultForm.lockedAmountUnits) || 0;
+      const realLocked = Math.round(lockedUnits * 1000);
+
+      const res = await fetch("/api/vaults", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: vaultForm.name.trim(),
+          type: vaultForm.type,
+          balance: realBalance,
+          description: vaultForm.description,
+          isLocked: vaultForm.isLocked,
+          lockedAmount: realLocked,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setShowVaultModal(false);
+        setVaultForm({
+          name: "",
+          type: "bank",
+          balanceUnits: "",
+          isNegativeDebt: false,
+          description: "",
+          isLocked: false,
+          lockedAmountUnits: "",
+        });
+        await fetchData();
+      } else {
+        alert("Lỗi: " + data.error);
+      }
+    } catch (err: any) {
+      alert("Lỗi khi thêm MoBo: " + err.message);
+    }
+  };
+
+  // Mở Modal Sửa MoBo
+  const openEditVaultModal = (vault: Vault) => {
+    setEditingVault(vault);
+    const isNegative = vault.balance < 0;
+    const balanceAbs = Math.abs(vault.balance);
+    const balanceUnits = balanceAbs > 0 ? (balanceAbs / 1000).toString() : "";
+    const lockedUnits = (vault.lockedAmount || 0) > 0 ? ((vault.lockedAmount || 0) / 1000).toString() : "";
+
+    setEditVaultForm({
+      name: vault.name,
+      type: vault.type,
+      balanceUnits,
+      isNegativeDebt: isNegative,
+      description: vault.desc || "",
+      isLocked: !!vault.isLocked,
+      lockedAmountUnits: lockedUnits,
+    });
+  };
+
+  // Submit Cập Nhật MoBo
+  const handleUpdateVault = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingVault) return;
+    if (!editVaultForm.name.trim()) return alert("Vui lòng nhập tên MoBo");
+
+    try {
+      const units = parseFloat(editVaultForm.balanceUnits) || 0;
+      let realBalance = Math.round(units * 1000);
+      if (editVaultForm.isNegativeDebt) {
+        realBalance = -Math.abs(realBalance);
+      }
+      const lockedUnits = parseFloat(editVaultForm.lockedAmountUnits) || 0;
+      const realLocked = Math.round(lockedUnits * 1000);
+
+      const res = await fetch("/api/vaults", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: editingVault.id,
+          name: editVaultForm.name.trim(),
+          type: editVaultForm.type,
+          balance: realBalance,
+          description: editVaultForm.description,
+          isLocked: editVaultForm.isLocked,
+          lockedAmount: realLocked,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setEditingVault(null);
+        await fetchData();
+      } else {
+        alert("Lỗi cập nhật MoBo: " + data.error);
+      }
+    } catch (err: any) {
+      alert("Lỗi: " + err.message);
+    }
+  };
+
+  // Mở Modal Xóa MoBo (bắt buộc balance = 0 hoặc kết chuyển)
+  const openDeleteVaultModal = (vault: Vault) => {
+    setDeletingVault(vault);
+    const otherVaults = vaults.filter((v) => v.id !== vault.id);
+    setTargetTransferVaultId(otherVaults[0]?.id || "");
+  };
+
+  // Xác nhận Xóa MoBo
+  const handleDeleteVaultConfirm = async () => {
+    if (!deletingVault) return;
+
+    const hasBalance = Math.abs(deletingVault.balance) > 0.001;
+    if (hasBalance && !targetTransferVaultId) {
+      return alert("Vui lòng chọn MoBo đích để kết chuyển số dư (+/-) trước khi xóa!");
+    }
+
+    try {
+      const res = await fetch("/api/vaults", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: deletingVault.id,
+          targetVaultId: hasBalance ? targetTransferVaultId : undefined,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setDeletingVault(null);
+        await fetchData();
+      } else {
+        alert("Không thể xóa MoBo: " + data.error);
+      }
+    } catch (err: any) {
+      alert("Lỗi khi xóa MoBo: " + err.message);
+    }
+  };
+
+  // ==========================================
+  // HANDLERS CHỦ NỢ & CON NỢ (VAY - MƯỢN)
+  // ==========================================
+  const handleOpenCreateLoan = (role: "creditor" | "debtor" = "debtor") => {
+    setEditingLoan(null);
+    setLoanForm({
+      title: "",
+      role,
+      partnerName: "",
+      linkedVaultId: vaults.length > 0 ? vaults[0].id : "",
+      startDate: new Date().toISOString().split("T")[0],
+      dueDate: "",
+      amountUnits: "",
+      interestRate: "0",
+      interestType: "none",
+      interestDueTerm: "end_term",
+      confirmedCreditor: role === "creditor",
+      confirmedDebtor: role === "debtor",
+      notes: "",
+      syncMoBo: false,
+    });
+    setShowLoanModal(true);
+  };
+
+  const handleOpenEditLoan = (loan: Loan) => {
+    setEditingLoan(loan);
+    setLoanForm({
+      title: loan.title,
+      role: loan.role,
+      partnerName: loan.partnerName,
+      linkedVaultId: loan.linkedVaultId || (vaults.length > 0 ? vaults[0].id : ""),
+      startDate: loan.startDate || new Date().toISOString().split("T")[0],
+      dueDate: loan.dueDate || "",
+      amountUnits: (loan.amount / 1000).toString(),
+      interestRate: loan.interestRate.toString(),
+      interestType: loan.interestType,
+      interestDueTerm: loan.interestDueTerm,
+      confirmedCreditor: loan.confirmedCreditor,
+      confirmedDebtor: loan.confirmedDebtor,
+      notes: loan.notes || "",
+      syncMoBo: false,
+    });
+    setShowLoanModal(true);
+  };
+
+  const handleSaveLoan = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!loanForm.title.trim()) return alert("Vui lòng nhập tên/tiêu đề khoản nợ");
+    if (!loanForm.partnerName.trim()) return alert("Vui lòng nhập tên đối tác vay / cho vay");
+    const units = parseFloat(loanForm.amountUnits);
+    if (isNaN(units) || units <= 0) return alert("Vui lòng nhập số tiền hợp lệ (> 0). Quy ước 1 = 1.000 VNĐ.");
+
+    const realAmount = Math.round(units * 1000);
+
+    try {
+      if (editingLoan) {
+        // Cập nhật
+        const res = await fetch("/api/loans", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: editingLoan.id,
+            title: loanForm.title,
+            role: loanForm.role,
+            partnerName: loanForm.partnerName,
+            linkedVaultId: loanForm.linkedVaultId || null,
+            startDate: loanForm.startDate,
+            dueDate: loanForm.dueDate || null,
+            amount: realAmount,
+            interestRate: parseFloat(loanForm.interestRate) || 0,
+            interestType: loanForm.interestType,
+            interestDueTerm: loanForm.interestDueTerm,
+            notes: loanForm.notes,
+          }),
+        });
+        const data = await res.json();
+        if (data.success) {
+          setShowLoanModal(false);
+          setEditingLoan(null);
+          await fetchData();
+        } else {
+          alert("Lỗi: " + data.error);
+        }
+      } else {
+        // Tạo mới
+        const res = await fetch("/api/loans", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: loanForm.title,
+            role: loanForm.role,
+            partnerName: loanForm.partnerName,
+            linkedVaultId: loanForm.linkedVaultId || null,
+            startDate: loanForm.startDate,
+            dueDate: loanForm.dueDate || null,
+            amount: realAmount,
+            interestRate: parseFloat(loanForm.interestRate) || 0,
+            interestType: loanForm.interestType,
+            interestDueTerm: loanForm.interestDueTerm,
+            confirmedCreditor: loanForm.confirmedCreditor,
+            confirmedDebtor: loanForm.confirmedDebtor,
+            notes: loanForm.notes,
+            syncMoBo: loanForm.syncMoBo,
+          }),
+        });
+        const data = await res.json();
+        if (data.success) {
+          setShowLoanModal(false);
+          await fetchData();
+        } else {
+          alert("Lỗi: " + data.error);
+        }
+      }
+    } catch (err: any) {
+      alert("Lỗi khi lưu khoản vay: " + err.message);
+    }
+  };
+
+  const handleToggleLoanConfirm = async (loan: Loan, targetSide?: "creditor" | "debtor", confirmBoth = false) => {
+    try {
+      const res = await fetch("/api/loans", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: loan.id,
+          action: "toggle_confirm",
+          targetSide,
+          confirmBoth,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        await fetchData();
+      } else {
+        alert("Lỗi: " + data.error);
+      }
+    } catch (err: any) {
+      alert("Lỗi: " + err.message);
+    }
+  };
+
+  const handleOpenPayLoan = (loan: Loan) => {
+    setActivePayingLoan(loan);
+    setPayingAmountUnits((loan.remainingAmount / 1000).toString());
+    setPayingVaultId(loan.linkedVaultId || (vaults.length > 0 ? vaults[0].id : ""));
+    setPayingNote("");
+  };
+
+  const handleSubmitPayLoan = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activePayingLoan) return;
+    const units = parseFloat(payingAmountUnits);
+    if (isNaN(units) || units <= 0) return alert("Vui lòng nhập số tiền thanh toán (> 0)");
+    const realPayment = Math.round(units * 1000);
+
+    try {
+      const res = await fetch("/api/loans", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: activePayingLoan.id,
+          action: "pay",
+          paymentAmount: realPayment,
+          payVaultId: payingVaultId || null,
+          note: payingNote,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setActivePayingLoan(null);
+        await fetchData();
+      } else {
+        alert("Lỗi: " + data.error);
+      }
+    } catch (err: any) {
+      alert("Lỗi: " + err.message);
+    }
+  };
+
+  const handleOpenCreateAgreement = () => {
+    setCreatedAgreementResult(null);
+    setAgreementLinkCopied(false);
+    const defaultVault = vaults.length > 0 ? vaults[0] : null;
+    setAgreementForm({
+      title: "",
+      creatorRole: "creditor",
+      creditorName: defaultVault ? defaultVault.name : "Chủ Nợ",
+      creditorContact: "",
+      debtorName: "",
+      debtorContact: "",
+      amountUnits: "",
+      interestRate: "0",
+      interestType: "none",
+      interestDueTerm: "end_term",
+      startDate: new Date().toISOString().split("T")[0],
+      dueDate: "",
+      linkedVaultId: defaultVault ? defaultVault.id : "",
+      terms: "Hai bên cam kết tự nguyện thỏa thuận vay và cho vay đúng theo các điều khoản ghi trong thỏa thuận này.",
+      autoActivate: true,
+    });
+    setShowAgreementModal(true);
+  };
+
+  const handleCreateAgreement = async (e?: React.FormEvent, forceAutoActivate?: boolean) => {
+    if (e) e.preventDefault();
+    if (!agreementForm.title.trim()) return alert("Vui lòng nhập mục đích vay");
+    if (!agreementForm.creditorName.trim()) return alert("Vui lòng nhập họ tên Chủ Nợ");
+    if (!agreementForm.debtorName.trim()) return alert("Vui lòng nhập họ tên Con Nợ");
+
+    const units = parseFloat(agreementForm.amountUnits);
+    if (isNaN(units) || units <= 0) return alert("Vui lòng nhập số tiền hợp lệ (> 0). Quy ước 1 = 1.000 VNĐ.");
+    const realAmount = Math.round(units * 1000);
+
+    const willAutoActivate = forceAutoActivate !== undefined ? forceAutoActivate : Boolean(agreementForm.autoActivate);
+
+    try {
+      setIsCreatingAgreement(true);
+      const res = await fetch("/api/agreements", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: agreementForm.title,
+          creatorRole: agreementForm.creatorRole,
+          creditorName: agreementForm.creditorName,
+          creditorContact: agreementForm.creditorContact,
+          debtorName: agreementForm.debtorName,
+          debtorContact: agreementForm.debtorContact,
+          amount: realAmount,
+          interestRate: parseFloat(agreementForm.interestRate) || 0,
+          interestType: agreementForm.interestType,
+          interestDueTerm: agreementForm.interestDueTerm,
+          startDate: agreementForm.startDate,
+          dueDate: agreementForm.dueDate || null,
+          linkedVaultId: agreementForm.linkedVaultId || null,
+          terms: agreementForm.terms,
+          autoActivate: willAutoActivate,
+        }),
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        setCreatedAgreementResult(data.data);
+        if (willAutoActivate) {
+          await fetchData();
+        }
+      } else {
+        alert("Lỗi: " + data.error);
+      }
+    } catch (err: any) {
+      alert("Lỗi khi tạo thỏa thuận: " + err.message);
+    } finally {
+      setIsCreatingAgreement(false);
+    }
+  };
+
+  const handleDeleteLoan = async () => {
+    if (!loanToDelete) return;
+    try {
+      const res = await fetch("/api/loans", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: loanToDelete.id }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setLoanToDelete(null);
+        await fetchData();
+      } else {
+        alert("Lỗi: " + data.error);
+      }
+    } catch (err: any) {
+      alert("Lỗi: " + err.message);
+    }
+  };
+
+  // Submit Dòng Chảy / Ghi Nhanh
+  const handleCreateFlow = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const amount = parseFloat(flowForm.amount);
+    if (!flowForm.title || isNaN(amount) || amount <= 0) {
+      return alert("Vui lòng nhập tiêu đề và số tiền hợp lệ (> 0)");
+    }
+
+    let fTitle = flowForm.fromTitle;
+    let tTitle = flowForm.toTitle;
+    if (flowForm.fromVaultId) {
+      const v = vaults.find((item) => item.id === flowForm.fromVaultId);
+      if (v) fTitle = v.name;
+    }
+    if (flowForm.toVaultId) {
+      const v = vaults.find((item) => item.id === flowForm.toVaultId);
+      if (v) tTitle = v.name;
+    }
+
+    try {
+      const res = await fetch("/api/flows", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...flowForm,
+          amount,
+          fromTitle: fTitle,
+          toTitle: tTitle,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setShowQuickRecordModal(false);
+        setFlowForm({
+          title: "",
+          amount: "",
+          type: "expense",
+          fromVaultId: "",
+          toVaultId: "",
+          fromTitle: "",
+          toTitle: "",
+          tag: "Chi tiêu",
+          isActual: true,
+          flowDate: new Date().toISOString().split("T")[0],
+        });
+        await fetchData();
+      } else {
+        alert("Lỗi: " + data.error);
+      }
+    } catch (err: any) {
+      alert("Lỗi tạo giao dịch: " + err.message);
+    }
+  };
+
+  // Mở modal sửa Flow (Quy ước 1 = 1.000 VNĐ)
+  const handleOpenEditFlow = (flow: Flow) => {
+    let dateStr = "";
+    if (flow.rawDate) {
+      try {
+        dateStr = new Date(flow.rawDate).toISOString().split("T")[0];
+      } catch (_) {
+        dateStr = flow.rawDate;
+      }
+    } else if (flow.date && flow.date.includes("/")) {
+      const parts = flow.date.split("/");
+      dateStr = `${parts[2]}-${parts[1]}-${parts[0]}`;
+    }
+
+    // Quy ước 1 = 1.000 VNĐ: chia cho 1000
+    const units = (flow.amount / 1000).toString();
+
+    setEditingFlow(flow);
+    setEditFlowForm({
+      title: flow.title,
+      amountUnits: units,
+      flowDate: dateStr,
+      tag: flow.tag,
+      fromVaultId: flow.fromVaultId || "",
+      toVaultId: flow.toVaultId || "",
+      priority: flow.priority || "medium",
+    });
+  };
+
+  // Lưu chỉnh sửa Flow (nhập đơn vị -> nhân 1.000 ra VNĐ)
+  const handleUpdateFlow = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingFlow) return;
+
+    const units = parseFloat(editFlowForm.amountUnits);
+    if (isNaN(units) || units <= 0) {
+      return alert("Vui lòng nhập số hợp lệ (> 0). Ví dụ nhập 20 = 20.000đ, 50000 = 50.000.000đ");
+    }
+    const realAmount = Math.round(units * 1000);
+
+    let fromTitle = editingFlow.from;
+    let toTitle = editingFlow.to;
+    if (editFlowForm.fromVaultId) {
+      const v = vaults.find((item) => item.id === editFlowForm.fromVaultId);
+      if (v) fromTitle = v.name;
+    }
+    if (editFlowForm.toVaultId) {
+      const v = vaults.find((item) => item.id === editFlowForm.toVaultId);
+      if (v) toTitle = v.name;
+    }
+
+    try {
+      const res = await fetch("/api/flows", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: editingFlow.id,
+          title: editFlowForm.title,
+          amount: realAmount,
+          tag: editFlowForm.tag,
+          flowDate: editFlowForm.flowDate,
+          fromVaultId: editFlowForm.fromVaultId || null,
+          toVaultId: editFlowForm.toVaultId || null,
+          fromTitle,
+          toTitle,
+          priority: editFlowForm.priority,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setEditingFlow(null);
+        await fetchData();
+      } else {
+        alert("Lỗi: " + data.error);
+      }
+    } catch (err: any) {
+      alert("Lỗi cập nhật giao dịch: " + err.message);
+    }
+  };
+
+  // Đổi nhanh mức độ ưu tiên của khoản dự tính
+  const handleQuickChangePriority = async (flow: Flow, newPriority: "high" | "medium" | "low") => {
+    try {
+      const res = await fetch("/api/flows", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: flow.id,
+          priority: newPriority,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        await fetchData();
+      } else {
+        alert("Lỗi: " + data.error);
+      }
+    } catch (err: any) {
+      alert("Lỗi đổi mức ưu tiên: " + err.message);
+    }
+  };
+
+  // Thực hiện ngay một khoản dự thu / dự chi: chuyển sang thực tế và trừ/cộng MoBo ngay
+  const handleExecutePlannedFlow = async (flow: Flow) => {
+    const confirmMsg = flow.type === "income"
+      ? `Xác nhận thực hiện ngay khoản DỰ THU "${flow.title}" (+${flow.amount.toLocaleString("vi-VN")} ₫) vào thực tế?`
+      : `Xác nhận thực hiện ngay khoản DỰ CHI "${flow.title}" (-${flow.amount.toLocaleString("vi-VN")} ₫) vào thực tế?`;
+
+    if (!confirm(confirmMsg)) return;
+
+    try {
+      const todayStr = new Date().toISOString().split("T")[0];
+      const res = await fetch("/api/flows", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: flow.id,
+          isActual: true,
+          flowDate: todayStr,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        playCashCounterSound(1.5);
+        await fetchData();
+      } else {
+        alert("Lỗi: " + data.error);
+      }
+    } catch (err: any) {
+      alert("Lỗi thực hiện kế hoạch: " + err.message);
+    }
+  };
+
+  // Xóa Flow và hoàn lại số dư kho tương ứng
+  const handleDeleteFlowConfirm = async () => {
+    if (!flowToDelete) return;
+    try {
+      const res = await fetch(`/api/flows?id=${encodeURIComponent(flowToDelete.id)}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (data.success) {
+        // Đồng thời nếu flow này đang nằm trong plannedSelectedFlowIds thì loại ra
+        if (systemSettings.plannedSelectedFlowIds?.includes(flowToDelete.id)) {
+          handleSaveSystemSettings({
+            ...systemSettings,
+            plannedSelectedFlowIds: systemSettings.plannedSelectedFlowIds.filter((id) => id !== flowToDelete.id),
+          });
+        }
+        setFlowToDelete(null);
+        await fetchData();
+      } else {
+        alert("Lỗi: " + data.error);
+      }
+    } catch (err: any) {
+      alert("Lỗi xóa giao dịch: " + err.message);
+    }
+  };
+
+  // Lưu chỉnh sửa số liệu cài đặt từ Modal Popup (Quy ước 1 = 1.000 VNĐ)
+  const handleSaveSettingFromModal = () => {
+    if (!settingEditModal.key) return;
+    const units = parseFloat(settingEditModal.inputUnits);
+    if (isNaN(units) || units < 0) {
+      return alert("Vui lòng nhập số hợp lệ");
+    }
+    const realVal = Math.round(units * 1000);
+    handleSaveSystemSettings({
+      ...systemSettings,
+      [settingEditModal.key]: realVal,
+    });
+    setSettingEditModal({
+      isOpen: false,
+      key: null,
+      title: "",
+      description: "",
+      currentValue: 0,
+      inputUnits: "",
+    });
+  };
+
+  // Submit Đối Chiếu Số Dư Thực Tế (Mục 2.6)
+  const handleReconcileSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedVaultForReconcile) return;
+    const actual = parseFloat(reconcileForm.actualBalance);
+    if (isNaN(actual) || actual < 0) {
+      return alert("Vui lòng nhập số dư thực tế đếm được");
+    }
+
+    try {
+      const res = await fetch("/api/reconcile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          vaultId: selectedVaultForReconcile.id,
+          actualBalance: actual,
+          reason: reconcileForm.reason,
+          assignAsFlow: reconcileForm.assignAsFlow,
+          flowTag: reconcileForm.flowTag,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setShowReconcileModal(false);
+        setSelectedVaultForReconcile(null);
+        setReconcileForm({ actualBalance: "", reason: "Đối chiếu kiểm đếm định kỳ", assignAsFlow: false, flowTag: "Chênh lệch đối chiếu" });
+        await fetchData();
+      } else {
+        alert("Lỗi: " + data.error);
+      }
+    } catch (err: any) {
+      alert("Lỗi đối chiếu: " + err.message);
+    }
+  };
+
+  // CÔNG THỨC TÀI SẢN RÒNG (Nguyên tắc xuyên suốt toàn hệ sinh thái MoBo)
+  // Tổng MoBo khả dụng (+), Tổng dư nợ ngân hàng (−), Tài sản ròng = Tổng MoBo (+) − Dư nợ (−)
+  const positiveBalance = vaults.filter((v) => v.balance > 0).reduce((acc, v) => acc + v.balance, 0);
+  const negativeDebt = Math.abs(vaults.filter((v) => v.balance < 0).reduce((acc, v) => acc + v.balance, 0));
+  const totalBalance = vaults.reduce((acc, v) => acc + (v.balance || 0), 0);
+  const netWorth = totalBalance;
+  const totalReceivable = obligations
+    .filter((o) => o.type === "receivable" || o.role === "creditor")
+    .reduce((acc, o) => acc + (o.amount || 0), 0);
+  const totalPayable = negativeDebt;
+  const totalTax = obligations
+    .filter((o) => o.type === "tax")
+    .reduce((acc, o) => acc + (o.amount || 0), 0);
+
+  // Tính toán kiểm soát theo Ngưỡng Cài Đặt (Mục 7)
+  // 1. Kiểm tra sự kiện dự chi/thu sắp diễn ra trong vòng X ngày (mặc định 3 ngày)
+  const todayDateObj = new Date();
+  todayDateObj.setHours(0, 0, 0, 0);
+  const noticeHorizonDateObj = new Date(todayDateObj.getTime() + systemSettings.plannedAdvanceNoticeDays * 24 * 60 * 60 * 1000);
+  
+  const upcomingPlannedFlows = flows.filter((f) => {
+    if (f.isActual) return false;
+    if (!f.rawDate && !f.date) return false;
+    // Chuẩn hóa rawDate hoặc date
+    let fDate: Date | null = null;
+    if (f.rawDate) {
+      fDate = new Date(f.rawDate);
+    } else if (f.date && f.date.includes("/")) {
+      const parts = f.date.split("/");
+      fDate = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
+    }
+    if (!fDate || isNaN(fDate.getTime())) return false;
+    fDate.setHours(0, 0, 0, 0);
+
+    const diffDays = Math.ceil((fDate.getTime() - todayDateObj.getTime()) / (24 * 60 * 60 * 1000));
+    // Trong khoảng từ hôm nay đến X ngày nữa
+    const isInNoticeWindow = diffDays >= 0 && diffDays <= systemSettings.plannedAdvanceNoticeDays;
+    if (!isInNoticeWindow) return false;
+
+    // Nếu chọn 'selective' (chọn theo sự kiện muốn thông báo)
+    if (systemSettings.plannedNoticeScope === "selective") {
+      return (systemSettings.plannedSelectedFlowIds || []).includes(f.id);
+    }
+    // Mặc định 'all' (tất cả sự kiện)
+    return true;
+  });
+
+  // Helper lấy timestamp ngày của Flow
+  const getFlowTimestamp = (f: Flow): number => {
+    if (f.rawDate) {
+      const t = new Date(f.rawDate).getTime();
+      if (!isNaN(t)) return t;
+    }
+    if (f.date && f.date.includes("/")) {
+      const parts = f.date.split("/");
+      const t = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`).getTime();
+      if (!isNaN(t)) return t;
+    }
+    return 0;
+  };
+
+  // Helper tính trọng số mức ưu tiên: High = 3, Medium = 2, Low = 1
+  const getPriorityWeight = (p?: string): number => {
+    if (p === "high") return 3;
+    if (p === "low") return 1;
+    return 2;
+  };
+
+  // Toàn bộ các sự kiện dự chi / dự thu trong tương lai (để cấu hình gán thông báo)
+  const allFuturePlannedFlows = flows.filter((f) => !f.isActual);
+
+  // Danh sách Kế hoạch dự chi / dự thu đã lọc và sắp xếp cho Khối 5
+  const filteredAndSortedPlannedFlows = useMemo(() => {
+    let list = flows.filter((f) => !f.isActual);
+
+    // Lọc theo loại (Dự thu / Dự chi)
+    if (plannedTypeFilter !== "all") {
+      list = list.filter((f) => f.type === plannedTypeFilter);
+    }
+
+    // Lọc theo mức ưu tiên
+    if (plannedPriorityFilter !== "all") {
+      list = list.filter((f) => (f.priority || "medium") === plannedPriorityFilter);
+    }
+
+    // Sắp xếp
+    list = [...list].sort((a, b) => {
+      const timeA = getFlowTimestamp(a);
+      const timeB = getFlowTimestamp(b);
+      const prioA = getPriorityWeight(a.priority);
+      const prioB = getPriorityWeight(b.priority);
+
+      if (plannedSortBy === "time_asc") {
+        // Gần nhất đến xa nhất (ngày sớm hơn lên trước; cùng ngày thì ưu tiên cao lên trước)
+        if (timeA !== timeB) return timeA - timeB;
+        return prioB - prioA;
+      } else if (plannedSortBy === "time_desc") {
+        // Xa nhất đến gần nhất
+        if (timeA !== timeB) return timeB - timeA;
+        return prioB - prioA;
+      } else if (plannedSortBy === "priority_desc") {
+        // Mức độ ưu tiên Cao -> Thấp; cùng mức ưu tiên thì ngày gần lên trước
+        if (prioA !== prioB) return prioB - prioA;
+        return timeA - timeB;
+      } else if (plannedSortBy === "priority_asc") {
+        // Mức độ ưu tiên Thấp -> Cao; cùng mức ưu tiên thì ngày gần lên trước
+        if (prioA !== prioB) return prioA - prioB;
+        return timeA - timeB;
+      }
+      return 0;
+    });
+
+    return list;
+  }, [flows, plannedTypeFilter, plannedPriorityFilter, plannedSortBy]);
+
+  // 2. Ngưỡng âm nợ cho phép
+  const isDebtExceeded = negativeDebt > systemSettings.maxNegativeDebtAllowed;
+
+  // 3. Ngưỡng tiền kho cho phép (cảnh báo kho nào có số dư dưới ngưỡng)
+  const lowBalanceVaults = vaults.filter((v) => v.balance < systemSettings.minVaultBalanceAllowed);
+
+  // 4. Mục tiêu tiết kiệm (Tính theo tổng tiền kho hoặc tài sản ròng)
+  const savingsProgressPct = systemSettings.savingsGoalAmount > 0 
+    ? Math.min(100, Math.round((positiveBalance / systemSettings.savingsGoalAmount) * 100))
+    : 0;
+
+  // Cảnh báo ưu tiên (Mục Trang chủ)
+  const nearDueObligations = obligations.filter((o) => o.status === "urgent");
+  const unverifiedReconciliations = reconciles.filter((r) => r.actionTaken.includes("chưa rõ"));
+  const lockedTaxVault = vaults.find((v) => v.isLocked);
+  const isTaxFundShort = (lockedTaxVault?.lockedAmount || 0) < totalTax;
+
+  // Tính toán Mục 4: Định Giá & Hòa Vốn
+  const totalCostPerUnit = pricingCalc.variableCost + (pricingCalc.expectedUnits > 0 ? pricingCalc.fixedCostAlloc / pricingCalc.expectedUnits : 0);
+  // Định giá theo chi phí + margin: Giá = Chi phí / (1 - margin%)
+  const priceByMargin = totalCostPerUnit / (1 - (pricingCalc.targetMarginPct / 100));
+  // Định giá theo hòa vốn ngược (giá tối thiểu để hòa vốn với sản lượng kỳ vọng)
+  const breakEvenPrice = totalCostPerUnit;
+  // Sản lượng hòa vốn vận hành: Điểm hòa vốn Q = Chi phí cố định / (Giá bán - Chi phí biến đổi)
+  const unitContribution = priceByMargin - pricingCalc.variableCost;
+  const breakEvenUnits = unitContribution > 0 ? Math.ceil(pricingCalc.fixedCostAlloc / unitContribution) : 0;
+
+  // Kiểm tra miss thời gian nhập báo cáo / chốt sổ hàng ngày
+  const now = new Date();
+  const currentHHMM = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+  const todayStr = now.toISOString().split("T")[0];
+  const isMissedDailyReport =
+    reminderConfig.enabled &&
+    reminderConfig.mode === "daily" &&
+    currentHHMM > reminderConfig.dailyTime &&
+    reminderConfig.lastTriggeredDate !== todayStr;
+
+  // Tổng hợp tất cả các thông báo hệ thống (Notification Center)
+  interface SystemNotificationItem {
+    id: string;
+    type: "planned" | "debt" | "vault" | "missed_report" | "urgent_debt" | "reconcile" | "tax";
+    title: string;
+    desc: string;
+    severity: "danger" | "warning" | "info";
+    actionTab?: string;
+    timestamp?: string;
+  }
+
+  const allSystemAlerts: SystemNotificationItem[] = [];
+
+  // 1. Dự chi / Dự thu sắp đến hạn
+  if (systemSettings.enablePlannedNotice) {
+    upcomingPlannedFlows.forEach((f) => {
+      allSystemAlerts.push({
+        id: `planned_${f.id}`,
+        type: "planned",
+        title: f.type === "income" ? `Sắp đến ngày DỰ THU (+)` : `Sắp đến ngày DỰ CHI (-)`,
+        desc: `${f.title} (${f.amount.toLocaleString("vi-VN")} ₫) vào ngày ${f.date || f.rawDate || "sắp tới"}`,
+        severity: f.type === "income" ? "info" : "warning",
+        actionTab: "home",
+      });
+    });
+  }
+
+  // 2. Vượt ngưỡng âm nợ cho phép
+  if (isDebtExceeded) {
+    allSystemAlerts.push({
+      id: "debt_exceeded",
+      type: "debt",
+      title: "CẢNH BÁO: Vượt ngưỡng âm nợ an toàn!",
+      desc: `Tổng dư nợ ngân hàng là ${negativeDebt.toLocaleString("vi-VN")} ₫ (vượt mức cho phép tối đa ${systemSettings.maxNegativeDebtAllowed.toLocaleString("vi-VN")} ₫)`,
+      severity: "danger",
+      actionTab: "home",
+    });
+  }
+
+  // 3. Kho dưới ngưỡng tiền tối thiểu (hạn mức kho)
+  lowBalanceVaults.forEach((v) => {
+    allSystemAlerts.push({
+      id: `vault_low_${v.id}`,
+      type: "vault",
+      title: `Hạn mức kho: Số dư kho "${v.name}" dưới mức an toàn!`,
+      desc: `Số dư hiện tại ${v.balance.toLocaleString("vi-VN")} ₫ thấp hơn ngưỡng tối thiểu ${systemSettings.minVaultBalanceAllowed.toLocaleString("vi-VN")} ₫`,
+      severity: "warning",
+      actionTab: "home",
+    });
+  });
+
+  // 4. Miss thời gian nhập báo cáo / chốt sổ
+  if (isMissedDailyReport) {
+    allSystemAlerts.push({
+      id: "missed_daily_report",
+      type: "missed_report",
+      title: "Trễ hẹn: Chưa chốt sổ / kiểm tra tài chính hôm nay!",
+      desc: `Khung giờ nhắc hẹn là ${reminderConfig.dailyTime} hàng ngày nhưng bạn chưa xác nhận kiểm đếm dòng tiền hôm nay`,
+      severity: "danger",
+      actionTab: "settings",
+    });
+  }
+
+  // 5. Nợ khẩn cấp đến hạn
+  nearDueObligations.forEach((o) => {
+    allSystemAlerts.push({
+      id: `urgent_debt_${o.id}`,
+      type: "urgent_debt",
+      title: `Khoản nợ khẩn cấp đến hạn: ${o.title}`,
+      desc: `Khoản tiền ${o.amount.toLocaleString("vi-VN")} ₫ cần thanh toán vào ngày ${o.dueDate}`,
+      severity: "danger",
+      actionTab: "obligations",
+    });
+  });
+
+  // 6. Chênh lệch đối chiếu chưa rõ nguyên nhân
+  if (unverifiedReconciliations.length > 0) {
+    allSystemAlerts.push({
+      id: "unverified_reconcile",
+      type: "reconcile",
+      title: `Kỷ luật kiểm kê: Có ${unverifiedReconciliations.length} khoản chênh lệch chưa rõ nguyên nhân`,
+      desc: "Cần rà soát đối chiếu lại dòng chảy để bảo vệ tính toàn vẹn kiểm toán",
+      severity: "warning",
+      actionTab: "settings",
+    });
+  }
+
+  // 7. Quỹ dự phòng thuế bị thiếu hụt
+  if (isTaxFundShort) {
+    allSystemAlerts.push({
+      id: "tax_fund_short",
+      type: "tax",
+      title: "Cảnh báo quỹ thuế: Quỹ thuế bị thiếu hụt",
+      desc: `Số tiền khóa dự phòng (${lockedTaxVault?.lockedAmount || 0} ₫) thấp hơn ước tính nghĩa vụ thuế (${totalTax.toLocaleString("vi-VN")} ₫)`,
+      severity: "warning",
+      actionTab: "home",
+    });
+  }
+
+  // Lọc thông báo chưa đọc & đánh dấu đã đọc
+  const unreadAlerts = allSystemAlerts.filter((a) => !readAlertIds.includes(a.id));
+  const unreadAlertsCount = unreadAlerts.length;
+
+  const markAllAlertsAsRead = () => {
+    const allIds = allSystemAlerts.map((a) => a.id);
+    const updated = Array.from(new Set([...readAlertIds, ...allIds]));
+    setReadAlertIds(updated);
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem("zmoney_read_alert_ids", JSON.stringify(updated));
+      } catch (_) {}
+    }
+  };
+
+  return (
+    <div className="space-y-6 pb-32 sm:pb-36 relative">
+      {/* THANH ĐIỀU HƯỚNG CHÍNH (Đã tinh gọn chỉ còn Trang Chủ & Cài Đặt) */}
+      <div className="flex space-x-2 border-b border-slate-200 pb-3 text-xs sm:text-sm font-black">
+        <button
+          onClick={() => setActiveTab("home")}
+          className={`px-5 py-2.5 rounded-xl whitespace-nowrap transition-all flex items-center space-x-2 cursor-pointer ${
+            activeTab === "home" ? "bg-[#0C2C47] text-white shadow-md" : "bg-white text-slate-700 hover:bg-slate-100 border border-slate-200"
+          }`}
+        >
+          <TrendingUp className="w-4 h-4 text-emerald-400" />
+          <span>🏠 Trang Chủ</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab("settings")}
+          className={`px-5 py-2.5 rounded-xl whitespace-nowrap transition-all flex items-center space-x-2 cursor-pointer ${
+            activeTab === "settings" ? "bg-[#0C2C47] text-white shadow-md" : "bg-white text-slate-700 hover:bg-slate-100 border border-slate-200"
+          }`}
+        >
+          <Settings className="w-4 h-4 text-amber-300" />
+          <span>⚙️ Cài Đặt Hệ Thống</span>
+        </button>
+      </div>
+
+      {/* NỘI DUNG TRANG CHỦ (activeTab === "home"): 5 KHỐI ĐÚNG THỨ TỰ */}
+      {activeTab === "home" && (
+        <div className="space-y-7">
+          {/* ======================================================== */}
+          {/* KHỐI BIỂU ĐỒ SỨC KHỎE TÀI CHÍNH TOÀN DIỆN */}
+          {/* ======================================================== */}
+          <FinancialHealthChart
+            positiveBalance={positiveBalance}
+            negativeDebt={negativeDebt}
+            netWorth={netWorth}
+            vaults={vaults}
+            loans={loans}
+            flows={flows}
+            systemSettings={systemSettings}
+          />
+
+          {/* ======================================================== */}
+          {/* KHỐI BIỂU ĐỒ ĐƯỜNG XU HƯỚNG: DỰ CHI - DỰ THU - THU THẬT - CHI THẬT - ĐƯỜNG NỢ */}
+          {/* ======================================================== */}
+          <FinancialTrendsChart flows={flows} loans={loans} vaults={vaults} />
+
+          {/* ======================================================== */}
+          {/* KHỐI 2: CÁC MOBO (Money Box) */}
+          {/* ======================================================== */}
+          <div className="bg-white rounded-3xl p-6 border border-slate-200/90 shadow-sm space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-100 pb-3">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-9 h-9 rounded-xl bg-blue-100 flex items-center justify-center text-[#0C2C47]">
+                  <Wallet className="w-5 h-5 text-[#0C2C47]" />
+                </div>
+                <div>
+                  <h3 className="font-black text-slate-900 text-base sm:text-lg tracking-tight">
+                    Các MoBo (Money Box) ({vaults.length})
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Hộp tiền mặt, tài khoản ngân hàng, ví điện tử & thẻ vay nợ thấu chi
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab("settings")}
+                className="text-xs font-bold text-slate-500 hover:text-[#0C2C47] bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-xl flex items-center space-x-1.5 transition cursor-pointer"
+                title="Quản lý tạo mới, chỉnh sửa MoBo trong Cài Đặt Hệ Thống"
+              >
+                <Settings className="w-3.5 h-3.5 text-slate-500" />
+                <span>Quản lý MoBo ➔</span>
+              </button>
+            </div>
+
+            {/* Danh sách các MoBo */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pt-1">
+              {vaults.map((vault) => {
+                const isNegative = vault.balance < 0;
+                return (
+                  <div
+                    key={vault.id}
+                    className={`p-4.5 rounded-2xl border transition-all shadow-2xs flex flex-col justify-between ${
+                      isNegative
+                        ? "bg-rose-50/40 border-rose-300 ring-1 ring-rose-200"
+                        : "bg-slate-50/60 border-slate-200 hover:border-slate-300"
+                    }`}
+                  >
+                    <div className="space-y-2">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
+                            <span className="font-black text-slate-900 text-sm sm:text-base">{vault.name}</span>
+                            {isNegative && (
+                              <span className="bg-rose-100 text-rose-800 text-[10px] font-black px-2 py-0.5 rounded-md border border-rose-300">
+                                🔴 Vay nợ
+                              </span>
+                            )}
+                            {vault.isLocked && (
+                              <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-1.5 py-0.5 rounded flex items-center space-x-1">
+                                <Lock className="w-3 h-3" />
+                                <span>Khóa</span>
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-[11px] text-slate-500 mt-0.5 block truncate max-w-[200px]">
+                            {vault.desc || "Không có ghi chú"}
+                          </span>
+                        </div>
+
+                        {/* Thao tác sửa/xóa MoBo đã được chuyển vào phần Cấu hình cài đặt */}
+                      </div>
+
+                      <div className="mt-2.5 pt-2 border-t border-slate-200/60 flex items-baseline justify-between">
+                        <span className="text-[11px] text-slate-500">
+                          {isNegative ? "Dư nợ ngân hàng:" : "Số dư khả dụng:"}
+                        </span>
+                        <span className={`text-lg font-black ${isNegative ? "text-rose-600" : "text-[#0C2C47]"}`}>
+                          {isNegative
+                            ? `-${Math.abs(vault.balance).toLocaleString("vi-VN")} ₫`
+                            : `${vault.balance.toLocaleString("vi-VN")} ₫`}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-200/60 flex items-center justify-between text-[11px] mt-2">
+                      <span className="text-slate-400 capitalize">
+                        {vault.type === "bank"
+                          ? "🏦 Ngân hàng"
+                          : vault.type === "cash"
+                          ? "💵 Tiền mặt"
+                          : vault.type === "ewallet"
+                          ? "📱 Ví điện tử"
+                          : vault.type === "credit"
+                          ? "💳 Thấu chi/Vay"
+                          : vault.type}
+                      </span>
+                      <button
+                        onClick={() => setSelectedVaultDetail(vault)}
+                        className="text-slate-600 hover:text-[#0C2C47] font-bold text-[11px] cursor-pointer hover:underline"
+                      >
+                        Chi tiết ➔
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+
+          {/* ======================================================== */}
+          {/* KHU VỰC BOXCARD: CHỦ NỢ & CON NỢ (LOGIC VAY - MƯỢN) */}
+          {/* ======================================================== */}
+          <div className="bg-white rounded-3xl p-6 border border-slate-200/90 shadow-sm space-y-5">
+            {/* Header BoxCard */}
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-100 pb-3">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-9 h-9 rounded-xl bg-indigo-100 flex items-center justify-center text-indigo-700">
+                  <Handshake className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-black text-slate-900 text-base sm:text-lg tracking-tight">
+                    Sổ Vay & Mượn (Chủ Nợ & Con Nợ)
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Theo dõi các khoản cho vay (chủ nợ) & đi vay (con nợ), lãi suất, thời hạn và xác nhận 2 phía
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("settings")}
+                  className="text-xs font-bold text-slate-500 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-xl flex items-center space-x-1.5 transition cursor-pointer"
+                  title="Tạo thỏa thuận nợ mới và quản lý sổ nợ trong Cài Đặt Hệ Thống"
+                >
+                  <Settings className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>Quản lý sổ nợ ➔</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Thanh Tab Lọc Danh Sách */}
+            <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+              <div className="flex items-center space-x-2 text-xs font-bold">
+                <button
+                  type="button"
+                  onClick={() => setLoanTabFilter("all")}
+                  className={`px-3 py-1.5 rounded-xl transition cursor-pointer ${
+                    loanTabFilter === "all"
+                      ? "bg-[#0C2C47] text-white shadow-xs"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  }`}
+                >
+                  Tất cả ({loans.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLoanTabFilter("creditor")}
+                  className={`px-3 py-1.5 rounded-xl transition cursor-pointer flex items-center space-x-1 ${
+                    loanTabFilter === "creditor"
+                      ? "bg-emerald-700 text-white shadow-xs"
+                      : "bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+                  }`}
+                >
+                  <span>🟢 Chủ Nợ ({loans.filter((l) => l.role === "creditor").length})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLoanTabFilter("debtor")}
+                  className={`px-3 py-1.5 rounded-xl transition cursor-pointer flex items-center space-x-1 ${
+                    loanTabFilter === "debtor"
+                      ? "bg-rose-700 text-white shadow-xs"
+                      : "bg-rose-50 text-rose-800 hover:bg-rose-100"
+                  }`}
+                >
+                  <span>🔴 Con Nợ ({loans.filter((l) => l.role === "debtor").length})</span>
+                </button>
+              </div>
+
+              <span className="text-[11px] text-slate-400 font-medium hidden sm:inline-block">
+                Quy ước nhập số: 1 = 1.000 VNĐ
+              </span>
+            </div>
+
+            {/* Danh Sách Các Thẻ BoxCard Vay Mượn */}
+            {(() => {
+              const filteredLoans = loans.filter((l) => {
+                if (loanTabFilter === "all") return true;
+                return l.role === loanTabFilter;
+              });
+
+              if (filteredLoans.length === 0) {
+                return (
+                  <div className="text-center py-10 px-4 text-slate-500 text-xs bg-slate-50/60 rounded-2xl border border-dashed border-slate-200 space-y-2.5">
+                    <p className="font-medium text-slate-500">Chưa có khoản vay mượn nào trong danh mục này.</p>
+                    <button
+                      type="button"
+                      onClick={handleOpenCreateAgreement}
+                      className="inline-flex items-center space-x-1.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 px-3.5 py-1.5 rounded-xl font-bold text-xs transition cursor-pointer"
+                    >
+                      <PenTool className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>Tạo Thỏa Thuận & Ký Điện Tử 2 Bên ➔</span>
+                    </button>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="space-y-2.5">
+                  {filteredLoans.map((loan) => {
+                    const isCreditor = loan.role === "creditor";
+                    const isSettled = loan.status === "settled" || loan.remainingAmount <= 0;
+                    const bothConfirmed = loan.confirmedCreditor && loan.confirmedDebtor;
+                    const percentPaid = loan.amount > 0 ? Math.min(100, Math.round((loan.paidAmount / loan.amount) * 100)) : 0;
+                    const isExpanded = expandedLoanIds.includes(loan.id);
+
+                    // Tính đếm ngược ngày đáo hạn
+                    const getDueCountdown = (dueDateStr: string | null) => {
+                      if (!dueDateStr) return null;
+                      const today = new Date();
+                      today.setHours(0, 0, 0, 0);
+                      const due = new Date(dueDateStr);
+                      due.setHours(0, 0, 0, 0);
+                      const diffTime = due.getTime() - today.getTime();
+                      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                      if (diffDays < 0) {
+                        return { text: `Quá hạn ${Math.abs(diffDays)} ngày`, status: "overdue" };
+                      } else if (diffDays === 0) {
+                        return { text: "Hôm nay đáo hạn!", status: "today" };
+                      } else if (diffDays <= 7) {
+                        return { text: `Còn ${diffDays} ngày`, status: "warning" };
+                      } else {
+                        return { text: `Còn ${diffDays} ngày`, status: "normal" };
+                      }
+                    };
+                    const dueCountdown = getDueCountdown(loan.dueDate);
+
+                    // Bên A (Chủ Nợ - Bên Cho Vay)
+                    const creditorName = loan.agreementCreditorName || (isCreditor ? "Tôi (Chủ Nợ)" : loan.partnerName);
+                    const creditorContact = loan.agreementCreditorContact || (isCreditor && loan.vaultName ? `MoBo: ${loan.vaultName}` : "");
+
+                    // Bên B (Con Nợ - Bên Đi Vay)
+                    const debtorName = loan.agreementDebtorName || (!isCreditor ? "Tôi (Con Nợ)" : loan.partnerName);
+                    const debtorContact = loan.agreementDebtorContact || (!isCreditor && loan.vaultName ? `MoBo: ${loan.vaultName}` : "");
+
+                    return (
+                      <div
+                        key={loan.id}
+                        className={`rounded-2xl p-3.5 sm:p-4 border transition-all ${
+                          isSettled
+                            ? "bg-slate-50/70 border-slate-200 opacity-80"
+                            : isCreditor
+                            ? "bg-white border-emerald-200 hover:border-emerald-300 hover:shadow-2xs"
+                            : "bg-white border-rose-200 hover:border-rose-300 hover:shadow-2xs"
+                        }`}
+                      >
+                        {/* Hàng Tóm Tắt Chính (Gọn Gàng) */}
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          {/* Khối Thông Tin Trái */}
+                          <div className="space-y-1 min-w-0">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span
+                                className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-md ${
+                                  isCreditor
+                                    ? "bg-emerald-100 text-emerald-800"
+                                    : "bg-rose-100 text-rose-800"
+                                }`}
+                              >
+                                {isCreditor ? "🟢 Cho Vay" : "🔴 Đi Vay"}
+                              </span>
+
+                              <h4 className="font-black text-slate-900 text-sm sm:text-base leading-snug truncate" title={loan.title}>
+                                {loan.title}
+                              </h4>
+
+                              {isSettled ? (
+                                <span className="text-[10px] font-bold bg-slate-100 text-slate-600 px-2 py-0.5 rounded">
+                                  ✓ Đã tất toán
+                                </span>
+                              ) : dueCountdown?.status === "overdue" ? (
+                                <span className="text-[10px] font-bold bg-rose-100 text-rose-700 px-2 py-0.5 rounded animate-pulse">
+                                  ⚠️ {dueCountdown.text}
+                                </span>
+                              ) : dueCountdown ? (
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${dueCountdown.status === "warning" ? "bg-amber-100 text-amber-800" : "bg-blue-50 text-blue-700"}`}>
+                                  ⏳ {dueCountdown.text}
+                                </span>
+                              ) : null}
+                            </div>
+
+                            {/* Dòng Tóm Tắt Đối Tác & MoBo & Lãi Suất */}
+                            <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-slate-600">
+                              <span>
+                                Chủ nợ: <b className="text-slate-800">{creditorName}</b>
+                                {isCreditor && <span className="ml-1 text-[10px] text-emerald-700 font-bold">(Tôi)</span>}
+                              </span>
+                              <span className="text-slate-300">•</span>
+                              <span>
+                                Con nợ: <b className="text-slate-800">{debtorName}</b>
+                                {!isCreditor && <span className="ml-1 text-[10px] text-rose-700 font-bold">(Tôi)</span>}
+                              </span>
+                              {loan.vaultName && (
+                                <>
+                                  <span className="text-slate-300">•</span>
+                                  <span className="text-blue-700 font-medium">
+                                    MoBo: <b>{loan.vaultName}</b>
+                                  </span>
+                                </>
+                              )}
+                              {loan.interestRate > 0 && (
+                                <>
+                                  <span className="text-slate-300">•</span>
+                                  <span className="text-indigo-700 font-medium">
+                                    Lãi: <b>{loan.interestRate}%</b>{loan.interestType === "monthly" ? "/th" : loan.interestType === "yearly" ? "/năm" : ""}
+                                  </span>
+                                </>
+                              )}
+                              {loan.agreementId && (
+                                <>
+                                  <span className="text-slate-300">•</span>
+                                  <Link
+                                    href={`/agreement/${loan.agreementId}`}
+                                    target="_blank"
+                                    className="text-indigo-700 font-bold hover:underline inline-flex items-center space-x-0.5"
+                                  >
+                                    <span>#{loan.agreementId}</span>
+                                    <FileText className="w-3 h-3 text-indigo-500" />
+                                  </Link>
+                                </>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Khối Phải: Dư Nợ & Nút Thao Tác Tinh Gọn */}
+                          <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100">
+                            {/* Dư nợ tóm tắt */}
+                            <div className="text-left sm:text-right">
+                              <div className="text-[11px] text-slate-400 font-medium">
+                                Dư nợ / Gốc: {loan.amount.toLocaleString("vi-VN")}₫
+                              </div>
+                              <div className={`text-base sm:text-lg font-black ${isCreditor ? "text-emerald-600" : "text-rose-600"}`}>
+                                {loan.remainingAmount.toLocaleString("vi-VN")} ₫
+                              </div>
+                            </div>
+
+                            {/* Cụm Nút Thao Tác */}
+                            <div className="flex items-center space-x-1.5">
+                              {!isSettled && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenPayLoan(loan)}
+                                  className={`px-3 py-1.5 rounded-xl text-white font-bold text-xs shadow-2xs transition active:scale-95 cursor-pointer ${
+                                    isCreditor ? "bg-emerald-700 hover:bg-emerald-800" : "bg-rose-700 hover:bg-rose-800"
+                                  }`}
+                                >
+                                  {isCreditor ? "Thu Nợ" : "Trả Nợ"}
+                                </button>
+                              )}
+
+                              {loan.agreementId && (
+                                <Link
+                                  href={`/agreement/${loan.agreementId}`}
+                                  target="_blank"
+                                  className="p-1.5 rounded-lg text-indigo-700 bg-indigo-50 hover:bg-indigo-100 transition cursor-pointer"
+                                  title={`Xem văn bản thỏa thuận #${loan.agreementId}`}
+                                >
+                                  <FileText className="w-4 h-4" />
+                                </Link>
+                              )}
+
+                              {/* Nút Xem Chi Tiết / Thu Gọn */}
+                              <button
+                                type="button"
+                                onClick={() => toggleLoanExpand(loan.id)}
+                                className="p-1.5 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition cursor-pointer"
+                                title={isExpanded ? "Thu gọn tóm tắt" : "Xem chi tiết"}
+                              >
+                                {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                              </button>
+
+                              {/* Thao tác sửa/xóa khoản nợ đã được chuyển vào phần Cấu hình cài đặt */}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Phần Mở Rộng Chi Tiết (Mặc Định Ẩn - Chỉ Bung Ra Khi Bấm Mở Rộng) */}
+                        {isExpanded && (
+                          <div className="mt-3 pt-3 border-t border-slate-100 space-y-2.5 text-xs text-slate-600">
+                            {/* Chi tiết 2 bên */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-slate-50 p-2.5 rounded-xl">
+                              <div>
+                                <span className="text-[10px] font-bold text-slate-400 block uppercase">Chủ Nợ (Cho vay)</span>
+                                <b className="text-slate-900">{creditorName}</b>
+                                {creditorContact && <span className="block text-[11px] text-slate-500">{creditorContact}</span>}
+                                <span className="text-[10px] text-emerald-700 font-bold block mt-0.5">
+                                  {loan.creditorSignedAt ? `✓ Đã ký (${loan.creditorSignedAt})` : loan.confirmedCreditor ? "✓ Đã xác nhận" : "⏳ Chờ xác nhận"}
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-[10px] font-bold text-slate-400 block uppercase">Con Nợ (Đi vay)</span>
+                                <b className="text-slate-900">{debtorName}</b>
+                                {debtorContact && <span className="block text-[11px] text-slate-500">{debtorContact}</span>}
+                                <span className="text-[10px] text-rose-700 font-bold block mt-0.5">
+                                  {loan.debtorSignedAt ? `✓ Đã ký (${loan.debtorSignedAt})` : loan.confirmedDebtor ? "✓ Đã xác nhận" : "⏳ Chờ xác nhận"}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Chi tiết tài chính */}
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+                              <div>
+                                <span className="text-slate-400 block">Đã thanh toán:</span>
+                                <b>{loan.paidAmount.toLocaleString("vi-VN")} ₫</b> ({percentPaid}%)
+                              </div>
+                              <div>
+                                <span className="text-slate-400 block">Lãi suất & kỳ:</span>
+                                <b>{loan.interestType === "none" || loan.interestRate === 0 ? "0% (Không lãi)" : `${loan.interestRate}% (${loan.interestType === "monthly" ? "/tháng" : "/năm"})`}</b>
+                              </div>
+                              <div>
+                                <span className="text-slate-400 block">Bắt đầu:</span>
+                                <b>{loan.startDateFormatted || loan.startDate}</b>
+                              </div>
+                              <div>
+                                <span className="text-slate-400 block">Đáo hạn:</span>
+                                <b>{loan.dueDateFormatted || loan.dueDate || "Chưa hẹn"}</b>
+                              </div>
+                            </div>
+
+                            {loan.notes && (
+                              <div className="text-[11px] text-slate-500 italic bg-white p-2 rounded-lg border border-slate-100">
+                                Ghi chú: {loan.notes}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+          </div>
+
+          {/* ======================================================== */}
+          {/* KHỐI 3: XEM CHI TIẾT THU CHI LỌC THEO THỜI GIAN */}
+          {/* ======================================================== */}
+          <div className="bg-white rounded-3xl p-6 border border-slate-200/90 shadow-sm space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-100 pb-3">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-9 h-9 rounded-xl bg-purple-100 flex items-center justify-center text-[#0C2C47]">
+                  <ArrowRightLeft className="w-5 h-5 text-purple-700" />
+                </div>
+                <div>
+                  <h3 className="font-black text-slate-900 text-base sm:text-lg tracking-tight">
+                    Chi Tiết Thu Chi (Lọc Theo Thời Gian)
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Theo dõi biến động dòng tiền thực tế, chỉnh sửa và xóa giao dịch quy ước 1=1.000 VNĐ
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={() => setShowQuickIncomeModal(true)}
+                  className="bg-emerald-700 hover:bg-emerald-800 text-white px-3 py-1.5 rounded-xl text-xs font-black shadow-xs cursor-pointer"
+                >
+                  + Thu
+                </button>
+                <button
+                  onClick={() => setShowQuickExpenseModal(true)}
+                  className="bg-rose-700 hover:bg-rose-800 text-white px-3 py-1.5 rounded-xl text-xs font-black shadow-xs cursor-pointer"
+                >
+                  - Chi
+                </button>
+              </div>
+            </div>
+
+            {/* BỘ LỌC ĐA NĂNG */}
+            <div className="bg-slate-50/80 p-4 rounded-2xl border border-slate-200 space-y-3">
+              {/* Nút lọc thời gian nhanh */}
+              <div className="flex flex-wrap items-center gap-1.5 text-xs font-bold">
+                <span className="text-[11px] text-slate-400 uppercase mr-1">Thời gian:</span>
+                {[
+                  { key: "all", label: "Tất cả" },
+                  { key: "today", label: "Hôm nay" },
+                  { key: "7days", label: "7 ngày qua" },
+                  { key: "month", label: "Tháng này" },
+                  { key: "custom", label: "Tùy chọn ngày" },
+                ].map((item) => (
+                  <button
+                    key={item.key}
+                    type="button"
+                    onClick={() => setHomeFilterRange(item.key as any)}
+                    className={`px-3 py-1.5 rounded-xl transition cursor-pointer text-xs ${
+                      homeFilterRange === item.key
+                        ? "bg-[#0C2C47] text-white font-black shadow-xs"
+                        : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Hàng chọn ngày tùy chọn & dropdown MoBo, Nhãn, Loại */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                {homeFilterRange === "custom" && (
+                  <div className="col-span-1 sm:col-span-2 flex items-center space-x-2">
+                    <input
+                      type="date"
+                      value={homeFilterStartDate}
+                      onChange={(e) => setHomeFilterStartDate(e.target.value)}
+                      className="p-2 rounded-xl border border-slate-300 bg-white w-full text-xs"
+                      placeholder="Từ ngày"
+                    />
+                    <span className="text-slate-400">➔</span>
+                    <input
+                      type="date"
+                      value={homeFilterEndDate}
+                      onChange={(e) => setHomeFilterEndDate(e.target.value)}
+                      className="p-2 rounded-xl border border-slate-300 bg-white w-full text-xs"
+                      placeholder="Đến ngày"
+                    />
+                  </div>
+                )}
+
+                {/* Lọc theo loại */}
+                <select
+                  value={homeFilterType}
+                  onChange={(e) => setHomeFilterType(e.target.value as any)}
+                  className="p-2 rounded-xl border border-slate-300 bg-white text-xs"
+                >
+                  <option value="all">Tất cả loại (+ / -)</option>
+                  <option value="income">Thu tiền vào (+)</option>
+                  <option value="expense">Chi tiền ra (-)</option>
+                  <option value="transfer">Chuyển nội bộ (➔)</option>
+                </select>
+
+                {/* Lọc theo MoBo */}
+                <select
+                  value={homeFilterVault}
+                  onChange={(e) => setHomeFilterVault(e.target.value)}
+                  className="p-2 rounded-xl border border-slate-300 bg-white text-xs"
+                >
+                  <option value="">Tất cả MoBo</option>
+                  {vaults.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.name}
+                    </option>
+                  ))}
+                </select>
+
+                {/* Lọc theo Nhãn */}
+                <select
+                  value={homeFilterTag}
+                  onChange={(e) => setHomeFilterTag(e.target.value)}
+                  className="p-2 rounded-xl border border-slate-300 bg-white text-xs"
+                >
+                  <option value="">Tất cả Nhãn</option>
+                  {tags.map((t) => (
+                    <option key={t.id} value={t.name}>
+                      {t.name}
+                    </option>
+                  ))}
+                  {tags.length === 0 && (
+                    <>
+                      <option value="Doanh thu">Doanh thu</option>
+                      <option value="Chi phí">Chi phí</option>
+                      <option value="Nội bộ">Nội bộ</option>
+                      <option value="Vận hành">Vận hành</option>
+                      <option value="Thu nợ">Thu nợ</option>
+                      <option value="Trả nợ">Trả nợ</option>
+                      <option value="Chênh lệch">Chênh lệch</option>
+                    </>
+                  )}
+                </select>
+              </div>
+            </div>
+
+            {/* WIDGET THỐNG KÊ & LỌC THEO NHÃN TRÊN DASHBOARD */}
+            {(() => {
+              const actualFlows = flows.filter((f) => f.isActual);
+              const todayYMD = new Date().toISOString().split("T")[0];
+              const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+              const curMonthYMD = todayYMD.substring(0, 7);
+
+              // Lọc theo khoảng thời gian và kho (độc lập với filter nhãn để tính thống kê toàn bộ các nhãn trong kỳ)
+              const periodFlows = actualFlows.filter((flow) => {
+                if (homeFilterType !== "all" && flow.type !== homeFilterType) return false;
+                if (homeFilterVault && flow.fromVaultId !== homeFilterVault && flow.toVaultId !== homeFilterVault) return false;
+                const flowYMD = flow.rawDate ? String(flow.rawDate).split("T")[0] : "";
+                if (homeFilterRange === "today") {
+                  if (flowYMD && flowYMD !== todayYMD) return false;
+                } else if (homeFilterRange === "7days") {
+                  if (flowYMD && flowYMD < sevenDaysAgo) return false;
+                } else if (homeFilterRange === "month") {
+                  if (flowYMD && !flowYMD.startsWith(curMonthYMD)) return false;
+                } else if (homeFilterRange === "custom") {
+                  if (homeFilterStartDate && flowYMD && flowYMD < homeFilterStartDate) return false;
+                  if (homeFilterEndDate && flowYMD && flowYMD > homeFilterEndDate) return false;
+                }
+                return true;
+              });
+
+              // Tổng hợp số liệu theo từng nhãn trong kỳ
+              const tagStatsMap: Record<string, { tag: string; count: number; income: number; expense: number }> = {};
+              periodFlows.forEach((f) => {
+                const tagName = f.tag || "Khác";
+                if (!tagStatsMap[tagName]) {
+                  tagStatsMap[tagName] = { tag: tagName, count: 0, income: 0, expense: 0 };
+                }
+                tagStatsMap[tagName].count += 1;
+                if (f.type === "income") tagStatsMap[tagName].income += f.amount;
+                if (f.type === "expense") tagStatsMap[tagName].expense += f.amount;
+              });
+
+              const tagStatsList = Object.values(tagStatsMap).sort((a, b) => (b.income + b.expense) - (a.income + a.expense));
+              const totalPeriodIncome = periodFlows.filter(f => f.type === "income").reduce((s, f) => s + f.amount, 0);
+              const totalPeriodExpense = periodFlows.filter(f => f.type === "expense").reduce((s, f) => s + f.amount, 0);
+
+              return (
+                <div className="p-4 bg-slate-50/80 rounded-2xl border border-slate-200 space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-200/80 pb-2.5">
+                    <div className="flex items-center space-x-2">
+                      <Tag className="w-4 h-4 text-indigo-600" />
+                      <span className="text-xs font-black text-slate-800 uppercase tracking-wide">
+                        Thống Kê Dòng Tiền & Lọc Nhanh Theo Nhãn ({tagStatsList.length} nhãn phát sinh)
+                      </span>
+                    </div>
+                    {homeFilterTag && (
+                      <button
+                        type="button"
+                        onClick={() => setHomeFilterTag("")}
+                        className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-100 text-[11px] font-bold border border-rose-200 transition cursor-pointer self-start sm:self-auto"
+                      >
+                        <X className="w-3 h-3" />
+                        <span>Bỏ lọc nhãn: "{homeFilterTag}"</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Thanh Pills Lọc Tức Thì Theo Nhãn */}
+                  <div className="flex items-center gap-2 overflow-x-auto pb-1 text-xs no-scrollbar">
+                    <button
+                      type="button"
+                      onClick={() => setHomeFilterTag("")}
+                      className={`px-3 py-1.5 rounded-xl font-bold transition whitespace-nowrap cursor-pointer flex items-center space-x-1.5 ${
+                        !homeFilterTag
+                          ? "bg-[#0C2C47] text-white shadow-xs"
+                          : "bg-white text-slate-700 hover:bg-slate-100 border border-slate-200"
+                      }`}
+                    >
+                      <span>Tất cả ({periodFlows.length})</span>
+                    </button>
+
+                    {tagStatsList.map((stat) => {
+                      const isSelected = homeFilterTag === stat.tag;
+                      const hasIncome = stat.income > 0;
+                      const hasExpense = stat.expense > 0;
+                      return (
+                        <button
+                          key={stat.tag}
+                          type="button"
+                          onClick={() => setHomeFilterTag(isSelected ? "" : stat.tag)}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer flex items-center space-x-1.5 border ${
+                            isSelected
+                              ? "bg-indigo-600 text-white border-indigo-700 shadow-sm ring-2 ring-indigo-300"
+                              : "bg-white text-slate-700 hover:border-indigo-300 hover:bg-indigo-50/50 border-slate-200"
+                          }`}
+                        >
+                          <span>{stat.tag}</span>
+                          <span
+                            className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                              isSelected
+                                ? "bg-white/20 text-white"
+                                : "bg-slate-100 text-slate-600"
+                            }`}
+                          >
+                            {stat.count}
+                          </span>
+                          {hasIncome && (
+                            <span className={isSelected ? "text-emerald-200 text-[11px]" : "text-emerald-600 text-[11px]"}>
+                              +{(stat.income >= 1000000 ? `${(stat.income / 1000000).toFixed(1)}Tr` : `${(stat.income / 1000).toFixed(0)}k`)}
+                            </span>
+                          )}
+                          {hasExpense && (
+                            <span className={isSelected ? "text-rose-200 text-[11px]" : "text-rose-600 text-[11px]"}>
+                              -{(stat.expense >= 1000000 ? `${(stat.expense / 1000000).toFixed(1)}Tr` : `${(stat.expense / 1000).toFixed(0)}k`)}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Bảng tóm tắt tỷ trọng các nhãn hàng đầu */}
+                  {tagStatsList.length > 0 && (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 pt-1 text-[11px]">
+                      {tagStatsList.slice(0, 4).map((stat) => {
+                        const totalMoney = stat.income + stat.expense;
+                        const grandTotal = totalPeriodIncome + totalPeriodExpense;
+                        const pct = grandTotal > 0 ? Math.round((totalMoney / grandTotal) * 100) : 0;
+                        return (
+                          <div
+                            key={stat.tag}
+                            onClick={() => setHomeFilterTag(homeFilterTag === stat.tag ? "" : stat.tag)}
+                            className={`p-2.5 rounded-xl border transition cursor-pointer flex flex-col justify-between ${
+                              homeFilterTag === stat.tag
+                                ? "bg-indigo-50 border-indigo-300"
+                                : "bg-white border-slate-200 hover:border-slate-300"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="font-bold text-slate-800 truncate">{stat.tag}</span>
+                              <span className="text-slate-400 font-bold">{pct}%</span>
+                            </div>
+                            <div className="flex items-baseline justify-between mt-1">
+                              <span className="text-[10px] text-slate-500">{stat.count} giao dịch</span>
+                              <span className="font-black text-slate-900">
+                                {stat.income > 0 ? `+${stat.income.toLocaleString("vi-VN")}₫` : `-${stat.expense.toLocaleString("vi-VN")}₫`}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* DANH SÁCH GIAO DỊCH SAU KHI LỌC */}
+            {(() => {
+              const actualFlows = flows.filter((f) => f.isActual);
+              const todayYMD = new Date().toISOString().split("T")[0];
+              const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+              const curMonthYMD = todayYMD.substring(0, 7); // YYYY-MM
+
+              const filteredFlows = actualFlows.filter((flow) => {
+                // Lọc theo loại
+                if (homeFilterType !== "all" && flow.type !== homeFilterType) return false;
+                // Lọc theo MoBo
+                if (homeFilterVault && flow.fromVaultId !== homeFilterVault && flow.toVaultId !== homeFilterVault) return false;
+                // Lọc theo Nhãn
+                if (homeFilterTag && flow.tag !== homeFilterTag) return false;
+
+                // Chuẩn hóa ngày flow
+                const flowYMD = flow.rawDate ? String(flow.rawDate).split("T")[0] : "";
+                if (homeFilterRange === "today") {
+                  if (flowYMD && flowYMD !== todayYMD) return false;
+                } else if (homeFilterRange === "7days") {
+                  if (flowYMD && flowYMD < sevenDaysAgo) return false;
+                } else if (homeFilterRange === "month") {
+                  if (flowYMD && !flowYMD.startsWith(curMonthYMD)) return false;
+                } else if (homeFilterRange === "custom") {
+                  if (homeFilterStartDate && flowYMD && flowYMD < homeFilterStartDate) return false;
+                  if (homeFilterEndDate && flowYMD && flowYMD > homeFilterEndDate) return false;
+                }
+                return true;
+              });
+
+              const totalFilteredIncome = filteredFlows
+                .filter((f) => f.type === "income")
+                .reduce((sum, f) => sum + f.amount, 0);
+              const totalFilteredExpense = filteredFlows
+                .filter((f) => f.type === "expense")
+                .reduce((sum, f) => sum + f.amount, 0);
+
+              return (
+                <div className="space-y-3">
+                  {/* Thống kê nhanh kết quả lọc */}
+                  <div className="flex items-center justify-between text-xs bg-slate-50 p-3 rounded-xl border border-slate-200">
+                    <span className="text-slate-500 font-medium">
+                      Tìm thấy <b className="text-slate-900">{filteredFlows.length}</b> giao dịch
+                    </span>
+                    <div className="flex items-center space-x-3 font-bold">
+                      <span className="text-emerald-700">+{totalFilteredIncome.toLocaleString("vi-VN")} ₫</span>
+                      <span className="text-slate-300">|</span>
+                      <span className="text-rose-700">-{totalFilteredExpense.toLocaleString("vi-VN")} ₫</span>
+                    </div>
+                  </div>
+
+                  {filteredFlows.length === 0 ? (
+                    <div className="text-center py-10 text-slate-400 text-xs">
+                      Không có giao dịch nào phù hợp với điều kiện lọc thời gian đã chọn
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-slate-100 border border-slate-200 rounded-2xl overflow-hidden bg-white">
+                      {filteredFlows.map((flow) => (
+                        <div key={flow.id} className="p-3.5 hover:bg-slate-50/80 transition flex items-center justify-between text-xs">
+                          <div className="space-y-1">
+                            <div className="flex items-center space-x-2">
+                              <span className="font-bold text-slate-900">{flow.title}</span>
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-600">
+                                {flow.tag}
+                              </span>
+                            </div>
+                            <div className="text-[11px] text-slate-500 flex items-center space-x-1.5">
+                              <span>{flow.from} ➔ {flow.to}</span>
+                              <span>•</span>
+                              <span>{flow.date || flow.rawDate}</span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center space-x-2.5">
+                            <span
+                              className={`text-sm font-black ${
+                                flow.type === "income"
+                                  ? "text-emerald-600"
+                                  : flow.type === "expense"
+                                  ? "text-rose-600"
+                                  : "text-slate-800"
+                              }`}
+                            >
+                              {flow.type === "income" ? "+" : flow.type === "expense" ? "-" : ""}
+                              {flow.amount.toLocaleString("vi-VN")} ₫
+                            </span>
+
+                            {/* Thao tác sửa/xóa giao dịch đã được chuyển vào phần Cấu hình cài đặt */}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+          </div>
+
+          {/* ======================================================== */}
+          {/* KHỐI 4: TRẠNG THÁI NGƯỠNG */}
+          {/* ======================================================== */}
+          <div className="bg-white rounded-3xl p-6 border border-slate-200/90 shadow-sm space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center text-amber-800">
+                  <ShieldAlert className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-black text-slate-900 text-base sm:text-lg tracking-tight">
+                    Trạng Thái Ngưỡng Kiểm Soát An Toàn
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Ngưỡng âm nợ tối đa, ngưỡng tiền tối thiểu MoBo và tiến độ mục tiêu tiết kiệm
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setActiveTab("settings")}
+                className="text-xs text-blue-700 font-bold hover:underline cursor-pointer"
+              >
+                Cài đặt ngưỡng ➔
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Chỉ báo 1: Ngưỡng âm nợ cho phép */}
+              <div className="p-4 rounded-2xl border border-slate-200 bg-slate-50/60 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-700">Ngưỡng âm nợ cho phép</span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSettingEditModal({
+                        isOpen: true,
+                        key: "maxNegativeDebtAllowed",
+                        title: "Chỉnh Sửa Ngưỡng Âm Nợ Cho Phép",
+                        description: "Hệ thống cảnh báo đỏ khi tổng dư nợ vượt ngưỡng",
+                        currentValue: systemSettings.maxNegativeDebtAllowed,
+                        inputUnits: (systemSettings.maxNegativeDebtAllowed / 1000).toString(),
+                      })
+                    }
+                    className="p-1 rounded text-slate-400 hover:text-blue-600 cursor-pointer"
+                  >
+                    <Edit className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <div className="flex items-baseline justify-between">
+                  <span className="text-lg font-black text-slate-900">
+                    {negativeDebt.toLocaleString("vi-VN")} ₫
+                  </span>
+                  <span className="text-xs text-slate-500 font-medium">
+                    / Tối đa {systemSettings.maxNegativeDebtAllowed.toLocaleString("vi-VN")} ₫
+                  </span>
+                </div>
+                <div className="pt-1">
+                  {isDebtExceeded ? (
+                    <span className="text-[11px] font-black text-rose-600 bg-rose-100 px-2 py-0.5 rounded-md border border-rose-300 inline-block">
+                      ⚠️ Đang vượt hạn mức nợ!
+                    </span>
+                  ) : (
+                    <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200 inline-block">
+                      ✓ Nợ trong hạn mức an toàn
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Chỉ báo 2: Ngưỡng số dư tối thiểu mỗi MoBo */}
+              <div className="p-4 rounded-2xl border border-slate-200 bg-slate-50/60 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-700">Ngưỡng MoBo tối thiểu</span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSettingEditModal({
+                        isOpen: true,
+                        key: "minVaultBalanceAllowed",
+                        title: "Chỉnh Sửa Ngưỡng Tiền Tối Thiểu Mỗi MoBo",
+                        description: "Cảnh báo khi MoBo có số dư dưới ngưỡng này",
+                        currentValue: systemSettings.minVaultBalanceAllowed,
+                        inputUnits: (systemSettings.minVaultBalanceAllowed / 1000).toString(),
+                      })
+                    }
+                    className="p-1 rounded text-slate-400 hover:text-blue-600 cursor-pointer"
+                  >
+                    <Edit className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <div className="flex items-baseline justify-between">
+                  <span className="text-lg font-black text-slate-900">
+                    {systemSettings.minVaultBalanceAllowed.toLocaleString("vi-VN")} ₫
+                  </span>
+                  <span className="text-xs text-slate-500 font-medium">ngưỡng an toàn</span>
+                </div>
+                <div className="pt-1">
+                  {lowBalanceVaults.length > 0 ? (
+                    <span className="text-[11px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200 inline-block">
+                      ⚠️ {lowBalanceVaults.length} MoBo dưới ngưỡng
+                    </span>
+                  ) : (
+                    <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200 inline-block">
+                      ✓ Tất cả MoBo đều đạt chuẩn
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Chỉ báo 3: Mục tiêu tiết kiệm */}
+              <div className="p-4 rounded-2xl border border-slate-200 bg-slate-50/60 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-700">Mục tiêu tích lũy</span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSettingEditModal({
+                        isOpen: true,
+                        key: "savingsGoalAmount",
+                        title: "Chỉnh Sửa Mục Tiêu Tiết Kiệm Tích Lũy",
+                        description: "Theo dõi tỷ lệ hoàn thành mục tiêu",
+                        currentValue: systemSettings.savingsGoalAmount,
+                        inputUnits: (systemSettings.savingsGoalAmount / 1000).toString(),
+                      })
+                    }
+                    className="p-1 rounded text-slate-400 hover:text-blue-600 cursor-pointer"
+                  >
+                    <Edit className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <div className="flex items-baseline justify-between">
+                  <span className="text-lg font-black text-emerald-700">{savingsProgressPct}%</span>
+                  <span className="text-xs text-slate-500 font-medium">
+                    {positiveBalance.toLocaleString("vi-VN")} ₫ / {systemSettings.savingsGoalAmount.toLocaleString("vi-VN")} ₫
+                  </span>
+                </div>
+                <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
+                  <div
+                    className="bg-emerald-600 h-full rounded-full transition-all duration-500"
+                    style={{ width: `${savingsProgressPct}%` }}
+                  ></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* ======================================================== */}
+          {/* KHỐI 5: KẾ HOẠCH SẮP TỚI (DỰ THU / DỰ CHI) */}
+          {/* ======================================================== */}
+          <div className="bg-white rounded-3xl p-6 border border-slate-200/90 shadow-sm space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-100 pb-3 gap-2">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center text-amber-800 shrink-0">
+                  <Clock className="w-5 h-5 text-amber-700" />
+                </div>
+                <div>
+                  <h3 className="font-black text-slate-900 text-base sm:text-lg tracking-tight">
+                    Kế Hoạch Sắp Tới (Dự Thu / Dự Chi)
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Sự kiện tài chính tương lai, mức độ ưu tiên, đếm ngược ngày đến hạn và thực hiện ngay
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-2 self-start sm:self-auto">
+                <span className="text-xs font-bold text-amber-800 bg-amber-50 px-3 py-1 rounded-full border border-amber-200">
+                  {filteredAndSortedPlannedFlows.length} / {allFuturePlannedFlows.length} Kế Hoạch
+                </span>
+              </div>
+            </div>
+
+            {/* THANH ĐIỀU KHIỂN: SẮP XẾP & BỘ LỌC */}
+            {allFuturePlannedFlows.length > 0 && (
+              <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3">
+                {/* Dòng 1: Chọn chế độ Sắp Xếp */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                  <div className="flex items-center space-x-1.5 text-slate-600 font-bold">
+                    <Filter className="w-3.5 h-3.5 text-blue-600" />
+                    <span>Sắp xếp theo:</span>
+                  </div>
+                  <div className="flex items-center flex-wrap gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setPlannedSortBy("time_asc")}
+                      className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer flex items-center space-x-1 ${
+                        plannedSortBy === "time_asc"
+                          ? "bg-[#0C2C47] text-white shadow-xs"
+                          : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
+                      }`}
+                      title="Sự kiện gần nhất / quá hạn lên đầu"
+                    >
+                      <span>⏱️ Gần ➔ Xa</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPlannedSortBy("time_desc")}
+                      className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer flex items-center space-x-1 ${
+                        plannedSortBy === "time_desc"
+                          ? "bg-[#0C2C47] text-white shadow-xs"
+                          : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
+                      }`}
+                      title="Sự kiện xa nhất lên đầu"
+                    >
+                      <span>⏳ Xa ➔ Gần</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPlannedSortBy("priority_desc")}
+                      className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer flex items-center space-x-1 ${
+                        plannedSortBy === "priority_desc"
+                          ? "bg-rose-600 text-white shadow-xs"
+                          : "bg-white text-slate-600 border border-slate-200 hover:bg-rose-50 hover:text-rose-700"
+                      }`}
+                      title="Ưu tiên Cao -> Trung bình -> Thấp"
+                    >
+                      <span>⚡ Ưu tiên: Cao ➔ Thấp</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPlannedSortBy("priority_asc")}
+                      className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer flex items-center space-x-1 ${
+                        plannedSortBy === "priority_asc"
+                          ? "bg-slate-700 text-white shadow-xs"
+                          : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
+                      }`}
+                      title="Ưu tiên Thấp -> Trung bình -> Cao"
+                    >
+                      <span>🔻 Ưu tiên: Thấp ➔ Cao</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Dòng 2: Bộ lọc nhanh Loại & Mức độ ưu tiên */}
+                <div className="pt-2 border-t border-slate-200/60 flex flex-col md:flex-row md:items-center justify-between gap-2.5 text-xs">
+                  {/* Lọc loại giao dịch */}
+                  <div className="flex items-center space-x-1 flex-wrap gap-y-1">
+                    <span className="text-slate-500 font-medium mr-1">Loại:</span>
+                    <button
+                      type="button"
+                      onClick={() => setPlannedTypeFilter("all")}
+                      className={`px-2 py-0.5 rounded-md font-bold transition cursor-pointer ${
+                        plannedTypeFilter === "all"
+                          ? "bg-slate-800 text-white"
+                          : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
+                      }`}
+                    >
+                      Tất cả ({allFuturePlannedFlows.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPlannedTypeFilter("income")}
+                      className={`px-2 py-0.5 rounded-md font-bold transition cursor-pointer ${
+                        plannedTypeFilter === "income"
+                          ? "bg-emerald-600 text-white"
+                          : "bg-white text-emerald-700 border border-emerald-200 hover:bg-emerald-50"
+                      }`}
+                    >
+                      Dự thu ({allFuturePlannedFlows.filter((f) => f.type === "income").length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPlannedTypeFilter("expense")}
+                      className={`px-2 py-0.5 rounded-md font-bold transition cursor-pointer ${
+                        plannedTypeFilter === "expense"
+                          ? "bg-rose-600 text-white"
+                          : "bg-white text-rose-700 border border-rose-200 hover:bg-rose-50"
+                      }`}
+                    >
+                      Dự chi ({allFuturePlannedFlows.filter((f) => f.type === "expense").length})
+                    </button>
+                  </div>
+
+                  {/* Lọc mức độ ưu tiên */}
+                  <div className="flex items-center space-x-1 flex-wrap gap-y-1">
+                    <span className="text-slate-500 font-medium mr-1">Mức độ:</span>
+                    <button
+                      type="button"
+                      onClick={() => setPlannedPriorityFilter("all")}
+                      className={`px-2 py-0.5 rounded-md font-bold transition cursor-pointer ${
+                        plannedPriorityFilter === "all"
+                          ? "bg-slate-800 text-white"
+                          : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
+                      }`}
+                    >
+                      Tất cả
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPlannedPriorityFilter("high")}
+                      className={`px-2 py-0.5 rounded-md font-bold transition cursor-pointer ${
+                        plannedPriorityFilter === "high"
+                          ? "bg-rose-600 text-white"
+                          : "bg-white text-rose-700 border border-rose-200 hover:bg-rose-50"
+                      }`}
+                    >
+                      🔴 Cao ({allFuturePlannedFlows.filter((f) => f.priority === "high").length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPlannedPriorityFilter("medium")}
+                      className={`px-2 py-0.5 rounded-md font-bold transition cursor-pointer ${
+                        plannedPriorityFilter === "medium"
+                          ? "bg-amber-500 text-white"
+                          : "bg-white text-amber-700 border border-amber-200 hover:bg-amber-50"
+                      }`}
+                    >
+                      🟡 Vừa ({allFuturePlannedFlows.filter((f) => (f.priority || "medium") === "medium").length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPlannedPriorityFilter("low")}
+                      className={`px-2 py-0.5 rounded-md font-bold transition cursor-pointer ${
+                        plannedPriorityFilter === "low"
+                          ? "bg-slate-700 text-white"
+                          : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
+                      }`}
+                    >
+                      🟢 Thấp ({allFuturePlannedFlows.filter((f) => f.priority === "low").length})
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* DANH SÁCH THẺ KẾ HOẠCH */}
+            {allFuturePlannedFlows.length === 0 ? (
+              <div className="text-center py-10 text-slate-400 text-xs">
+                Chưa có kế hoạch dự thu hay dự chi nào trong tương lai. Bạn có thể thêm khi ghi Thu hoặc Chi.
+              </div>
+            ) : filteredAndSortedPlannedFlows.length === 0 ? (
+              <div className="text-center py-10 p-6 bg-slate-50 rounded-2xl border border-dashed border-slate-300 text-xs space-y-2">
+                <p className="text-slate-500">Không có kế hoạch nào phù hợp với bộ lọc đã chọn.</p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPlannedTypeFilter("all");
+                    setPlannedPriorityFilter("all");
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-600 border border-blue-200 font-bold hover:bg-blue-100 cursor-pointer"
+                >
+                  Đặt lại bộ lọc
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                {filteredAndSortedPlannedFlows.map((plan) => {
+                  // Tính khoảng cách ngày
+                  let diffDaysText = "";
+                  let isOverdue = false;
+                  if (plan.rawDate || plan.date) {
+                    const today0 = new Date();
+                    today0.setHours(0, 0, 0, 0);
+                    let pDate: Date | null = null;
+                    if (plan.rawDate) {
+                      pDate = new Date(plan.rawDate);
+                    } else if (plan.date && plan.date.includes("/")) {
+                      const p = plan.date.split("/");
+                      pDate = new Date(`${p[2]}-${p[1]}-${p[0]}`);
+                    }
+                    if (pDate && !isNaN(pDate.getTime())) {
+                      pDate.setHours(0, 0, 0, 0);
+                      const diff = Math.ceil((pDate.getTime() - today0.getTime()) / (24 * 60 * 60 * 1000));
+                      if (diff === 0) diffDaysText = "Hôm nay đến hạn";
+                      else if (diff > 0) diffDaysText = `Còn ${diff} ngày nữa`;
+                      else {
+                        diffDaysText = `Quá hạn ${Math.abs(diff)} ngày`;
+                        isOverdue = true;
+                      }
+                    }
+                  }
+
+                  const curPriority = plan.priority || "medium";
+
+                  return (
+                    <div
+                      key={plan.id}
+                      className={`p-4 rounded-2xl border transition flex flex-col justify-between space-y-3 ${
+                        curPriority === "high"
+                          ? "bg-rose-50/30 border-rose-200 hover:bg-rose-50/60"
+                          : "bg-slate-50/50 border-slate-200 hover:bg-slate-50"
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                            {/* Badge Loại Dòng Chảy */}
+                            <span
+                              className={`px-2 py-0.5 rounded-md text-[10px] font-black ${
+                                plan.type === "income"
+                                  ? "bg-emerald-100 text-emerald-800"
+                                  : "bg-rose-100 text-rose-800"
+                              }`}
+                            >
+                              {plan.type === "income" ? "DỰ THU (+)" : "DỰ CHI (-)"}
+                            </span>
+
+                            {/* Badge Mức Độ Ưu Tiên (Bấm đổi nhanh Cao -> Vừa -> Thấp) */}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const nextPrio = curPriority === "high" ? "medium" : curPriority === "medium" ? "low" : "high";
+                                handleQuickChangePriority(plan, nextPrio);
+                              }}
+                              className={`px-2 py-0.5 rounded-md text-[10px] font-black border transition cursor-pointer flex items-center space-x-1 ${
+                                curPriority === "high"
+                                  ? "bg-rose-100 text-rose-800 border-rose-300 hover:bg-rose-200"
+                                  : curPriority === "low"
+                                  ? "bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200"
+                                  : "bg-amber-100 text-amber-800 border-amber-300 hover:bg-amber-200"
+                              }`}
+                              title="Bấm để đổi nhanh mức ưu tiên (Cao / Vừa / Thấp)"
+                            >
+                              <span>
+                                {curPriority === "high"
+                                  ? "🔴 Ưu tiên Cao"
+                                  : curPriority === "low"
+                                  ? "🟢 Ưu tiên Thấp"
+                                  : "🟡 Ưu tiên Vừa"}
+                              </span>
+                            </button>
+
+                            <span className="font-bold text-slate-900 text-sm">{plan.title}</span>
+                          </div>
+                          <p className="text-[11px] text-slate-500 mt-1">
+                            {plan.from} ➔ {plan.to} • Ngày: <b className="text-slate-700">{plan.date || plan.rawDate}</b>
+                            {plan.tag && <span className="ml-1 text-slate-400">#{plan.tag}</span>}
+                          </p>
+                        </div>
+
+                        <div className="text-right shrink-0">
+                          <span className="text-base font-black text-slate-900 block">
+                            {plan.amount.toLocaleString("vi-VN")} ₫
+                          </span>
+                          {diffDaysText && (
+                            <span
+                              className={`text-[10px] font-black px-2 py-0.5 rounded-full inline-block mt-0.5 ${
+                                isOverdue
+                                  ? "bg-rose-100 text-rose-800 border border-rose-200"
+                                  : "text-amber-700 bg-amber-100/70"
+                              }`}
+                            >
+                              {isOverdue ? "⚠️ " : "⏳ "}{diffDaysText}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Nút hành động: Thực hiện ngay (Sửa/xóa kế hoạch nằm trong Cấu hình cài đặt) */}
+                      <div className="pt-2 border-t border-slate-200/60 flex items-center justify-end">
+                        <button
+                          type="button"
+                          onClick={() => handleExecutePlannedFlow(plan)}
+                          className="px-3.5 py-1.5 rounded-xl bg-[#0C2C47] hover:bg-[#0C2C47]/90 text-white font-black text-xs shadow-xs transition active:scale-95 cursor-pointer flex items-center space-x-1"
+                        >
+                          <span>✓ Thực hiện ngay</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+
+      {/* TAB 9: MỤC 7. CÀI ĐẶT HỆ THỐNG */}
+      {activeTab === "settings" && (
+        <div className="space-y-6">
+          <div className="bg-[#0C2C47] text-white p-5 rounded-xl space-y-2">
+            <h3 className="font-black text-lg">Cài Đặt Hệ Thống & Cảnh Báo</h3>
+            <p className="text-xs text-slate-300">
+              Cấu hình ngưỡng số ngày im lặng của Kho, quy tắc đối chiếu định kỳ và danh mục nhãn
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* 7.3 THÔNG BÁO SỰ KIỆN DỰ CHI & DỰ THU TRƯỚC X NGÀY */}
+            <div className="bg-white p-5 rounded-2xl border-2 border-amber-300 shadow-sm space-y-4">
+              <div className="flex items-center justify-between border-b pb-3 border-amber-100">
+                <div className="flex items-center space-x-2">
+                  <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center text-amber-700">
+                    <Clock className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-[#0C2C47] text-sm">Thông Báo Sự Kiện Dự Chi / Thu</h4>
+                    <p className="text-[11px] text-slate-500">Nhắc nhở người dùng còn X ngày đến ngày thực hiện</p>
+                  </div>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={systemSettings.enablePlannedNotice}
+                    onChange={(e) =>
+                      handleSaveSystemSettings({
+                        ...systemSettings,
+                        enablePlannedNotice: e.target.checked,
+                      })
+                    }
+                    className="sr-only peer"
+                  />
+                  <div className="w-10 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500"></div>
+                </label>
+              </div>
+
+              <div className="space-y-3 text-xs">
+                <div className="flex items-center justify-between p-3 bg-amber-50/70 rounded-xl border border-amber-200">
+                  <div>
+                    <span className="font-bold text-amber-950 block">Nhắc trước số ngày:</span>
+                    <span className="text-[11px] text-amber-800">
+                      Ví dụ: Dự chi ngày 8/10, trước 3 ngày hệ thống sẽ phát cảnh báo
+                    </span>
+                  </div>
+                  <div className="flex items-center space-x-1">
+                    {[1, 2, 3, 5, 7].map((d) => (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() =>
+                          handleSaveSystemSettings({
+                            ...systemSettings,
+                            plannedAdvanceNoticeDays: d,
+                          })
+                        }
+                        className={`px-2.5 py-1.5 rounded-lg font-black transition cursor-pointer ${
+                          systemSettings.plannedAdvanceNoticeDays === d
+                            ? "bg-amber-600 text-white shadow-xs"
+                            : "bg-white text-slate-700 border border-amber-200 hover:bg-amber-100"
+                        }`}
+                      >
+                        {d} ngày
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Bộ chọn phạm vi: Tất cả sự kiện vs Chọn theo sự kiện */}
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="font-bold text-slate-800 block text-xs">Phạm vi gán thông báo:</span>
+                      <span className="text-[11px] text-slate-500">
+                        {systemSettings.plannedNoticeScope === "all"
+                          ? "Tất cả các khoản dự thu/chi đến hạn đều được thông báo"
+                          : "Chỉ thông báo những sự kiện dự thu/chi được bạn tick chọn bên dưới"}
+                      </span>
+                    </div>
+                    <div className="flex items-center space-x-1">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleSaveSystemSettings({
+                            ...systemSettings,
+                            plannedNoticeScope: "all",
+                          })
+                        }
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                          systemSettings.plannedNoticeScope === "all"
+                            ? "bg-[#0C2C47] text-white shadow-xs"
+                            : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
+                        }`}
+                      >
+                        ✓ Tất cả sự kiện
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleSaveSystemSettings({
+                            ...systemSettings,
+                            plannedNoticeScope: "selective",
+                          })
+                        }
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                          systemSettings.plannedNoticeScope === "selective"
+                            ? "bg-amber-600 text-white shadow-xs"
+                            : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
+                        }`}
+                      >
+                        📌 Chọn theo sự kiện
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Khi chọn 'selective': Danh sách tick chọn các sự kiện dự chi/dự thu */}
+                  {systemSettings.plannedNoticeScope === "selective" && (
+                    <div className="pt-2 border-t border-slate-200 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-slate-700 uppercase">
+                          Danh sách gán thông báo ({systemSettings.plannedSelectedFlowIds?.length || 0} đã chọn):
+                        </span>
+                        <div className="flex space-x-2 text-[11px]">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleSaveSystemSettings({
+                                ...systemSettings,
+                                plannedSelectedFlowIds: allFuturePlannedFlows.map((f) => f.id),
+                              })
+                            }
+                            className="text-blue-600 hover:underline font-semibold cursor-pointer"
+                          >
+                            Chọn tất cả
+                          </button>
+                          <span>•</span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleSaveSystemSettings({
+                                ...systemSettings,
+                                plannedSelectedFlowIds: [],
+                              })
+                            }
+                            className="text-slate-500 hover:underline font-semibold cursor-pointer"
+                          >
+                            Bỏ chọn hết
+                          </button>
+                        </div>
+                      </div>
+
+                      {allFuturePlannedFlows.length > 0 ? (
+                        <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1">
+                          {allFuturePlannedFlows.map((f) => {
+                            const isSelected = (systemSettings.plannedSelectedFlowIds || []).includes(f.id);
+                            return (
+                              <label
+                                key={f.id}
+                                className={`flex items-center justify-between p-2 rounded-lg border transition cursor-pointer text-xs ${
+                                  isSelected
+                                    ? "bg-amber-50/80 border-amber-300"
+                                    : "bg-white border-slate-200 opacity-70 hover:opacity-100"
+                                }`}
+                              >
+                                <div className="flex items-center space-x-2.5">
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={(e) => {
+                                      const currentIds = systemSettings.plannedSelectedFlowIds || [];
+                                      const newIds = e.target.checked
+                                        ? [...currentIds, f.id]
+                                        : currentIds.filter((id) => id !== f.id);
+                                      handleSaveSystemSettings({
+                                        ...systemSettings,
+                                        plannedSelectedFlowIds: newIds,
+                                      });
+                                    }}
+                                    className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 cursor-pointer"
+                                  />
+                                  <div>
+                                    <div className="flex items-center space-x-1.5 flex-wrap">
+                                      <span
+                                        className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
+                                          f.type === "income"
+                                            ? "bg-emerald-100 text-emerald-800"
+                                            : "bg-rose-100 text-rose-800"
+                                        }`}
+                                      >
+                                        {f.type === "income" ? "DỰ THU" : "DỰ CHI"}
+                                      </span>
+                                      <span className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
+                                        f.priority === "high"
+                                          ? "bg-rose-100 text-rose-800 border border-rose-200"
+                                          : f.priority === "low"
+                                          ? "bg-slate-100 text-slate-700 border border-slate-200"
+                                          : "bg-amber-100 text-amber-800 border border-amber-200"
+                                      }`}>
+                                        {f.priority === "high" ? "🔴 Cao" : f.priority === "low" ? "🟢 Thấp" : "🟡 Vừa"}
+                                      </span>
+                                      <span className="font-bold text-slate-800">{f.title}</span>
+                                    </div>
+                                    <span className="text-[10px] text-slate-500">
+                                      Ngày: {f.date || f.rawDate || "Chưa rõ"}
+                                    </span>
+                                  </div>
+                                </div>
+                                <div className="flex items-center space-x-2">
+                                  <div className="text-right">
+                                    <span className="font-black text-slate-900 block">
+                                      {f.amount.toLocaleString("vi-VN")} ₫
+                                    </span>
+                                    <span
+                                      className={`text-[10px] font-bold ${
+                                        isSelected ? "text-amber-700" : "text-slate-400"
+                                      }`}
+                                    >
+                                      {isSelected ? "🔔 Nhận thông báo" : "Tắt nhắc"}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center space-x-1 pl-1 border-l border-slate-200">
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        handleOpenEditFlow(f);
+                                      }}
+                                      className="p-1 rounded hover:bg-white text-slate-500 hover:text-blue-600 transition cursor-pointer"
+                                      title="Sửa số liệu"
+                                    >
+                                      <Edit className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        setFlowToDelete(f);
+                                      }}
+                                      className="p-1 rounded hover:bg-white text-slate-400 hover:text-rose-600 transition cursor-pointer"
+                                      title="Xóa kế hoạch"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                </div>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="p-3 bg-white rounded-lg border border-slate-200 text-center text-slate-500 text-[11px]">
+                          Chưa có khoản dự chi hoặc dự thu nào được tạo.
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {upcomingPlannedFlows.length > 0 ? (
+                  <div className="p-3 bg-white rounded-xl border border-slate-200 space-y-2">
+                    <span className="text-[11px] font-bold text-slate-500 uppercase block">
+                      Các sự kiện sắp đến hạn trong {systemSettings.plannedAdvanceNoticeDays} ngày tới ({upcomingPlannedFlows.length}):
+                    </span>
+                    <div className="space-y-1.5 max-h-36 overflow-y-auto">
+                      {upcomingPlannedFlows.map((f) => (
+                        <div
+                          key={f.id}
+                          className="flex items-center justify-between p-2 rounded-lg bg-slate-50 border border-slate-200 text-xs"
+                        >
+                          <div className="flex items-center space-x-2">
+                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                              f.type === "income" ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800"
+                            }`}>
+                              {f.type === "income" ? "DỰ THU" : "DỰ CHI"}
+                            </span>
+                            <span className="font-bold text-slate-800 truncate max-w-[160px]">{f.title}</span>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <div className="text-right">
+                              <span className="font-black text-slate-900 block">{f.amount.toLocaleString("vi-VN")} ₫</span>
+                              <span className="text-[10px] text-amber-700 font-semibold">{f.date || f.rawDate}</span>
+                            </div>
+                            <div className="flex items-center space-x-1 pl-1 border-l border-slate-200">
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditFlow(f)}
+                                className="p-1 rounded hover:bg-slate-200 text-slate-500 hover:text-blue-600 transition cursor-pointer"
+                                title="Sửa số liệu"
+                              >
+                                <Edit className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setFlowToDelete(f)}
+                                className="p-1 rounded hover:bg-rose-100 text-slate-400 hover:text-rose-600 transition cursor-pointer"
+                                title="Xóa kế hoạch"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-2.5 bg-slate-50 rounded-xl text-center text-slate-500 text-[11px]">
+                    ✓ Không có sự kiện dự chi/thu nào trong {systemSettings.plannedAdvanceNoticeDays} ngày tới
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* 7.4 NGƯỠNG ÂM NỢ CHO PHÉP & NGƯỠNG TIỀN KHO */}
+            <div className="bg-white p-5 rounded-2xl border border-[#ABCBCA] shadow-sm space-y-4">
+              <div className="flex items-center space-x-2 border-b pb-3">
+                <div className="w-8 h-8 rounded-lg bg-rose-100 flex items-center justify-center text-rose-700">
+                  <ShieldAlert className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="font-bold text-[#0C2C47] text-sm">Ngưỡng Âm Nợ & Tiền Kho Cho Phép</h4>
+                  <p className="text-[11px] text-slate-500">Thiết lập các giới hạn bảo vệ an toàn vốn</p>
+                </div>
+              </div>
+
+              <div className="space-y-3.5 text-xs">
+                {/* Ngưỡng âm nợ */}
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
+                  <div className="flex justify-between items-center">
+                    <span className="font-bold text-slate-700">Ngưỡng âm nợ cho phép tối đa:</span>
+                    <div className="flex items-center space-x-2">
+                      <span className="font-black text-rose-700 text-sm">
+                        {systemSettings.maxNegativeDebtAllowed.toLocaleString("vi-VN")} ₫
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSettingEditModal({
+                            isOpen: true,
+                            key: "maxNegativeDebtAllowed",
+                            title: "Chỉnh Sửa Ngưỡng Âm Nợ Cho Phép Tối Đa",
+                            description: "Hệ thống sẽ phát cảnh báo đỏ khi tổng nợ phải trả vượt quá ngưỡng này",
+                            currentValue: systemSettings.maxNegativeDebtAllowed,
+                            inputUnits: (systemSettings.maxNegativeDebtAllowed / 1000).toString(),
+                          })
+                        }
+                        className="p-1 rounded-lg hover:bg-rose-100 text-rose-700 transition cursor-pointer"
+                        title="Tùy chỉnh số liệu"
+                      >
+                        <Edit className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-4 gap-1.5 pt-1">
+                    {[20000000, 50000000, 100000000, 200000000].map((val) => (
+                      <button
+                        key={val}
+                        type="button"
+                        onClick={() =>
+                          handleSaveSystemSettings({
+                            ...systemSettings,
+                            maxNegativeDebtAllowed: val,
+                          })
+                        }
+                        className={`py-1 rounded-lg text-[11px] font-bold border transition cursor-pointer ${
+                          systemSettings.maxNegativeDebtAllowed === val
+                            ? "bg-rose-600 text-white border-rose-700"
+                            : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100"
+                        }`}
+                      >
+                        {val >= 1000000000 ? `${val / 1000000000} Tỷ` : `${val / 1000000} Tr`}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-slate-500">
+                    Hiện tại nợ phải trả: <b className="text-slate-800">{totalPayable.toLocaleString("vi-VN")} ₫</b>
+                    {isDebtExceeded ? (
+                      <span className="text-rose-600 font-bold ml-1">⚠️ Đang vượt ngưỡng!</span>
+                    ) : (
+                      <span className="text-emerald-600 font-bold ml-1">✓ Đang trong mức an toàn</span>
+                    )}
+                  </p>
+                </div>
+
+                {/* Ngưỡng tiền kho tối thiểu */}
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
+                  <div className="flex justify-between items-center">
+                    <span className="font-bold text-slate-700">Ngưỡng số dư tối thiểu mỗi kho:</span>
+                    <div className="flex items-center space-x-2">
+                      <span className="font-black text-[#0C2C47] text-sm">
+                        {systemSettings.minVaultBalanceAllowed.toLocaleString("vi-VN")} ₫
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSettingEditModal({
+                            isOpen: true,
+                            key: "minVaultBalanceAllowed",
+                            title: "Chỉnh Sửa Ngưỡng Số Dư Tối Thiểu Mỗi Kho",
+                            description: "Hệ thống cảnh báo khi có bất kỳ kho nào rơi xuống dưới ngưỡng này",
+                            currentValue: systemSettings.minVaultBalanceAllowed,
+                            inputUnits: (systemSettings.minVaultBalanceAllowed / 1000).toString(),
+                          })
+                        }
+                        className="p-1 rounded-lg hover:bg-slate-200 text-[#0C2C47] transition cursor-pointer"
+                        title="Tùy chỉnh số liệu"
+                      >
+                        <Edit className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-4 gap-1.5 pt-1">
+                    {[1000000, 2000000, 5000000, 10000000].map((val) => (
+                      <button
+                        key={val}
+                        type="button"
+                        onClick={() =>
+                          handleSaveSystemSettings({
+                            ...systemSettings,
+                            minVaultBalanceAllowed: val,
+                          })
+                        }
+                        className={`py-1 rounded-lg text-[11px] font-bold border transition cursor-pointer ${
+                          systemSettings.minVaultBalanceAllowed === val
+                            ? "bg-[#0C2C47] text-white border-[#0C2C47]"
+                            : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100"
+                        }`}
+                      >
+                        {val / 1000000} Tr
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-slate-500">
+                    Kho dưới ngưỡng: <b className={lowBalanceVaults.length > 0 ? "text-amber-600" : "text-emerald-600"}>
+                      {lowBalanceVaults.length > 0 ? `${lowBalanceVaults.length} kho cần nạp thêm` : "Tất cả kho an toàn"}
+                    </b>
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* 7.5 MỤC TIÊU TIẾT KIỆM TÍCH LŨY */}
+            <div className="md:col-span-2 bg-gradient-to-r from-emerald-50 via-teal-50 to-white p-5 rounded-2xl border-2 border-emerald-300 shadow-sm space-y-4">
+              <div className="flex items-center justify-between border-b border-emerald-200 pb-3">
+                <div className="flex items-center space-x-2">
+                  <div className="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center shadow-xs">
+                    <PiggyBank className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="font-black text-[#0C2C47] text-base">Mục Tiêu Tiết Kiệm & Quỹ Tích Lũy</h4>
+                    <p className="text-[11px] text-slate-500">Kế hoạch tài chính dài hạn hướng tới tự do tài chính</p>
+                  </div>
+                </div>
+                <div className="text-right flex items-center space-x-3">
+                  <div>
+                    <span className="text-[10px] uppercase font-bold text-slate-500 block">Tiến độ đạt được</span>
+                    <span className="text-lg font-black text-emerald-700">{savingsProgressPct}%</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSettingEditModal({
+                        isOpen: true,
+                        key: "savingsGoalAmount",
+                        title: "Chỉnh Sửa Mục Tiêu Tiết Kiệm & Quỹ Tích Lũy",
+                        description: "Kế hoạch tài chính dài hạn để theo dõi tiến độ tỷ lệ hoàn thành",
+                        currentValue: systemSettings.savingsGoalAmount,
+                        inputUnits: (systemSettings.savingsGoalAmount / 1000).toString(),
+                      })
+                    }
+                    className="p-2 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700 transition cursor-pointer flex items-center space-x-1 text-xs font-bold shadow-xs"
+                    title="Nhập mục tiêu tùy ý"
+                  >
+                    <Edit className="w-3.5 h-3.5" />
+                    <span>Sửa số liệu</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Progress bar */}
+              <div className="space-y-1.5">
+                <div className="w-full bg-slate-200 h-3 rounded-full overflow-hidden shadow-inner">
+                  <div
+                    className="bg-gradient-to-r from-emerald-500 to-teal-500 h-full rounded-full transition-all duration-500"
+                    style={{ width: `${savingsProgressPct}%` }}
+                  ></div>
+                </div>
+                <div className="flex justify-between text-[11px] text-slate-600">
+                  <span>Hiện có: <b>{totalBalance.toLocaleString("vi-VN")} ₫</b></span>
+                  <span>Mục tiêu: <b>{systemSettings.savingsGoalAmount.toLocaleString("vi-VN")} ₫</b></span>
+                </div>
+              </div>
+
+              {/* Chọn mức mục tiêu nhanh */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 pt-1">
+                {[50000000, 100000000, 200000000, 500000000].map((goal) => (
+                  <button
+                    key={goal}
+                    type="button"
+                    onClick={() =>
+                      handleSaveSystemSettings({
+                        ...systemSettings,
+                        savingsGoalAmount: goal,
+                      })
+                    }
+                    className={`p-2.5 rounded-xl border text-center transition cursor-pointer ${
+                      systemSettings.savingsGoalAmount === goal
+                        ? "border-emerald-600 bg-emerald-100/70 font-black text-emerald-900 ring-2 ring-emerald-400"
+                        : "border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-bold"
+                    }`}
+                  >
+                    <span className="text-xs block">{goal >= 1000000000 ? `${goal / 1000000000} Tỷ` : `${goal / 1000000} Triệu`} ₫</span>
+                    <span className="text-[10px] text-slate-500">Mục tiêu</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* 7.2A CÀI ĐẶT THỜI GIAN CHO CÁC HÀNH ĐỘNG CẬP NHẬT TÀI CHÍNH */}
+            <div className="md:col-span-2 bg-gradient-to-b from-blue-50/50 to-white p-5 sm:p-6 rounded-2xl border-2 border-blue-200 shadow-md space-y-5">
+              <div className="flex items-center justify-between border-b border-blue-100 pb-4">
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 rounded-xl bg-[#0C2C47] text-white flex items-center justify-center shadow-md">
+                    <Clock className="w-5 h-5 text-amber-300" />
+                  </div>
+                  <div>
+                    <h4 className="text-base font-black text-[#0C2C47]">
+                      Cài Đặt Thời Gian Cập Nhật Tài Chính
+                    </h4>
+                    <p className="text-xs text-slate-500 font-medium">
+                      Lên lịch hẹn giờ cho các hành động chốt sổ, kiểm kê kho & cập nhật dòng tiền
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center space-x-2">
+                  <span className="text-xs font-bold text-slate-600 hidden sm:inline">
+                    {reminderConfig.enabled ? "Đang bật nhắc nhở" : "Tắt nhắc nhở"}
+                  </span>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={reminderConfig.enabled}
+                      onChange={(e) => handleSaveReminder({ ...reminderConfig, enabled: e.target.checked })}
+                      className="sr-only peer"
+                    />
+                    <div className="w-12 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                  </label>
+                </div>
+              </div>
+
+              {/* LỰA CHỌN CHẾ ĐỘ HẸN GIỜ */}
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => handleSaveReminder({ ...reminderConfig, mode: "daily" })}
+                    className={`p-3.5 rounded-2xl border-2 text-left transition cursor-pointer ${
+                      reminderConfig.mode === "daily"
+                        ? "border-[#0C2C47] bg-blue-50/80 shadow-xs"
+                        : "border-slate-200 hover:border-slate-300 bg-white"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-black text-xs text-[#0C2C47]">⏰ CỐ ĐỊNH HÀNG NGÀY</span>
+                      {reminderConfig.mode === "daily" && (
+                        <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-600">
+                      Cài đặt mốc giờ chốt sổ & đối chiếu kiểm kê định kỳ trong ngày.
+                    </p>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const target = Date.now() + reminderConfig.countdownMinutes * 60 * 1000;
+                      handleSaveReminder({ ...reminderConfig, mode: "countdown", countdownTarget: target });
+                    }}
+                    className={`p-3.5 rounded-2xl border-2 text-left transition cursor-pointer ${
+                      reminderConfig.mode === "countdown"
+                        ? "border-[#0C2C47] bg-blue-50/80 shadow-xs"
+                        : "border-slate-200 hover:border-slate-300 bg-white"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-black text-xs text-[#0C2C47]">⏳ ĐẾM NGƯỢC CHU KỲ</span>
+                      {reminderConfig.mode === "countdown" && (
+                        <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-600">
+                      Tự động báo nhắc kiểm đếm sau một khoảng thời gian linh hoạt (phút/giờ).
+                    </p>
+                  </button>
+                </div>
+
+                {reminderConfig.mode === "daily" ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                    {/* KHUNG GIỜ CHỐT SỔ CUỐI NGÀY */}
+                    <div className="p-4 bg-white rounded-2xl border border-slate-200 shadow-2xs flex items-center justify-between gap-3">
+                      <div>
+                        <span className="text-xs font-black text-[#0C2C47] block">
+                          1. Giờ Chốt Sổ & Xem Báo Cáo Cuối Ngày
+                        </span>
+                        <span className="text-[11px] text-slate-500 font-medium">
+                          Nhắc kiểm tra dòng tiền & tài sản ròng hôm nay
+                        </span>
+                      </div>
+                      <input
+                        type="time"
+                        value={reminderConfig.dailyTime}
+                        onChange={(e) => handleSaveReminder({ ...reminderConfig, dailyTime: e.target.value })}
+                        className="p-2 rounded-xl border border-slate-300 text-base font-black text-[#0C2C47] bg-slate-50 focus:bg-white focus:outline-none"
+                      />
+                    </div>
+
+                    {/* KHUNG GIỜ ĐỐI CHIẾU KIỂM KÊ KHO */}
+                    <div className="p-4 bg-white rounded-2xl border border-slate-200 shadow-2xs flex items-center justify-between gap-3">
+                      <div>
+                        <span className="text-xs font-black text-[#0C2C47] block">
+                          2. Giờ Đối Chiếu & Kiểm Kê Quỹ Kho
+                        </span>
+                        <span className="text-[11px] text-slate-500 font-medium">
+                          Nhắc kiểm đếm tiền mặt, tài khoản ngân hàng, ví
+                        </span>
+                      </div>
+                      <input
+                        type="time"
+                        value={reminderConfig.reconcileTime || "09:00"}
+                        onChange={(e) => handleSaveReminder({ ...reminderConfig, reconcileTime: e.target.value })}
+                        className="p-2 rounded-xl border border-slate-300 text-base font-black text-[#0C2C47] bg-slate-50 focus:bg-white focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-4 bg-white rounded-2xl border border-slate-200 space-y-2.5 shadow-2xs">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-black text-slate-700">Đếm ngược nhắc nhở tiếp theo:</span>
+                      <span className="text-sm font-black text-[#BF512C]">
+                        {countdownText || `${reminderConfig.countdownMinutes} phút`}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 text-xs font-bold">
+                      {[15, 30, 45, 60, 120, 180].map((mins) => (
+                        <button
+                          key={mins}
+                          type="button"
+                          onClick={() => {
+                            const target = Date.now() + mins * 60 * 1000;
+                            handleSaveReminder({
+                              ...reminderConfig,
+                              countdownMinutes: mins,
+                              countdownTarget: target,
+                            });
+                          }}
+                          className={`py-2 rounded-xl border transition cursor-pointer text-center ${
+                            reminderConfig.countdownMinutes === mins
+                              ? "bg-[#0C2C47] text-white border-[#0C2C47]"
+                              : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100"
+                          }`}
+                        >
+                          {mins < 60 ? `${mins} phút` : `${mins / 60} giờ`}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* 7.2B CẤU HÌNH ÂM THANH THÔNG BÁO ĐẶC QUYỀN */}
+            <div className="md:col-span-2 bg-gradient-to-b from-amber-50/50 to-white p-5 sm:p-6 rounded-2xl border-2 border-amber-300 shadow-md space-y-5">
+              <div className="flex items-center justify-between border-b border-amber-200 pb-4">
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center shadow-md shadow-amber-500/30">
+                    <Volume2 className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-base font-black text-[#0C2C47]">
+                        Cấu Hình Âm Thanh Thông Báo
+                      </h4>
+                      <span className="text-[10px] font-black bg-amber-500 text-slate-950 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                        3 Hồi Ngắt Quãng
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 font-medium">
+                      Mặc định kêu 3 lần ngắt quãng với âm thanh đặc quyền được chuẩn hóa cố định theo từng sự kiện
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* KHỐI ĐIỀU CHỈNH ÂM LƯỢNG */}
+              <div className="p-4 bg-white rounded-2xl border border-amber-200 shadow-2xs space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    {(reminderConfig.volume ?? 80) === 0 ? (
+                      <VolumeX className="w-5 h-5 text-rose-500" />
+                    ) : (reminderConfig.volume ?? 80) < 50 ? (
+                      <Volume1 className="w-5 h-5 text-amber-600" />
+                    ) : (
+                      <Volume2 className="w-5 h-5 text-emerald-600" />
+                    )}
+                    <span className="text-xs font-black text-[#0C2C47] uppercase">
+                      Âm Lượng Chuông Thông Báo:
+                    </span>
+                    <span className="text-xs font-black text-amber-800 bg-amber-100 px-2 py-0.5 rounded-lg">
+                      {reminderConfig.volume ?? 80}%
+                    </span>
+                  </div>
+
+                  <div className="flex items-center space-x-1.5 text-xs font-bold">
+                    {[
+                      { label: "Tắt", val: 0 },
+                      { label: "30%", val: 30 },
+                      { label: "50%", val: 50 },
+                      { label: "80%", val: 80 },
+                      { label: "100%", val: 100 },
+                    ].map((preset) => (
+                      <button
+                        key={preset.label}
+                        type="button"
+                        onClick={() => handleSaveReminder({ ...reminderConfig, volume: preset.val })}
+                        className={`px-2 py-1 rounded-lg transition cursor-pointer text-[11px] ${
+                          (reminderConfig.volume ?? 80) === preset.val
+                            ? "bg-[#0C2C47] text-white"
+                            : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                        }`}
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex items-center space-x-3">
+                  <span className="text-xs text-slate-400 font-bold">0%</span>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    step="5"
+                    value={reminderConfig.volume ?? 80}
+                    onChange={(e) =>
+                      handleSaveReminder({ ...reminderConfig, volume: parseInt(e.target.value, 10) })
+                    }
+                    className="w-full accent-amber-500 cursor-pointer h-2 bg-slate-200 rounded-lg"
+                  />
+                  <span className="text-xs text-slate-400 font-bold">100%</span>
+                </div>
+              </div>
+
+              {/* BẢNG 4 ÂM THANH SỰ KIỆN CỐ ĐỊNH & NGHE THỬ */}
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-black text-[#0C2C47] uppercase tracking-wide">
+                    Âm thanh chuẩn hóa theo sự kiện (Hệ thống gán cố định)
+                  </label>
+                  <span className="text-[11px] text-slate-500 font-medium">
+                    Nghe thử âm lượng thực tế
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {/* 1. SỰ KIỆN CẢNH BÁO */}
+                  <div className="p-4 rounded-2xl border-2 border-rose-200 bg-rose-50/40 shadow-2xs flex flex-col justify-between space-y-3">
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-2">
+                          <span className="text-lg">🚨</span>
+                          <span className="text-xs font-black text-rose-950 uppercase">
+                            Sự Kiện Cảnh Báo
+                          </span>
+                        </div>
+                        <span className="text-[10px] font-bold bg-rose-200/80 text-rose-900 px-2 py-0.5 rounded-full">
+                          Chuông báo động
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-600 mt-1.5 leading-relaxed font-medium">
+                        Kích hoạt khi: Vượt ngưỡng âm nợ, kho dưới hạn mức, trễ hẹn chốt sổ, khoản nợ khẩn cấp.
+                      </p>
+                      <p className="text-[10px] text-rose-800 font-semibold mt-1">
+                        🔊 Tiếng chuông cảnh báo dồn dập (3 hồi ngắt quãng)
+                      </p>
+                    </div>
+
+                    <div className="pt-2 border-t border-rose-100 flex items-center justify-end">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          isPlayingSoundTest === "alert" ? handleStopSoundTest() : handleTestSound("alert")
+                        }
+                        className={`px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center space-x-1.5 transition cursor-pointer shadow-2xs ${
+                          isPlayingSoundTest === "alert"
+                            ? "bg-rose-600 text-white animate-pulse"
+                            : "bg-white hover:bg-rose-100 text-rose-900 border border-rose-300"
+                        }`}
+                      >
+                        {isPlayingSoundTest === "alert" ? (
+                          <>
+                            <Square className="w-3.5 h-3.5 fill-white" />
+                            <span>Dừng</span>
+                          </>
+                        ) : (
+                          <>
+                            <Play className="w-3.5 h-3.5 fill-rose-900" />
+                            <span>Nghe thử (3 hồi)</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* 2. SỰ KIỆN TIỀN THU */}
+                  <div className="p-4 rounded-2xl border-2 border-emerald-200 bg-emerald-50/40 shadow-2xs flex flex-col justify-between space-y-3">
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-2">
+                          <span className="text-lg">🪙</span>
+                          <span className="text-xs font-black text-emerald-950 uppercase">
+                            Sự Kiện Tiền Thu (+)
+                          </span>
+                        </div>
+                        <span className="text-[10px] font-bold bg-emerald-200/80 text-emerald-900 px-2 py-0.5 rounded-full">
+                          Tiền xu leng keng
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-600 mt-1.5 leading-relaxed font-medium">
+                        Kích hoạt khi: Ghi nhận tiền thu vào kho thực tế, nhận tiền bán hàng, thu hồi nợ.
+                      </p>
+                      <p className="text-[10px] text-emerald-800 font-semibold mt-1">
+                        🔊 Tiếng tiền leng keng đồng xu vàng bạc (3 hồi ngắt quãng)
+                      </p>
+                    </div>
+
+                    <div className="pt-2 border-t border-emerald-100 flex items-center justify-end">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          isPlayingSoundTest === "income" ? handleStopSoundTest() : handleTestSound("income")
+                        }
+                        className={`px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center space-x-1.5 transition cursor-pointer shadow-2xs ${
+                          isPlayingSoundTest === "income"
+                            ? "bg-emerald-600 text-white animate-pulse"
+                            : "bg-white hover:bg-emerald-100 text-emerald-900 border border-emerald-300"
+                        }`}
+                      >
+                        {isPlayingSoundTest === "income" ? (
+                          <>
+                            <Square className="w-3.5 h-3.5 fill-white" />
+                            <span>Dừng</span>
+                          </>
+                        ) : (
+                          <>
+                            <Play className="w-3.5 h-3.5 fill-emerald-900" />
+                            <span>Nghe thử (3 hồi)</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* 3. SỰ KIỆN TIỀN CHI */}
+                  <div className="p-4 rounded-2xl border-2 border-amber-200 bg-amber-50/40 shadow-2xs flex flex-col justify-between space-y-3">
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-2">
+                          <span className="text-lg">💵</span>
+                          <span className="text-xs font-black text-amber-950 uppercase">
+                            Sự Kiện Tiền Chi (-)
+                          </span>
+                        </div>
+                        <span className="text-[10px] font-bold bg-amber-200/80 text-amber-900 px-2 py-0.5 rounded-full">
+                          Máy đếm tiền
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-600 mt-1.5 leading-relaxed font-medium">
+                        Kích hoạt khi: Ghi nhận tiền chi ra khỏi kho, chi tiêu vận hành, trả nợ người bán.
+                      </p>
+                      <p className="text-[10px] text-amber-800 font-semibold mt-1">
+                        🔊 Tiếng máy vuốt đếm tiền polyme tạch tạch (3 nhịp ngắt quãng)
+                      </p>
+                    </div>
+
+                    <div className="pt-2 border-t border-amber-100 flex items-center justify-end">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          isPlayingSoundTest === "expense" ? handleStopSoundTest() : handleTestSound("expense")
+                        }
+                        className={`px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center space-x-1.5 transition cursor-pointer shadow-2xs ${
+                          isPlayingSoundTest === "expense"
+                            ? "bg-amber-600 text-white animate-pulse"
+                            : "bg-white hover:bg-amber-100 text-amber-900 border border-amber-300"
+                        }`}
+                      >
+                        {isPlayingSoundTest === "expense" ? (
+                          <>
+                            <Square className="w-3.5 h-3.5 fill-white" />
+                            <span>Dừng</span>
+                          </>
+                        ) : (
+                          <>
+                            <Play className="w-3.5 h-3.5 fill-amber-900" />
+                            <span>Nghe thử (3 hồi)</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* 4. SỰ KIỆN ĐẠT MỤC TIÊU */}
+                  <div className="p-4 rounded-2xl border-2 border-blue-200 bg-blue-50/40 shadow-2xs flex flex-col justify-between space-y-3">
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-2">
+                          <span className="text-lg">🏆</span>
+                          <span className="text-xs font-black text-blue-950 uppercase">
+                            Sự Kiện Đạt Mục Tiêu
+                          </span>
+                        </div>
+                        <span className="text-[10px] font-bold bg-blue-200/80 text-blue-900 px-2 py-0.5 rounded-full">
+                          Chuông vinh quang
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-600 mt-1.5 leading-relaxed font-medium">
+                        Kích hoạt khi: Đạt mốc tiết kiệm tích lũy, cân đối tài chính an toàn, vượt qua điểm hòa vốn.
+                      </p>
+                      <p className="text-[10px] text-blue-800 font-semibold mt-1">
+                        🔊 Hợp âm chiến thắng vinh quang rực rỡ Đô-Mi-Sol-Đố (3 hồi ngắt quãng)
+                      </p>
+                    </div>
+
+                    <div className="pt-2 border-t border-blue-100 flex items-center justify-end">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          isPlayingSoundTest === "goal" ? handleStopSoundTest() : handleTestSound("goal")
+                        }
+                        className={`px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center space-x-1.5 transition cursor-pointer shadow-2xs ${
+                          isPlayingSoundTest === "goal"
+                            ? "bg-blue-600 text-white animate-pulse"
+                            : "bg-white hover:bg-blue-100 text-blue-900 border border-blue-300"
+                        }`}
+                      >
+                        {isPlayingSoundTest === "goal" ? (
+                          <>
+                            <Square className="w-3.5 h-3.5 fill-white" />
+                            <span>Dừng</span>
+                          </>
+                        ) : (
+                          <>
+                            <Play className="w-3.5 h-3.5 fill-blue-900" />
+                            <span>Nghe thử (3 hồi)</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* 7.7 QUẢN LÝ DANH MỤC MOBO (TẠO MỚI, SỬA, XÓA) */}
+          <div className="bg-white p-5 sm:p-6 rounded-2xl border-2 border-blue-200 shadow-md space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-blue-100 pb-4">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-xl bg-[#0C2C47] text-white flex items-center justify-center shadow-md">
+                  <Wallet className="w-5 h-5 text-amber-300" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h4 className="text-base font-black text-[#0C2C47]">
+                      Quản Lý Danh Mục MoBo (Money Box)
+                    </h4>
+                    <span className="text-[10px] font-black bg-blue-100 text-blue-800 px-2.5 py-0.5 rounded-full">
+                      {vaults.length} MoBo
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 font-medium">
+                    Tạo MoBo mới, chỉnh sửa thông tin/hạn mức, khóa quỹ và xóa MoBo
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowVaultModal(true)}
+                className="px-4 py-2.5 rounded-xl bg-[#0C2C47] hover:bg-[#0C2C47]/90 text-white text-xs font-black shadow-xs flex items-center space-x-1.5 transition active:scale-95 cursor-pointer self-start sm:self-auto"
+              >
+                <PlusCircle className="w-4 h-4" />
+                <span>+ Tạo MoBo Mới</span>
+              </button>
+            </div>
+
+            {/* Danh Sách MoBo với đầy đủ thao tác Sửa / Xóa */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+              {vaults.map((vault) => {
+                const isNegative = vault.balance < 0;
+                return (
+                  <div
+                    key={vault.id}
+                    className={`p-4 rounded-xl border transition shadow-2xs flex flex-col justify-between space-y-3 ${
+                      isNegative
+                        ? "bg-rose-50/40 border-rose-200"
+                        : "bg-slate-50/80 border-slate-200 hover:border-blue-300"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <div className="flex items-center space-x-1.5 flex-wrap">
+                          <span className="font-black text-slate-900 text-sm">{vault.name}</span>
+                          {isNegative && (
+                            <span className="bg-rose-100 text-rose-800 text-[10px] font-black px-2 py-0.5 rounded">
+                              Vay nợ
+                            </span>
+                          )}
+                          {vault.isLocked && (
+                            <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-1.5 py-0.5 rounded flex items-center space-x-1">
+                              <Lock className="w-3 h-3" />
+                              <span>Khóa</span>
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-[11px] text-slate-500 mt-0.5 block truncate max-w-[200px]">
+                          {vault.desc || "Không có ghi chú"}
+                        </span>
+                      </div>
+
+                      {/* Cụm Thao Tác Sửa / Xóa MoBo */}
+                      <div className="flex items-center space-x-1 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => openEditVaultModal(vault)}
+                          className="p-1.5 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-white border border-transparent hover:border-slate-200 transition cursor-pointer"
+                          title="Sửa MoBo"
+                        >
+                          <Edit className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openDeleteVaultModal(vault)}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-white border border-transparent hover:border-slate-200 transition cursor-pointer"
+                          title="Xóa MoBo"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-200/60 flex items-baseline justify-between text-xs">
+                      <span className="text-slate-500">
+                        {isNegative ? "Dư nợ:" : "Số dư:"}
+                      </span>
+                      <span className={`text-base font-black ${isNegative ? "text-rose-600" : "text-[#0C2C47]"}`}>
+                        {isNegative
+                          ? `-${Math.abs(vault.balance).toLocaleString("vi-VN")} ₫`
+                          : `${vault.balance.toLocaleString("vi-VN")} ₫`}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 7.8 QUẢN LÝ SỔ VAY & MƯỢN (TẠO MỚI, SỬA, XÓA) */}
+          <div className="bg-white p-5 sm:p-6 rounded-2xl border-2 border-indigo-200 shadow-md space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-indigo-100 pb-4">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-xl bg-indigo-700 text-white flex items-center justify-center shadow-md">
+                  <Handshake className="w-5 h-5 text-indigo-200" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h4 className="text-base font-black text-[#0C2C47]">
+                      Quản Lý Sổ Vay & Mượn (Chủ Nợ & Con Nợ)
+                    </h4>
+                    <span className="text-[10px] font-black bg-indigo-100 text-indigo-800 px-2.5 py-0.5 rounded-full">
+                      {loans.length} khoản nợ
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 font-medium">
+                    Tạo thỏa thuận nợ mới, chỉnh sửa thông tin, lãi suất và xóa bỏ khoản nợ
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleOpenCreateAgreement}
+                className="px-4 py-2.5 rounded-xl bg-indigo-700 hover:bg-indigo-800 text-white text-xs font-black shadow-xs flex items-center space-x-1.5 transition active:scale-95 cursor-pointer self-start sm:self-auto"
+              >
+                <PenTool className="w-4 h-4" />
+                <span>📝 Ký Thỏa Thuận (Chia Sẻ Link)</span>
+              </button>
+            </div>
+
+            {/* Danh sách các khoản nợ kèm Sửa / Xóa */}
+            {loans.length === 0 ? (
+              <div className="p-8 text-center text-slate-400 text-xs bg-slate-50 rounded-xl border border-slate-200">
+                Chưa có khoản vay mượn nào trong hệ thống.
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                {loans.map((loan) => {
+                  const isCreditor = loan.role === "creditor";
+                  const isSettled = loan.status === "settled" || loan.remainingAmount <= 0;
+                  return (
+                    <div
+                      key={loan.id}
+                      className={`p-3.5 rounded-xl border transition shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                        isSettled
+                          ? "bg-slate-50 border-slate-200 opacity-70"
+                          : isCreditor
+                          ? "bg-emerald-50/30 border-emerald-200"
+                          : "bg-rose-50/30 border-rose-200"
+                      }`}
+                    >
+                      <div className="space-y-1">
+                        <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] font-black ${
+                              isCreditor
+                                ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
+                                : "bg-rose-100 text-rose-800 border border-rose-300"
+                            }`}
+                          >
+                            {isCreditor ? "🟢 CHỦ NỢ" : "🔴 CON NỢ"}
+                          </span>
+                          <span className="font-bold text-slate-900 text-xs sm:text-sm">{loan.title}</span>
+                          {loan.agreementId && (
+                            <Link
+                              href={`/agreement/${loan.agreementId}`}
+                              target="_blank"
+                              className="text-indigo-700 font-bold hover:underline text-[11px] inline-flex items-center space-x-0.5"
+                            >
+                              <span>#{loan.agreementId}</span>
+                              <FileText className="w-3 h-3 text-indigo-500" />
+                            </Link>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-slate-500">
+                          Chủ nợ: <b>{loan.agreementCreditorName || (isCreditor ? "Tôi" : loan.partnerName)}</b> • Con nợ: <b>{loan.agreementDebtorName || (!isCreditor ? "Tôi" : loan.partnerName)}</b> • Gốc: {loan.amount.toLocaleString("vi-VN")}₫
+                          {loan.vaultName && ` • MoBo: ${loan.vaultName}`}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100">
+                        <div className="text-left sm:text-right">
+                          <div className="text-[10px] text-slate-400 font-medium">Dư nợ còn lại</div>
+                          <div className={`text-sm sm:text-base font-black ${isCreditor ? "text-emerald-600" : "text-rose-600"}`}>
+                            {loan.remainingAmount.toLocaleString("vi-VN")} ₫
+                          </div>
+                        </div>
+
+                        <div className="flex items-center space-x-1 pl-2 border-l border-slate-200">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEditLoan(loan)}
+                            className="p-1.5 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-white border border-transparent hover:border-slate-200 transition cursor-pointer"
+                            title="Sửa thông tin khoản nợ"
+                          >
+                            <Edit className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setLoanToDelete(loan)}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-white border border-transparent hover:border-slate-200 transition cursor-pointer"
+                            title="Xóa khoản nợ"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* 7.9 QUẢN LÝ & CHỈNH SỬA GIAO DỊCH DÒNG TIỀN (SỬA / XÓA) */}
+          <div className="bg-white p-5 sm:p-6 rounded-2xl border-2 border-purple-200 shadow-md space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-purple-100 pb-4">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-xl bg-purple-700 text-white flex items-center justify-center shadow-md">
+                  <ArrowRightLeft className="w-5 h-5 text-purple-200" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h4 className="text-base font-black text-[#0C2C47]">
+                      Quản Lý & Chỉnh Sửa Giao Dịch Dòng Tiền
+                    </h4>
+                    <span className="text-[10px] font-black bg-purple-100 text-purple-800 px-2.5 py-0.5 rounded-full">
+                      {flows.filter(f => f.isActual).length} giao dịch
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 font-medium">
+                    Xem toàn bộ lịch sử, chỉnh sửa số liệu hoặc xóa bỏ giao dịch sai sót
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Danh sách các giao dịch phát sinh kèm nút Sửa / Xóa */}
+            <div className="divide-y divide-slate-100 border border-slate-200 rounded-2xl overflow-hidden bg-white max-h-96 overflow-y-auto">
+              {flows.filter(f => f.isActual).map((flow) => (
+                <div key={flow.id} className="p-3 hover:bg-slate-50 transition flex items-center justify-between text-xs">
+                  <div className="space-y-1">
+                    <div className="flex items-center space-x-2">
+                      <span className="font-bold text-slate-900">{flow.title}</span>
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-600">
+                        {flow.tag}
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-slate-500 flex items-center space-x-1.5">
+                      <span>{flow.from} ➔ {flow.to}</span>
+                      <span>•</span>
+                      <span>{flow.date || flow.rawDate}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center space-x-2.5">
+                    <span
+                      className={`text-sm font-black ${
+                        flow.type === "income"
+                          ? "text-emerald-600"
+                          : flow.type === "expense"
+                          ? "text-rose-600"
+                          : "text-slate-800"
+                      }`}
+                    >
+                      {flow.type === "income" ? "+" : flow.type === "expense" ? "-" : ""}
+                      {flow.amount.toLocaleString("vi-VN")} ₫
+                    </span>
+
+                    <div className="flex items-center space-x-1 pl-2 border-l border-slate-200">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenEditFlow(flow)}
+                        className="p-1.5 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-blue-50 transition cursor-pointer"
+                        title="Sửa giao dịch (1=1k)"
+                      >
+                        <Edit className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setFlowToDelete(flow)}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
+                        title="Xóa giao dịch"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* 7.6 QUẢN LÝ DANH MỤC NHÃN GIAO DỊCH (Tags Management) */}
+          <div className="bg-white p-5 sm:p-6 rounded-2xl border-2 border-indigo-200 shadow-md space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-indigo-100 pb-4">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-md shadow-indigo-600/30">
+                  <Tag className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h4 className="text-base font-black text-[#0C2C47]">
+                      Quản Lý Danh Mục Nhãn Giao Dịch
+                    </h4>
+                    <span className="text-[10px] font-black bg-indigo-100 text-indigo-800 px-2.5 py-0.5 rounded-full">
+                      {tags.length} nhãn
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 font-medium">
+                    Xem, thêm mới, chỉnh sửa tên và xóa các nhãn phân loại giao dịch thu chi
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setNewTagName("");
+                  setNewTagType("both");
+                  setShowAddTagModal(true);
+                }}
+                className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black shadow-xs flex items-center space-x-1.5 transition active:scale-95 cursor-pointer self-start sm:self-auto"
+              >
+                <PlusCircle className="w-4 h-4" />
+                <span>+ Thêm Nhãn Mới</span>
+              </button>
+            </div>
+
+            {/* BỘ LỌC PHẠM VI NHÃN */}
+            <div className="flex items-center gap-2 border-b border-slate-100 pb-2 text-xs font-bold">
+              {[
+                { id: "all", label: `Tất cả (${tags.length})` },
+                { id: "income", label: `🟢 Nhãn Thu (${tags.filter(t => t.type === "income").length})` },
+                { id: "expense", label: `🔴 Nhãn Chi (${tags.filter(t => t.type === "expense").length})` },
+                { id: "both", label: `🔵 Dùng Chung (${tags.filter(t => t.type === "both").length})` },
+              ].map((f) => (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => setTagSettingsFilter(f.id as any)}
+                  className={`px-3 py-1.5 rounded-xl transition cursor-pointer ${
+                    tagSettingsFilter === f.id
+                      ? "bg-indigo-600 text-white shadow-xs"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+
+            {/* DANH SÁCH CÁC NHÃN */}
+            {(() => {
+              const filteredTags = tags.filter((t) => {
+                if (tagSettingsFilter === "all") return true;
+                return t.type === tagSettingsFilter;
+              });
+
+              if (filteredTags.length === 0) {
+                return (
+                  <div className="p-8 text-center text-slate-400 text-xs bg-slate-50 rounded-xl border border-slate-200">
+                    Không có nhãn nào trong danh mục này. Hãy bấm "+ Thêm Nhãn Mới" để tạo nhãn đầu tiên.
+                  </div>
+                );
+              }
+
+              return (
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                  {filteredTags.map((tag) => {
+                    const isIncome = tag.type === "income";
+                    const isExpense = tag.type === "expense";
+                    return (
+                      <div
+                        key={tag.id}
+                        className="p-3.5 rounded-xl border border-slate-200 bg-white hover:border-indigo-300 transition shadow-2xs flex flex-col justify-between space-y-2.5"
+                      >
+                        <div className="flex items-start justify-between">
+                          <div className="space-y-1">
+                            <div className="flex items-center space-x-2">
+                              <span className="font-black text-slate-900 text-sm">{tag.name}</span>
+                              <span
+                                className={`text-[10px] font-black px-2 py-0.5 rounded-md ${
+                                  isIncome
+                                    ? "bg-emerald-100 text-emerald-800"
+                                    : isExpense
+                                    ? "bg-rose-100 text-rose-800"
+                                    : "bg-blue-100 text-blue-800"
+                                }`}
+                              >
+                                {isIncome ? "Thu (+)" : isExpense ? "Chi (-)" : "Thu & Chi"}
+                              </span>
+                            </div>
+                            <span className="text-[11px] text-slate-500 block">
+                              Đã dùng trong: <b>{tag.flowCount || 0}</b> giao dịch
+                            </span>
+                          </div>
+
+                          <div className="flex items-center space-x-1">
+                            <button
+                              type="button"
+                              onClick={() => setEditingTag(tag)}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition cursor-pointer"
+                              title="Chỉnh sửa nhãn"
+                            >
+                              <Edit className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setTagToDelete(tag)}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
+                              title="Xóa nhãn"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Thống kê dòng tiền theo nhãn */}
+                        <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px]">
+                          <span className="text-slate-500">Tổng dòng tiền:</span>
+                          <div className="space-x-1.5 font-bold">
+                            {(tag.incomeSum || 0) > 0 && (
+                              <span className="text-emerald-700">
+                                +{Number(tag.incomeSum).toLocaleString("vi-VN")} ₫
+                              </span>
+                            )}
+                            {(tag.expenseSum || 0) > 0 && (
+                              <span className="text-rose-700">
+                                -{Number(tag.expenseSum).toLocaleString("vi-VN")} ₫
+                              </span>
+                            )}
+                            {!(tag.incomeSum || 0) && !(tag.expenseSum || 0) && (
+                              <span className="text-slate-400 italic">Chưa có số liệu</span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+          </div>
+        </div>
+      )}
+
+      {/* BOTTOM NAVIGATION BAR: 3 NÚT THU - CHUÔNG - CHI */}
+      {!showQuickIncomeModal &&
+        !showQuickExpenseModal &&
+        !showQuickRecordModal &&
+        !showVaultModal &&
+        !showReconcileModal &&
+        !selectedVaultDetail &&
+        !showReminderModal &&
+        !showAlarmAlertModal &&
+        !showNotificationCenterModal &&
+        !editingFlow &&
+        !flowToDelete &&
+        !settingEditModal.isOpen && (
+          <nav
+            aria-label="Thanh điều hướng đáy màn hình - Thu, Chuông thông báo, Chi"
+            className="fixed bottom-0 inset-x-0 z-40 bg-white/95 backdrop-blur-lg border-t border-slate-200/90 shadow-[0_-8px_30px_rgba(0,0,0,0.12)] px-3 py-2 sm:py-2.5 select-none"
+            style={{ isolation: "isolate" }}
+          >
+            <div className="max-w-lg mx-auto grid grid-cols-3 gap-2 sm:gap-3.5 items-center">
+              {/* 1. NÚT THU: XANH ĐẬM CHỐNG PHẢN QUANG */}
+              <button
+                type="button"
+                onClick={() => {
+                  if (!quickIncomeForm.toVaultId && vaults.length > 0) {
+                    setQuickIncomeForm((prev) => ({ ...prev, toVaultId: vaults[0].id }));
+                  }
+                  setShowQuickIncomeModal(true);
+                }}
+                style={{ backgroundColor: "#0e6b38", color: "#ffffff", borderColor: "#16a34a" }}
+                className="group h-13 sm:h-15 rounded-2xl border-2 shadow-md shadow-emerald-950/20 flex items-center justify-center gap-1.5 sm:gap-2 transition-all transform active:scale-95 cursor-pointer hover:brightness-105"
+                title="Ghi nhận khoản THU tiền vào"
+              >
+                <div className="p-1 rounded-full bg-black/25 shrink-0">
+                  <ArrowDownLeft className="w-5 h-5 sm:w-6 sm:h-6 text-white stroke-[3]" />
+                </div>
+                <div className="text-left leading-none">
+                  <span className="block font-black text-sm sm:text-base tracking-wider text-white">THU</span>
+                  <span className="block text-[8px] sm:text-[9px] font-bold text-emerald-100 uppercase tracking-widest mt-0.5">(+) VÀO</span>
+                </div>
+              </button>
+
+              {/* 2. NÚT CHUÔNG THÔNG BÁO Ở GIỮA */}
+              <button
+                type="button"
+                onClick={() => {
+                  markAllAlertsAsRead();
+                  setShowNotificationCenterModal(true);
+                }}
+                style={{
+                  backgroundColor: unreadAlertsCount > 0 ? "#b45309" : "#0C2C47",
+                  color: "#ffffff",
+                  borderColor: unreadAlertsCount > 0 ? "#f59e0b" : "#1e3a5f",
+                }}
+                className="relative group h-13 sm:h-15 rounded-2xl border-2 shadow-md shadow-black/20 flex items-center justify-center gap-1.5 sm:gap-2 transition-all transform active:scale-95 cursor-pointer hover:brightness-105"
+                title="Xem thông báo và cảnh báo hệ thống"
+              >
+                {/* Badge số lượng thông báo nổi bật - chỉ hiển thị khi có tin chưa đọc, tắt hiệu ứng ping/bounce */}
+                {unreadAlertsCount > 0 && (
+                  <span className="absolute -top-2 -right-1 bg-rose-600 text-white font-black text-[11px] min-w-[22px] h-[22px] px-1 flex items-center justify-center rounded-full border-2 border-white shadow-lg">
+                    {unreadAlertsCount}
+                  </span>
+                )}
+                <div className="p-1 rounded-full bg-black/25 shrink-0">
+                  <Bell className="w-5 h-5 sm:w-6 sm:h-6 text-amber-300 stroke-[2.5]" />
+                </div>
+                <div className="text-left leading-none">
+                  <span className="block font-black text-xs sm:text-sm tracking-wider text-white">BÁO</span>
+                  <span className="block text-[8px] sm:text-[9px] font-bold text-amber-200 uppercase tracking-wider mt-0.5">
+                    {unreadAlertsCount > 0 ? `${unreadAlertsCount} MỚI` : "CHUÔNG"}
+                  </span>
+                </div>
+              </button>
+
+              {/* 3. NÚT CHI: ĐỎ ĐẬM CHỐNG PHẢN QUANG */}
+              <button
+                type="button"
+                onClick={() => {
+                  if (!quickExpenseForm.fromVaultId && vaults.length > 0) {
+                    setQuickExpenseForm((prev) => ({ ...prev, fromVaultId: vaults[0].id }));
+                  }
+                  setShowQuickExpenseModal(true);
+                }}
+                style={{ backgroundColor: "#b91c1c", color: "#ffffff", borderColor: "#dc2626" }}
+                className="group h-13 sm:h-15 rounded-2xl border-2 shadow-md shadow-rose-950/20 flex items-center justify-center gap-1.5 sm:gap-2 transition-all transform active:scale-95 cursor-pointer hover:brightness-105"
+                title="Ghi nhận khoản CHI tiền ra"
+              >
+                <div className="p-1 rounded-full bg-black/25 shrink-0">
+                  <ArrowUpRight className="w-5 h-5 sm:w-6 sm:h-6 text-white stroke-[3]" />
+                </div>
+                <div className="text-left leading-none">
+                  <span className="block font-black text-sm sm:text-base tracking-wider text-white">CHI</span>
+                  <span className="block text-[8px] sm:text-[9px] font-bold text-rose-100 uppercase tracking-widest mt-0.5">(-) RA</span>
+                </div>
+              </button>
+            </div>
+          </nav>
+        )}
+
+      {/* MODAL GHI NHANH GIAO DỊCH (Mục 2.1) */}
+      {showQuickRecordModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-[#ABCBCA] space-y-4">
+            <div className="flex items-center justify-between border-b pb-3">
+              <div className="flex items-center space-x-2">
+                <ArrowRightLeft className="w-5 h-5 text-[#BF512C]" />
+                <h3 className="text-lg font-black text-[#0C2C47]">2.1 Ghi Nhanh Chuyển Động Tiền</h3>
+              </div>
+              <button onClick={() => setShowQuickRecordModal(false)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateFlow} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Mục đích / Tiêu đề</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Vd: Thu tiền bán hàng, Đổ xăng, Trả tiền nhà..."
+                  value={flowForm.title}
+                  onChange={(e) => setFlowForm({ ...flowForm, title: e.target.value })}
+                  className="w-full p-2.5 rounded-lg border border-slate-300 text-sm focus:outline-none focus:border-[#0C2C47]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Loại giao dịch</label>
+                <select
+                  value={flowForm.type}
+                  onChange={(e) => setFlowForm({ ...flowForm, type: e.target.value as any })}
+                  className="w-full p-2.5 rounded-lg border border-slate-300 text-sm"
+                >
+                  <option value="expense">Chi tiền (Expense)</option>
+                  <option value="income">Thu tiền (Income)</option>
+                  <option value="transfer">Chuyển nội bộ giữa 2 Kho</option>
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200">
+                {flowForm.type !== "income" ? (
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Kho Nguồn (Trừ)</label>
+                    <select
+                      value={flowForm.fromVaultId}
+                      onChange={(e) => setFlowForm({ ...flowForm, fromVaultId: e.target.value })}
+                      className="w-full p-2 rounded border border-slate-300 text-xs bg-white"
+                    >
+                      <option value="">-- Chọn Kho Nguồn --</option>
+                      {vaults.map((v) => (
+                        <option key={v.id} value={v.id}>
+                          {v.name} ({v.balance.toLocaleString("vi-VN")}₫)
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Từ Khách Hàng / Đối tác</label>
+                    <input
+                      type="text"
+                      placeholder="Người trả tiền..."
+                      value={flowForm.fromTitle}
+                      onChange={(e) => setFlowForm({ ...flowForm, fromTitle: e.target.value })}
+                      className="w-full p-2 rounded border border-slate-300 text-xs bg-white"
+                    />
+                  </div>
+                )}
+
+                {flowForm.type !== "expense" ? (
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Kho Đích (Cộng)</label>
+                    <select
+                      value={flowForm.toVaultId}
+                      onChange={(e) => setFlowForm({ ...flowForm, toVaultId: e.target.value })}
+                      className="w-full p-2 rounded border border-slate-300 text-xs bg-white"
+                    >
+                      <option value="">-- Chọn Kho Đích --</option>
+                      {vaults.map((v) => (
+                        <option key={v.id} value={v.id}>
+                          {v.name} ({v.balance.toLocaleString("vi-VN")}₫)
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Nơi Nhận / Mục đích</label>
+                    <input
+                      type="text"
+                      placeholder="Người nhận..."
+                      value={flowForm.toTitle}
+                      onChange={(e) => setFlowForm({ ...flowForm, toTitle: e.target.value })}
+                      className="w-full p-2 rounded border border-slate-300 text-xs bg-white"
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Nhãn phân loại (2.5)</label>
+                  <input
+                    type="text"
+                    value={flowForm.tag}
+                    onChange={(e) => setFlowForm({ ...flowForm, tag: e.target.value })}
+                    className="w-full p-2 rounded border border-slate-300 text-xs"
+                    placeholder="Vd: Doanh thu, Ăn uống..."
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Trạng thái (2.4)</label>
+                  <select
+                    value={flowForm.isActual ? "actual" : "planned"}
+                    onChange={(e) => setFlowForm({ ...flowForm, isActual: e.target.value === "actual" })}
+                    className="w-full p-2 rounded border border-slate-300 text-xs"
+                  >
+                    <option value="actual">Thực tế phát sinh (Trừ/Cộng ngay)</option>
+                    <option value="planned">Dự kiến kế hoạch (Chưa trừ tiền)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Số tiền (VNĐ)</label>
+                <input
+                  type="number"
+                  required
+                  placeholder="0"
+                  value={flowForm.amount}
+                  onChange={(e) => setFlowForm({ ...flowForm, amount: e.target.value })}
+                  className="w-full p-2.5 rounded-lg border border-slate-300 text-base font-bold text-[#0C2C47]"
+                />
+              </div>
+
+              <div className="pt-2 flex items-center justify-end space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setShowQuickRecordModal(false)}
+                  className="px-4 py-2 rounded-lg border text-xs text-slate-600 hover:bg-slate-100"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 rounded-lg bg-[#BF512C] text-white text-xs font-black hover:bg-[#BF512C]/90"
+                >
+                  Ghi Nhận Ngay ➔
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL ĐỐI CHIẾU SỐ DƯ (MỤC 2.6) */}
+      {showReconcileModal && selectedVaultForReconcile && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-[#ABCBCA] space-y-4">
+            <div className="flex items-center justify-between border-b pb-3">
+              <div className="flex items-center space-x-2">
+                <CheckCircle2 className="w-5 h-5 text-[#0C2C47]" />
+                <h3 className="text-base font-black text-[#0C2C47]">Đối Chiếu: {selectedVaultForReconcile.name}</h3>
+              </div>
+              <button onClick={() => setShowReconcileModal(false)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleReconcileSubmit} className="space-y-4">
+              <div className="bg-slate-50 p-3 rounded-lg border text-xs space-y-1">
+                <div className="flex justify-between text-slate-500">
+                  <span>Số dư hệ thống đang tính:</span>
+                  <span className="font-bold text-slate-800">{selectedVaultForReconcile.balance.toLocaleString("vi-VN")} ₫</span>
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  Đếm tiền mặt thực tế hoặc xem app ngân hàng và điền số dư thực tế vào bên dưới.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Số dư thực đếm (VNĐ)</label>
+                <input
+                  type="number"
+                  required
+                  placeholder="0"
+                  value={reconcileForm.actualBalance}
+                  onChange={(e) => setReconcileForm({ ...reconcileForm, actualBalance: e.target.value })}
+                  className="w-full p-2.5 rounded-lg border border-slate-300 text-base font-black text-[#0C2C47]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Lý do / Ghi chú</label>
+                <input
+                  type="text"
+                  value={reconcileForm.reason}
+                  onChange={(e) => setReconcileForm({ ...reconcileForm, reason: e.target.value })}
+                  className="w-full p-2.5 rounded-lg border border-slate-300 text-xs"
+                  placeholder="Vd: Quên ghi khoản đổ xăng, đối chiếu cuối ngày..."
+                />
+              </div>
+
+              <div className="pt-2 flex items-center justify-end space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setShowReconcileModal(false)}
+                  className="px-4 py-2 rounded-lg border text-xs text-slate-600"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 rounded-lg bg-[#0C2C47] text-white text-xs font-black hover:bg-[#0C2C47]/90"
+                >
+                  Xác Nhận Đối Chiếu
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 1: TẠO MOBO (Money Box) MỚI */}
+      {showVaultModal && (
+        <div className="fixed inset-0 z-50 bg-black/65 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border-2 border-[#0C2C47] space-y-4 max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b pb-3">
+              <div className="flex items-center space-x-2">
+                <div className="w-9 h-9 rounded-xl bg-blue-100 flex items-center justify-center text-[#0C2C47] font-black">
+                  <Wallet className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-[#0C2C47]">TẠO MOBO (Money Box) MỚI</h3>
+                  <p className="text-[11px] text-slate-500">Ví tiền, tài khoản ngân hàng hoặc tài khoản nợ vay</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowVaultModal(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateVault} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tên MoBo (Money Box) *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Vd: Tài khoản ACB, Thẻ tín dụng VCB, Két tiền mặt..."
+                  value={vaultForm.name}
+                  onChange={(e) => setVaultForm({ ...vaultForm, name: e.target.value })}
+                  className="w-full p-2.5 rounded-xl border border-slate-300 text-sm font-semibold focus:ring-2 focus:ring-[#0C2C47]"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Phân Loại MoBo</label>
+                  <select
+                    value={vaultForm.type}
+                    onChange={(e) => {
+                      const newType = e.target.value;
+                      const isCredit = newType === "credit";
+                      setVaultForm({
+                        ...vaultForm,
+                        type: newType,
+                        isNegativeDebt: isCredit ? true : vaultForm.isNegativeDebt,
+                      });
+                    }}
+                    className="w-full p-2.5 rounded-xl border border-slate-300 text-sm bg-white font-medium"
+                  >
+                    <option value="bank">Ngân hàng (Bank)</option>
+                    <option value="cash">Tiền mặt (Cash)</option>
+                    <option value="ewallet">Ví điện tử (eWallet)</option>
+                    <option value="reserve">Quỹ dự phòng (Reserve)</option>
+                    <option value="credit">Vay nợ / Thấu chi ngân hàng</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Mô tả / Ghi chú</label>
+                  <input
+                    type="text"
+                    placeholder="Mục đích sử dụng..."
+                    value={vaultForm.description}
+                    onChange={(e) => setVaultForm({ ...vaultForm, description: e.target.value })}
+                    className="w-full p-2.5 rounded-xl border border-slate-300 text-sm"
+                  />
+                </div>
+              </div>
+
+              {/* Ngữ cảnh vay nợ tại ngân hàng / Thấu chi (Số dư âm) */}
+              <div
+                className={`p-3 rounded-2xl border transition-all ${
+                  vaultForm.isNegativeDebt
+                    ? "bg-rose-50 border-rose-300 ring-1 ring-rose-200"
+                    : "bg-slate-50 border-slate-200"
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="checkbox"
+                      id="isNegativeDebtCreate"
+                      checked={vaultForm.isNegativeDebt}
+                      onChange={(e) => setVaultForm({ ...vaultForm, isNegativeDebt: e.target.checked })}
+                      className="w-4 h-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500 cursor-pointer"
+                    />
+                    <label htmlFor="isNegativeDebtCreate" className="text-xs font-bold text-slate-800 cursor-pointer">
+                      Ngữ cảnh đang vay nợ tại ngân hàng / Thấu chi (Hiển thị số âm -)
+                    </label>
+                  </div>
+                  {vaultForm.isNegativeDebt && (
+                    <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-rose-200 text-rose-800">
+                      Số dư âm (-)
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1 pl-6">
+                  {vaultForm.isNegativeDebt
+                    ? "Số tiền nhập dưới đây sẽ được ghi nhận là khoản nợ ngân hàng (mang giá trị âm), trừ vào tổng tài sản MoBo."
+                    : "Đánh dấu nếu đây là tài khoản thẻ tín dụng, khoản vay ngân hàng hoặc tài khoản đang thấu chi."}
+                </p>
+              </div>
+
+              {/* Màn hình nhập số cực to nền tối chữ sáng quy ước 1 = 1.000 VNĐ */}
+              <div
+                className={`bg-[#091522] border-2 rounded-2xl p-4 sm:p-5 text-center shadow-xl transition-all ${
+                  vaultForm.isNegativeDebt
+                    ? "border-rose-500 ring-2 ring-rose-500/30"
+                    : "border-blue-500 ring-1 ring-blue-500/30"
+                }`}
+              >
+                <div className="flex items-center justify-between text-xs font-black uppercase tracking-wider mb-2">
+                  <span className={vaultForm.isNegativeDebt ? "text-rose-400" : "text-blue-400"}>
+                    {vaultForm.isNegativeDebt ? "SỐ TIỀN VAY NỢ BAN ĐẦU" : "SỐ DƯ BAN ĐẦU"}
+                  </span>
+                  <span className="text-[10px] text-amber-300 font-bold">QUY ƯỚC 1 = 1.000Đ</span>
+                </div>
+                <div className="flex items-center justify-center space-x-2 py-1">
+                  {vaultForm.isNegativeDebt && (
+                    <span className="text-3xl sm:text-4xl font-black text-rose-400 font-mono">−</span>
+                  )}
+                  <input
+                    type="number"
+                    step="any"
+                    inputMode="decimal"
+                    placeholder="0"
+                    value={vaultForm.balanceUnits}
+                    onChange={(e) => setVaultForm({ ...vaultForm, balanceUnits: e.target.value })}
+                    className={`w-full text-center text-4xl sm:text-5xl font-black bg-transparent focus:outline-none placeholder-slate-700 font-mono cursor-pointer ${
+                      vaultForm.isNegativeDebt ? "text-rose-300" : "text-blue-300"
+                    }`}
+                  />
+                  <span
+                    className={`text-2xl sm:text-3xl font-black ${
+                      vaultForm.isNegativeDebt ? "text-rose-400" : "text-blue-400"
+                    }`}
+                  >
+                    k
+                  </span>
+                </div>
+                {vaultForm.balanceUnits && !isNaN(parseFloat(vaultForm.balanceUnits)) ? (
+                  <div className="mt-3 pt-2.5 border-t border-slate-800 flex flex-col items-center">
+                    <span className="text-[11px] text-slate-400">Thành tiền thực tế:</span>
+                    <span
+                      className={`text-base sm:text-lg font-black tracking-wide ${
+                        vaultForm.isNegativeDebt ? "text-rose-400" : "text-amber-300"
+                      }`}
+                    >
+                      {vaultForm.isNegativeDebt ? "− " : "+ "}
+                      {(Math.round(Math.abs(parseFloat(vaultForm.balanceUnits)) * 1000)).toLocaleString("vi-VN")} Đồng
+                      {vaultForm.isNegativeDebt && " (DƯ NỢ VAY NGÂN HÀNG)"}
+                    </span>
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-slate-500 mt-2">
+                    Ví dụ: Nhập 50000 = {vaultForm.isNegativeDebt ? "−50.000.000đ nợ" : "50.000.000đ số dư"}
+                  </p>
+                )}
+              </div>
+
+              {/* Khóa quỹ thuế */}
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    id="isLockedCreate"
+                    checked={vaultForm.isLocked}
+                    onChange={(e) => setVaultForm({ ...vaultForm, isLocked: e.target.checked })}
+                    className="rounded border-slate-300 cursor-pointer"
+                  />
+                  <label htmlFor="isLockedCreate" className="text-xs text-slate-700 font-bold cursor-pointer flex items-center space-x-1">
+                    <Lock className="w-3.5 h-3.5 text-amber-600" />
+                    <span>Cấu hình đặc biệt: Khóa một phần cho quỹ thuế</span>
+                  </label>
+                </div>
+                {vaultForm.isLocked && (
+                  <div className="pt-2 pl-6">
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                      Số tiền khóa (Quy ước 1 = 1.000 VNĐ):
+                    </label>
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="number"
+                        step="any"
+                        placeholder="0"
+                        value={vaultForm.lockedAmountUnits}
+                        onChange={(e) => setVaultForm({ ...vaultForm, lockedAmountUnits: e.target.value })}
+                        className="w-40 p-2 rounded-lg border border-slate-300 text-sm font-bold"
+                      />
+                      <span className="text-xs font-bold text-slate-500">k</span>
+                      {vaultForm.lockedAmountUnits && (
+                        <span className="text-xs font-black text-rose-600">
+                          = {(Math.round(parseFloat(vaultForm.lockedAmountUnits) * 1000)).toLocaleString("vi-VN")} ₫
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="pt-2 flex items-center justify-end space-x-3">
+                <button
+                  type="button"
+                  onClick={() => setShowVaultModal(false)}
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 text-xs font-bold text-slate-600 hover:bg-slate-100 cursor-pointer"
+                >
+                  Hủy Bỏ
+                </button>
+                <button
+                  type="submit"
+                  className="px-6 py-2.5 rounded-xl bg-[#0C2C47] hover:bg-[#0C2C47]/90 text-white text-xs font-black shadow-md cursor-pointer"
+                >
+                  Tạo MoBo Mới
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 2: SỬA MOBO (Money Box) */}
+      {editingVault && (
+        <div className="fixed inset-0 z-50 bg-black/65 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border-2 border-[#0C2C47] space-y-4 max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b pb-3">
+              <div className="flex items-center space-x-2">
+                <div className="w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center text-amber-900 font-black">
+                  <Edit className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-[#0C2C47]">SỬA THÔNG TIN MOBO</h3>
+                  <p className="text-[11px] text-slate-500">Cập nhật tên, phân loại, số dư hoặc quỹ khóa</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setEditingVault(null)}
+                className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateVault} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tên MoBo (Money Box) *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Tên MoBo..."
+                  value={editVaultForm.name}
+                  onChange={(e) => setEditVaultForm({ ...editVaultForm, name: e.target.value })}
+                  className="w-full p-2.5 rounded-xl border border-slate-300 text-sm font-semibold focus:ring-2 focus:ring-[#0C2C47]"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Phân Loại MoBo</label>
+                  <select
+                    value={editVaultForm.type}
+                    onChange={(e) => {
+                      const newType = e.target.value;
+                      const isCredit = newType === "credit";
+                      setEditVaultForm({
+                        ...editVaultForm,
+                        type: newType,
+                        isNegativeDebt: isCredit ? true : editVaultForm.isNegativeDebt,
+                      });
+                    }}
+                    className="w-full p-2.5 rounded-xl border border-slate-300 text-sm bg-white font-medium"
+                  >
+                    <option value="bank">Ngân hàng (Bank)</option>
+                    <option value="cash">Tiền mặt (Cash)</option>
+                    <option value="ewallet">Ví điện tử (eWallet)</option>
+                    <option value="reserve">Quỹ dự phòng (Reserve)</option>
+                    <option value="credit">Vay nợ / Thấu chi ngân hàng</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Mô tả / Ghi chú</label>
+                  <input
+                    type="text"
+                    placeholder="Mục đích sử dụng..."
+                    value={editVaultForm.description}
+                    onChange={(e) => setEditVaultForm({ ...editVaultForm, description: e.target.value })}
+                    className="w-full p-2.5 rounded-xl border border-slate-300 text-sm"
+                  />
+                </div>
+              </div>
+
+              {/* Ngữ cảnh vay nợ tại ngân hàng / Thấu chi (Số dư âm) */}
+              <div
+                className={`p-3 rounded-2xl border transition-all ${
+                  editVaultForm.isNegativeDebt
+                    ? "bg-rose-50 border-rose-300 ring-1 ring-rose-200"
+                    : "bg-slate-50 border-slate-200"
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="checkbox"
+                      id="isNegativeDebtEdit"
+                      checked={editVaultForm.isNegativeDebt}
+                      onChange={(e) => setEditVaultForm({ ...editVaultForm, isNegativeDebt: e.target.checked })}
+                      className="w-4 h-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500 cursor-pointer"
+                    />
+                    <label htmlFor="isNegativeDebtEdit" className="text-xs font-bold text-slate-800 cursor-pointer">
+                      Ngữ cảnh đang vay nợ tại ngân hàng / Thấu chi (Hiển thị số âm -)
+                    </label>
+                  </div>
+                  {editVaultForm.isNegativeDebt && (
+                    <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-rose-200 text-rose-800">
+                      Số dư âm (-)
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Màn hình nhập số cực to nền tối chữ sáng quy ước 1 = 1.000 VNĐ */}
+              <div
+                className={`bg-[#091522] border-2 rounded-2xl p-4 sm:p-5 text-center shadow-xl transition-all ${
+                  editVaultForm.isNegativeDebt
+                    ? "border-rose-500 ring-2 ring-rose-500/30"
+                    : "border-blue-500 ring-1 ring-blue-500/30"
+                }`}
+              >
+                <div className="flex items-center justify-between text-xs font-black uppercase tracking-wider mb-2">
+                  <span className={editVaultForm.isNegativeDebt ? "text-rose-400" : "text-blue-400"}>
+                    {editVaultForm.isNegativeDebt ? "ĐIỀU CHỈNH DƯ NỢ VAY" : "ĐIỀU CHỈNH SỐ DƯ"}
+                  </span>
+                  <span className="text-[10px] text-amber-300 font-bold">QUY ƯỚC 1 = 1.000Đ</span>
+                </div>
+                <div className="flex items-center justify-center space-x-2 py-1">
+                  {editVaultForm.isNegativeDebt && (
+                    <span className="text-3xl sm:text-4xl font-black text-rose-400 font-mono">−</span>
+                  )}
+                  <input
+                    type="number"
+                    step="any"
+                    inputMode="decimal"
+                    placeholder="0"
+                    value={editVaultForm.balanceUnits}
+                    onChange={(e) => setEditVaultForm({ ...editVaultForm, balanceUnits: e.target.value })}
+                    className={`w-full text-center text-4xl sm:text-5xl font-black bg-transparent focus:outline-none placeholder-slate-700 font-mono cursor-pointer ${
+                      editVaultForm.isNegativeDebt ? "text-rose-300" : "text-blue-300"
+                    }`}
+                  />
+                  <span
+                    className={`text-2xl sm:text-3xl font-black ${
+                      editVaultForm.isNegativeDebt ? "text-rose-400" : "text-blue-400"
+                    }`}
+                  >
+                    k
+                  </span>
+                </div>
+                {editVaultForm.balanceUnits && !isNaN(parseFloat(editVaultForm.balanceUnits)) ? (
+                  <div className="mt-3 pt-2.5 border-t border-slate-800 flex flex-col items-center">
+                    <span className="text-[11px] text-slate-400">Thành tiền thực tế:</span>
+                    <span
+                      className={`text-base sm:text-lg font-black tracking-wide ${
+                        editVaultForm.isNegativeDebt ? "text-rose-400" : "text-amber-300"
+                      }`}
+                    >
+                      {editVaultForm.isNegativeDebt ? "− " : "+ "}
+                      {(Math.round(Math.abs(parseFloat(editVaultForm.balanceUnits)) * 1000)).toLocaleString("vi-VN")} Đồng
+                      {editVaultForm.isNegativeDebt && " (DƯ NỢ VAY NGÂN HÀNG)"}
+                    </span>
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-slate-500 mt-2">
+                    Nhập số đơn vị: 1 = 1.000 VNĐ
+                  </p>
+                )}
+              </div>
+
+              {/* Khóa quỹ thuế */}
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    id="isLockedEdit"
+                    checked={editVaultForm.isLocked}
+                    onChange={(e) => setEditVaultForm({ ...editVaultForm, isLocked: e.target.checked })}
+                    className="rounded border-slate-300 cursor-pointer"
+                  />
+                  <label htmlFor="isLockedEdit" className="text-xs text-slate-700 font-bold cursor-pointer flex items-center space-x-1">
+                    <Lock className="w-3.5 h-3.5 text-amber-600" />
+                    <span>Khóa một phần cho quỹ thuế</span>
+                  </label>
+                </div>
+                {editVaultForm.isLocked && (
+                  <div className="pt-2 pl-6">
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                      Số tiền khóa (Quy ước 1 = 1.000 VNĐ):
+                    </label>
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="number"
+                        step="any"
+                        placeholder="0"
+                        value={editVaultForm.lockedAmountUnits}
+                        onChange={(e) => setEditVaultForm({ ...editVaultForm, lockedAmountUnits: e.target.value })}
+                        className="w-40 p-2 rounded-lg border border-slate-300 text-sm font-bold"
+                      />
+                      <span className="text-xs font-bold text-slate-500">k</span>
+                      {editVaultForm.lockedAmountUnits && (
+                        <span className="text-xs font-black text-rose-600">
+                          = {(Math.round(parseFloat(editVaultForm.lockedAmountUnits) * 1000)).toLocaleString("vi-VN")} ₫
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="pt-2 flex items-center justify-end space-x-3">
+                <button
+                  type="button"
+                  onClick={() => setEditingVault(null)}
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 text-xs font-bold text-slate-600 hover:bg-slate-100 cursor-pointer"
+                >
+                  Hủy Bỏ
+                </button>
+                <button
+                  type="submit"
+                  className="px-6 py-2.5 rounded-xl bg-[#0C2C47] hover:bg-[#0C2C47]/90 text-white text-xs font-black shadow-md cursor-pointer"
+                >
+                  Lưu Thay Đổi
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 3: XÓA MOBO (BẮT BUỘC SỐ DƯ = 0 Đ, CHUYỂN +/- SANG MOBO KHÁC) */}
+      {deletingVault && (() => {
+        const isZeroBalance = Math.abs(deletingVault.balance) < 0.001;
+        const isPositive = deletingVault.balance > 0;
+        const otherVaults = vaults.filter((v) => v.id !== deletingVault.id);
+        const selectedTarget = otherVaults.find((v) => v.id === targetTransferVaultId) || otherVaults[0];
+
+        return (
+          <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+            <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border-2 border-rose-600 space-y-4">
+              <div className="flex items-center justify-between border-b pb-3">
+                <div className="flex items-center space-x-2">
+                  <div className="w-10 h-10 rounded-2xl bg-rose-100 flex items-center justify-center text-rose-700">
+                    <Trash2 className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-black text-slate-900 uppercase">
+                      XÓA MOBO: {deletingVault.name}
+                    </h3>
+                    <p className="text-[11px] text-slate-500">Quy chuẩn an toàn: Bắt buộc số dư phải về 0 đ</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setDeletingVault(null)}
+                  className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Thông tin số dư hiện tại */}
+              <div
+                className={`p-4 rounded-2xl border text-xs space-y-2 ${
+                  isZeroBalance
+                    ? "bg-emerald-50 border-emerald-300 text-emerald-900"
+                    : "bg-amber-50 border-amber-300 text-amber-900"
+                }`}
+              >
+                <div className="flex justify-between items-center">
+                  <span className="font-semibold">Số dư MoBo hiện tại:</span>
+                  <span
+                    className={`text-base font-black ${
+                      isZeroBalance
+                        ? "text-emerald-700"
+                        : deletingVault.balance < 0
+                        ? "text-rose-700"
+                        : "text-amber-800"
+                    }`}
+                  >
+                    {deletingVault.balance < 0
+                      ? `-${Math.abs(deletingVault.balance).toLocaleString("vi-VN")} ₫ (Nợ vay)`
+                      : `${deletingVault.balance.toLocaleString("vi-VN")} ₫`}
+                  </span>
+                </div>
+
+                {isZeroBalance ? (
+                  <div className="flex items-center space-x-2 text-emerald-800 font-bold pt-1 border-t border-emerald-200">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>MoBo có số dư đúng bằng 0 đ. Đủ điều kiện xóa an toàn khỏi hệ thống!</span>
+                  </div>
+                ) : (
+                  <div className="space-y-1 pt-1 border-t border-amber-200">
+                    <div className="flex items-center space-x-1.5 font-black text-rose-700">
+                      <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                      <span>Số dư khác 0 đ! Bắt buộc chuyển toàn bộ sang MoBo khác trước khi xóa.</span>
+                    </div>
+                    <p className="text-[11px] text-slate-600">
+                      Để tránh thất thoát sổ sách kế toán, bạn có quyền chuyển toàn bộ số tiền (+) hoặc dư nợ (−) của MoBo này sang một MoBo chỉ định.
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Nếu số dư khác 0: Form chọn MoBo tiếp nhận kết chuyển */}
+              {!isZeroBalance && (
+                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
+                  <label className="block text-xs font-black text-slate-800 uppercase">
+                    CHỌN MOBO TIẾP NHẬN SỐ DƯ ({isPositive ? "TIỀN DƯƠNG +" : "DƯ NỢ VAY −"}) *
+                  </label>
+
+                  {otherVaults.length === 0 ? (
+                    <p className="text-xs text-rose-600 font-bold">
+                      Không còn MoBo nào khác để chuyển giao số dư. Vui lòng tạo thêm một MoBo khác hoặc đưa số dư về 0 đ trước khi xóa.
+                    </p>
+                  ) : (
+                    <>
+                      <select
+                        value={targetTransferVaultId}
+                        onChange={(e) => setTargetTransferVaultId(e.target.value)}
+                        className="w-full p-2.5 rounded-xl border border-slate-300 text-sm font-bold bg-white focus:ring-2 focus:ring-[#0C2C47]"
+                      >
+                        {otherVaults.map((ov) => (
+                          <option key={ov.id} value={ov.id}>
+                            {ov.name} (Hiện có: {ov.balance.toLocaleString("vi-VN")} ₫)
+                          </option>
+                        ))}
+                      </select>
+
+                      {selectedTarget && (
+                        <div className="p-3 bg-blue-50/80 rounded-xl border border-blue-200 text-xs text-blue-950 space-y-1">
+                          <span className="font-bold block">Tác động kết chuyển tự động:</span>
+                          {isPositive ? (
+                            <p className="text-[11px]">
+                              Toàn bộ <b>+{deletingVault.balance.toLocaleString("vi-VN")} ₫</b> sẽ chuyển sang MoBo <b>"{selectedTarget.name}"</b> (Số dư mới: {(selectedTarget.balance + deletingVault.balance).toLocaleString("vi-VN")} ₫). MoBo <b>"{deletingVault.name}"</b> sẽ về 0 đ và được xóa vĩnh viễn.
+                            </p>
+                          ) : (
+                            <p className="text-[11px]">
+                              Toàn bộ khoản nợ <b>{deletingVault.balance.toLocaleString("vi-VN")} ₫</b> sẽ chuyển sang gánh bởi MoBo <b>"{selectedTarget.name}"</b> (Số dư mới: {(selectedTarget.balance + deletingVault.balance).toLocaleString("vi-VN")} ₫). MoBo <b>"{deletingVault.name}"</b> sẽ về 0 đ và được xóa vĩnh viễn.
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setDeletingVault(null)}
+                  className="py-2.5 rounded-xl border border-slate-300 text-xs font-bold text-slate-600 hover:bg-slate-100 cursor-pointer"
+                >
+                  Hủy Bỏ
+                </button>
+                <button
+                  type="button"
+                  disabled={!isZeroBalance && otherVaults.length === 0}
+                  onClick={handleDeleteVaultConfirm}
+                  className="py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-xs font-black shadow-md cursor-pointer flex items-center justify-center space-x-1.5"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>
+                    {isZeroBalance ? "Xác Nhận Xóa MoBo" : "Chuyển Giao Số Dư & Xóa"}
+                  </span>
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* MODAL 1: NHẬP NHANH THU TIỀN VÀO (XANH LÁ - SỐ TO RÕ RÀNG) */}
+      {showQuickIncomeModal && (
+        <div className="fixed inset-0 z-50 bg-black/65 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="bg-white rounded-t-3xl sm:rounded-2xl max-w-lg w-full p-5 sm:p-6 shadow-2xl border-t-4 sm:border border-emerald-500 space-y-4 max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b pb-3">
+              <div className="flex items-center space-x-2">
+                <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700">
+                  <ArrowDownLeft className="w-5 h-5 stroke-[3]" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-emerald-800">GHI NHẬN TIỀN THU (+)</h3>
+                  <p className="text-[11px] text-slate-500">Tiền vào kho chứa thực tế</p>
+                </div>
+              </div>
+              <button onClick={() => setShowQuickIncomeModal(false)} className="text-slate-400 hover:text-slate-600 p-1">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <form onSubmit={handleQuickIncomeSubmit} className="space-y-4">
+              {/* BƯỚC 1: NHÃN & MỤC ĐÍCH THU */}
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Nhãn giao dịch</label>
+                  <select
+                    value={quickIncomeForm.tag}
+                    onChange={(e) => setQuickIncomeForm({ ...quickIncomeForm, tag: e.target.value })}
+                    className="w-full p-2.5 rounded-lg border border-slate-300 text-xs bg-white font-bold text-slate-800"
+                  >
+                    {tags
+                      .filter((t) => t.type === "income" || t.type === "both")
+                      .map((t) => (
+                        <option key={t.id} value={t.name}>
+                          {t.name}
+                        </option>
+                      ))}
+                    {tags.length === 0 && (
+                      <>
+                        <option value="Doanh thu">Doanh thu bán hàng</option>
+                        <option value="Thu nợ">Thu hồi nợ</option>
+                        <option value="Tiền thưởng">Thưởng / Thu nhập khác</option>
+                        <option value="Nội bộ">Chuyển nội bộ</option>
+                        <option value="Khác">Khoản thu khác</option>
+                      </>
+                    )}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Mô tả ngắn</label>
+                  <input
+                    type="text"
+                    placeholder="Vd: Khách trả tiền..."
+                    value={quickIncomeForm.title}
+                    onChange={(e) => setQuickIncomeForm({ ...quickIncomeForm, title: e.target.value })}
+                    className="w-full p-2.5 rounded-lg border border-slate-300 text-xs"
+                  />
+                </div>
+              </div>
+
+              {/* BƯỚC 2: CHỌN KHO NHẬN TIỀN (NGUỒN ĐÍCH) */}
+              <div>
+                <label className="block text-xs font-black text-[#0C2C47] uppercase mb-1.5">
+                  Chọn Kho Nhận Tiền (Vào đâu?)
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {vaults.map((v) => {
+                    const isSelected = quickIncomeForm.toVaultId === v.id;
+                    return (
+                      <button
+                        key={v.id}
+                        type="button"
+                        onClick={() => setQuickIncomeForm({ ...quickIncomeForm, toVaultId: v.id })}
+                        className={`p-3 rounded-xl text-left border-2 transition cursor-pointer flex flex-col justify-between ${
+                          isSelected
+                            ? "border-emerald-600 bg-emerald-50/80 shadow-md ring-2 ring-emerald-400"
+                            : "border-slate-200 hover:border-emerald-300 bg-white"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-xs text-slate-800 truncate">{v.name}</span>
+                          {isSelected && <Check className="w-4 h-4 text-emerald-600 stroke-[3]" />}
+                        </div>
+                        <span className="text-xs font-black text-emerald-700 mt-1">
+                          {v.balance.toLocaleString("vi-VN")} ₫
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* TRƯỜNG DỰ KIẾN NGÀY Ở BOTTOM: NÚT TICK DỰ KIẾN, KHÔNG TICK THÌ MẶC ĐỊNH LÀ HÔM NAY HIỂN THỊ GIỜ PHÚT */}
+              <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="flex items-center space-x-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={quickIncomeForm.isExpected}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setQuickIncomeForm({
+                          ...quickIncomeForm,
+                          isExpected: checked,
+                          isActual: !checked,
+                          flowDate: checked ? quickIncomeForm.flowDate : new Date().toISOString().split("T")[0],
+                        });
+                      }}
+                      className="w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500 cursor-pointer"
+                    />
+                    <span className="text-xs font-black text-slate-800">Dự kiến ngày (kế hoạch)</span>
+                  </label>
+
+                  {/* Khi KHÔNG tick: hiển thị mặc định là hôm nay + giờ phút */}
+                  {!quickIncomeForm.isExpected ? (
+                    <div className="flex items-center space-x-1.5 text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-lg">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                      <span className="text-xs font-black">Hôm nay</span>
+                      <span className="text-xs font-mono font-bold text-slate-600">{getCurrentDateTime().timeStr}</span>
+                    </div>
+                  ) : (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+                      Chưa cộng tiền
+                    </span>
+                  )}
+                </div>
+
+                {/* Khi CÓ tick: cho phép chọn ngày dự kiến cụ thể và mức độ ưu tiên */}
+                {quickIncomeForm.isExpected && (
+                  <div className="space-y-2 pt-1 border-t border-slate-200">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-slate-500">Chọn ngày dự kiến thu:</span>
+                      <input
+                        type="date"
+                        value={quickIncomeForm.flowDate}
+                        onChange={(e) => {
+                          setQuickIncomeForm({
+                            ...quickIncomeForm,
+                            flowDate: e.target.value,
+                          });
+                        }}
+                        className="p-1.5 rounded-xl border border-amber-300 text-xs font-bold text-[#0C2C47] bg-white cursor-pointer shadow-2xs"
+                      />
+                    </div>
+                    <div className="flex items-center justify-between pt-1 border-t border-slate-200/80">
+                      <span className="text-xs font-bold text-slate-700">Mức độ ưu tiên:</span>
+                      <div className="flex items-center space-x-1">
+                        <button
+                          type="button"
+                          onClick={() => setQuickIncomeForm({ ...quickIncomeForm, priority: "high" })}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition cursor-pointer ${
+                            quickIncomeForm.priority === "high"
+                              ? "bg-rose-600 text-white border-rose-600 shadow-xs"
+                              : "bg-white text-slate-600 border-slate-200 hover:bg-rose-50 hover:text-rose-700"
+                          }`}
+                        >
+                          🔴 Cao
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setQuickIncomeForm({ ...quickIncomeForm, priority: "medium" })}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition cursor-pointer ${
+                            quickIncomeForm.priority === "medium" || !quickIncomeForm.priority
+                              ? "bg-amber-500 text-white border-amber-500 shadow-xs"
+                              : "bg-white text-slate-600 border-slate-200 hover:bg-amber-50 hover:text-amber-700"
+                          }`}
+                        >
+                          🟡 Trung bình
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setQuickIncomeForm({ ...quickIncomeForm, priority: "low" })}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition cursor-pointer ${
+                            quickIncomeForm.priority === "low"
+                              ? "bg-slate-700 text-white border-slate-700 shadow-xs"
+                              : "bg-white text-slate-600 border-slate-200 hover:bg-slate-100"
+                          }`}
+                        >
+                          🟢 Thấp
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* MÀN HÌNH SỐ TIỀN CỰC TO NỀN TỐI CHỮ SÁNG TRÁNH NHẬP SAI (NHẬP SAU CÙNG) */}
+              <div className="bg-[#08131d] border-2 border-emerald-500 rounded-2xl p-5 sm:p-6 text-center shadow-2xl shadow-emerald-950/60 ring-1 ring-emerald-500/30">
+                <span className="block text-xs font-black text-emerald-400 uppercase tracking-widest mb-2">
+                  SỐ TIỀN THU NHẬN (VNĐ)
+                </span>
+                <div className="flex items-center justify-center space-x-2 py-1">
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    required
+                    placeholder="0"
+                    value={quickIncomeForm.amount}
+                    onChange={(e) => setQuickIncomeForm({ ...quickIncomeForm, amount: e.target.value })}
+                    className="w-full text-center text-4xl sm:text-5xl font-black text-emerald-300 bg-transparent focus:outline-none placeholder-slate-700 tracking-tight font-mono selection:bg-emerald-500 selection:text-black cursor-pointer"
+                  />
+                  <span className="text-3xl sm:text-4xl font-black text-emerald-400">₫</span>
+                </div>
+                {quickIncomeForm.amount && !isNaN(parseFloat(quickIncomeForm.amount)) ? (
+                  <div className="mt-3 pt-2.5 border-t border-slate-800 flex flex-col items-center">
+                    <span className="text-sm sm:text-base font-black text-amber-300 tracking-wide">
+                      = {parseFloat(quickIncomeForm.amount).toLocaleString("vi-VN")} Đồng
+                    </span>
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-500 mt-2">Chạm các nút mệnh giá hoặc bấm vào ô số để gõ</p>
+                )}
+              </div>
+
+              {/* CÁC MỆNH GIÁ NHẬP NHANH: 1k - 2k - 10k - 20k - 50k - 100k - 200k - 500k + XÓA (ĐÃ BỎ 3K) */}
+              <div>
+                <label className="block text-[11px] font-black text-slate-600 uppercase mb-1.5">
+                  Mệnh giá nhập nhanh (Cộng dồn)
+                </label>
+                <div className="grid grid-cols-5 gap-1.5 text-xs font-black">
+                  {[
+                    { label: "+1K", val: 1000 },
+                    { label: "+2K", val: 2000 },
+                    { label: "+10K", val: 10000 },
+                    { label: "+20K", val: 20000 },
+                    { label: "+50K", val: 50000 },
+                    { label: "+100K", val: 100000 },
+                    { label: "+200K", val: 200000 },
+                    { label: "+500K", val: 500000 },
+                  ].map((item) => (
+                    <button
+                      key={item.label}
+                      type="button"
+                      onClick={() => {
+                        const cur = parseFloat(quickIncomeForm.amount) || 0;
+                        setQuickIncomeForm({ ...quickIncomeForm, amount: String(cur + item.val) });
+                      }}
+                      className="py-2.5 px-1 rounded-xl bg-slate-100 hover:bg-emerald-100 hover:text-emerald-800 border border-slate-300 transition text-slate-800 active:scale-95 shadow-xs cursor-pointer"
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => setQuickIncomeForm({ ...quickIncomeForm, amount: "" })}
+                    className="col-span-2 py-2.5 px-1 rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-100 border border-rose-300 transition active:scale-95 font-black cursor-pointer"
+                  >
+                    Xóa số
+                  </button>
+                </div>
+              </div>
+
+              {/* NÚT BẤM XÁC NHẬN TO RÕ */}
+              <div className="pt-2 flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowQuickIncomeModal(false)}
+                  className="w-1/3 py-3 rounded-xl border border-slate-300 text-xs font-bold text-slate-600 hover:bg-slate-100 cursor-pointer"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  className="w-2/3 py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-black shadow-lg shadow-emerald-600/30 flex items-center justify-center space-x-2 transition transform active:scale-95 cursor-pointer"
+                >
+                  <ArrowDownLeft className="w-5 h-5 stroke-[3]" />
+                  <span>{!quickIncomeForm.isExpected ? "XÁC NHẬN THU NGAY (+)" : "LƯU KẾ HOẠCH DỰ KIẾN THU (+)"}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 2: NHẬP NHANH CHI TIỀN RA (ĐỎ - SỐ TO RÕ RÀNG) */}
+      {showQuickExpenseModal && (
+        <div className="fixed inset-0 z-50 bg-black/65 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="bg-white rounded-t-3xl sm:rounded-2xl max-w-lg w-full p-5 sm:p-6 shadow-2xl border-t-4 sm:border border-rose-500 space-y-4 max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b pb-3">
+              <div className="flex items-center space-x-2">
+                <div className="w-8 h-8 rounded-full bg-rose-100 flex items-center justify-center text-rose-700">
+                  <ArrowUpRight className="w-5 h-5 stroke-[3]" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-rose-800">GHI NHẬN TIỀN CHI (-)</h3>
+                  <p className="text-[11px] text-slate-500">Rút tiền từ kho để chi trả</p>
+                </div>
+              </div>
+              <button onClick={() => setShowQuickExpenseModal(false)} className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <form onSubmit={handleQuickExpenseSubmit} className="space-y-4">
+              {/* BƯỚC 1: NHÃN & MỤC ĐÍCH CHI */}
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Nhãn chi tiêu</label>
+                  <select
+                    value={quickExpenseForm.tag}
+                    onChange={(e) => setQuickExpenseForm({ ...quickExpenseForm, tag: e.target.value })}
+                    className="w-full p-2.5 rounded-lg border border-slate-300 text-xs bg-white font-bold text-slate-800"
+                  >
+                    {tags
+                      .filter((t) => t.type === "expense" || t.type === "both")
+                      .map((t) => (
+                        <option key={t.id} value={t.name}>
+                          {t.name}
+                        </option>
+                      ))}
+                    {tags.length === 0 && (
+                      <>
+                        <option value="Chi phí">Chi phí vận hành</option>
+                        <option value="Ăn uống">Ăn uống / Tiếp khách</option>
+                        <option value="Nhập hàng">Nhập hàng / Vật tư</option>
+                        <option value="Trả nợ">Trả nợ đối tác</option>
+                        <option value="Thuế">Nộp thuế</option>
+                        <option value="Khác">Chi tiêu khác</option>
+                      </>
+                    )}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Mô tả ngắn</label>
+                  <input
+                    type="text"
+                    placeholder="Vd: Mua đồ văn phòng, đổ xăng..."
+                    value={quickExpenseForm.title}
+                    onChange={(e) => setQuickExpenseForm({ ...quickExpenseForm, title: e.target.value })}
+                    className="w-full p-2.5 rounded-lg border border-slate-300 text-xs"
+                  />
+                </div>
+              </div>
+
+              {/* BƯỚC 2: CHỌN KHO CHI TIỀN (NGUỒN XUẤT) KÈM SỐ DƯ */}
+              <div>
+                <label className="block text-xs font-black text-[#0C2C47] uppercase mb-1.5">
+                  Chọn Kho Chi Tiền (Rút từ đâu?)
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {vaults.map((v) => {
+                    const isSelected = quickExpenseForm.fromVaultId === v.id;
+                    const reqAmount = parseFloat(quickExpenseForm.amount) || 0;
+                    const isLowBalance = v.balance < reqAmount;
+                    return (
+                      <button
+                        key={v.id}
+                        type="button"
+                        onClick={() => setQuickExpenseForm({ ...quickExpenseForm, fromVaultId: v.id })}
+                        className={`p-3 rounded-xl text-left border-2 transition cursor-pointer flex flex-col justify-between ${
+                          isSelected
+                            ? "border-rose-600 bg-rose-50/80 shadow-md ring-2 ring-rose-400"
+                            : "border-slate-200 hover:border-rose-300 bg-white"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-xs text-slate-800 truncate">{v.name}</span>
+                          {isSelected && <Check className="w-4 h-4 text-rose-600 stroke-[3]" />}
+                        </div>
+                        <div className="flex items-center justify-between mt-1">
+                          <span className={`text-xs font-black ${isLowBalance ? "text-amber-600" : "text-slate-700"}`}>
+                            {v.balance.toLocaleString("vi-VN")} ₫
+                          </span>
+                          {isLowBalance && <span className="text-[10px] text-amber-600 font-bold">Thấp</span>}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* TRƯỜNG DỰ KIẾN NGÀY Ở BOTTOM: NÚT TICK DỰ KIẾN, KHÔNG TICK THÌ MẶC ĐỊNH LÀ HÔM NAY HIỂN THỊ GIỜ PHÚT */}
+              <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="flex items-center space-x-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={quickExpenseForm.isExpected}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setQuickExpenseForm({
+                          ...quickExpenseForm,
+                          isExpected: checked,
+                          isActual: !checked,
+                          flowDate: checked ? quickExpenseForm.flowDate : new Date().toISOString().split("T")[0],
+                        });
+                      }}
+                      className="w-4 h-4 text-rose-600 rounded border-slate-300 focus:ring-rose-500 cursor-pointer"
+                    />
+                    <span className="text-xs font-black text-slate-800">Dự kiến ngày (kế hoạch)</span>
+                  </label>
+
+                  {/* Khi KHÔNG tick: hiển thị mặc định là hôm nay + giờ phút */}
+                  {!quickExpenseForm.isExpected ? (
+                    <div className="flex items-center space-x-1.5 text-rose-700 bg-rose-50 border border-rose-200 px-2.5 py-1 rounded-lg">
+                      <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span>
+                      <span className="text-xs font-black">Hôm nay</span>
+                      <span className="text-xs font-mono font-bold text-slate-600">{getCurrentDateTime().timeStr}</span>
+                    </div>
+                  ) : (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+                      Chưa trừ tiền
+                    </span>
+                  )}
+                </div>
+
+                {/* Khi CÓ tick: cho phép chọn ngày dự kiến cụ thể và mức độ ưu tiên */}
+                {quickExpenseForm.isExpected && (
+                  <div className="space-y-2 pt-1 border-t border-slate-200">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-slate-500">Chọn ngày dự kiến chi:</span>
+                      <input
+                        type="date"
+                        value={quickExpenseForm.flowDate}
+                        onChange={(e) => {
+                          setQuickExpenseForm({
+                            ...quickExpenseForm,
+                            flowDate: e.target.value,
+                          });
+                        }}
+                        className="p-1.5 rounded-xl border border-amber-300 text-xs font-bold text-[#0C2C47] bg-white cursor-pointer shadow-2xs"
+                      />
+                    </div>
+                    <div className="flex items-center justify-between pt-1 border-t border-slate-200/80">
+                      <span className="text-xs font-bold text-slate-700">Mức độ ưu tiên:</span>
+                      <div className="flex items-center space-x-1">
+                        <button
+                          type="button"
+                          onClick={() => setQuickExpenseForm({ ...quickExpenseForm, priority: "high" })}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition cursor-pointer ${
+                            quickExpenseForm.priority === "high"
+                              ? "bg-rose-600 text-white border-rose-600 shadow-xs"
+                              : "bg-white text-slate-600 border-slate-200 hover:bg-rose-50 hover:text-rose-700"
+                          }`}
+                        >
+                          🔴 Cao
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setQuickExpenseForm({ ...quickExpenseForm, priority: "medium" })}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition cursor-pointer ${
+                            quickExpenseForm.priority === "medium" || !quickExpenseForm.priority
+                              ? "bg-amber-500 text-white border-amber-500 shadow-xs"
+                              : "bg-white text-slate-600 border-slate-200 hover:bg-amber-50 hover:text-amber-700"
+                          }`}
+                        >
+                          🟡 Trung bình
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setQuickExpenseForm({ ...quickExpenseForm, priority: "low" })}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition cursor-pointer ${
+                            quickExpenseForm.priority === "low"
+                              ? "bg-slate-700 text-white border-slate-700 shadow-xs"
+                              : "bg-white text-slate-600 border-slate-200 hover:bg-slate-100"
+                          }`}
+                        >
+                          🟢 Thấp
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* MÀN HÌNH SỐ TIỀN CỰC TO NỀN TỐI CHỮ SÁNG TRÁNH NHẬP SAI (NHẬP SAU CÙNG) */}
+              <div className="bg-[#180a0d] border-2 border-rose-500 rounded-2xl p-5 sm:p-6 text-center shadow-2xl shadow-rose-950/60 ring-1 ring-rose-500/30">
+                <span className="block text-xs font-black text-rose-400 uppercase tracking-widest mb-2">
+                  SỐ TIỀN CHI RA (VNĐ)
+                </span>
+                <div className="flex items-center justify-center space-x-2 py-1">
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    required
+                    placeholder="0"
+                    value={quickExpenseForm.amount}
+                    onChange={(e) => setQuickExpenseForm({ ...quickExpenseForm, amount: e.target.value })}
+                    className="w-full text-center text-4xl sm:text-5xl font-black text-rose-300 bg-transparent focus:outline-none placeholder-slate-700 tracking-tight font-mono selection:bg-rose-500 selection:text-black cursor-pointer"
+                  />
+                  <span className="text-3xl sm:text-4xl font-black text-rose-400">₫</span>
+                </div>
+                {quickExpenseForm.amount && !isNaN(parseFloat(quickExpenseForm.amount)) ? (
+                  <div className="mt-3 pt-2.5 border-t border-slate-800 flex flex-col items-center">
+                    <span className="text-sm sm:text-base font-black text-amber-300 tracking-wide">
+                      = {parseFloat(quickExpenseForm.amount).toLocaleString("vi-VN")} Đồng
+                    </span>
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-500 mt-2">Chạm các nút mệnh giá hoặc bấm vào ô số để gõ</p>
+                )}
+              </div>
+
+              {/* CÁC MỆNH GIÁ NHẬP NHANH: 1k - 2k - 10k - 20k - 50k - 100k - 200k - 500k + XÓA (ĐÃ BỎ 3K) */}
+              <div>
+                <label className="block text-[11px] font-black text-slate-600 uppercase mb-1.5">
+                  Mệnh giá nhập nhanh (Cộng dồn)
+                </label>
+                <div className="grid grid-cols-5 gap-1.5 text-xs font-black">
+                  {[
+                    { label: "+1K", val: 1000 },
+                    { label: "+2K", val: 2000 },
+                    { label: "+10K", val: 10000 },
+                    { label: "+20K", val: 20000 },
+                    { label: "+50K", val: 50000 },
+                    { label: "+100K", val: 100000 },
+                    { label: "+200K", val: 200000 },
+                    { label: "+500K", val: 500000 },
+                  ].map((item) => (
+                    <button
+                      key={item.label}
+                      type="button"
+                      onClick={() => {
+                        const cur = parseFloat(quickExpenseForm.amount) || 0;
+                        setQuickExpenseForm({ ...quickExpenseForm, amount: String(cur + item.val) });
+                      }}
+                      className="py-2.5 px-1 rounded-xl bg-slate-100 hover:bg-rose-100 hover:text-rose-800 border border-slate-300 transition text-slate-800 active:scale-95 shadow-xs cursor-pointer"
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => setQuickExpenseForm({ ...quickExpenseForm, amount: "" })}
+                    className="col-span-2 py-2.5 px-1 rounded-xl bg-slate-200 text-slate-700 hover:bg-slate-300 border border-slate-300 transition active:scale-95 font-black cursor-pointer"
+                  >
+                    Xóa số
+                  </button>
+                </div>
+              </div>
+
+              {/* NÚT BẤM XÁC NHẬN TO RÕ */}
+              <div className="pt-2 flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowQuickExpenseModal(false)}
+                  className="w-1/3 py-3 rounded-xl border border-slate-300 text-xs font-bold text-slate-600 hover:bg-slate-100 cursor-pointer"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  className="w-2/3 py-3.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-sm font-black shadow-lg shadow-rose-600/30 flex items-center justify-center space-x-2 transition transform active:scale-95 cursor-pointer"
+                >
+                  <ArrowUpRight className="w-5 h-5 stroke-[3]" />
+                  <span>{!quickExpenseForm.isExpected ? "XÁC NHẬN CHI NGAY (-)" : "LƯU KẾ HOẠCH DỰ KIẾN CHI (-)"}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 3: CẤU HÌNH NHẮC NHỞ & CHUÔNG ĐẶC QUYỀN */}
+      {showReminderModal && (
+        <div className="fixed inset-0 z-50 bg-black/65 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-amber-300 space-y-5 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b pb-3">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-9 h-9 rounded-full bg-amber-100 flex items-center justify-center text-amber-700">
+                  <Bell className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-[#0C2C47]">Nhắc Nhở & Chuông Tài Chính</h3>
+                  <p className="text-xs text-slate-500">Hẹn giờ xem báo cáo với chuông tiền đặc quyền</p>
+                </div>
+              </div>
+              <button onClick={() => setShowReminderModal(false)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            {/* BẬT / TẮT NHẮC NHỞ */}
+            <div className="flex items-center justify-between p-3.5 bg-slate-50 rounded-xl border border-slate-200">
+              <div>
+                <span className="text-sm font-bold text-slate-800 block">Kích hoạt chuông nhắc nhở</span>
+                <span className="text-xs text-slate-500">Tự động phát chuông và báo thức khi đến giờ</span>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={reminderConfig.enabled}
+                  onChange={(e) => handleSaveReminder({ ...reminderConfig, enabled: e.target.checked })}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
+              </label>
+            </div>
+
+            {/* CHẾ ĐỘ HẸN GIỜ */}
+            <div className="space-y-3">
+              <label className="block text-xs font-bold text-[#0C2C47] uppercase">1. Chế độ hẹn giờ</label>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => handleSaveReminder({ ...reminderConfig, mode: "daily" })}
+                  className={`p-3 rounded-xl border-2 text-left transition ${
+                    reminderConfig.mode === "daily"
+                      ? "border-amber-500 bg-amber-50/60 shadow-sm"
+                      : "border-slate-200 hover:border-slate-300"
+                  }`}
+                >
+                  <span className="font-bold text-xs block text-slate-800">⏰ Cố định hàng ngày</span>
+                  <span className="text-[11px] text-slate-500">Nhắc vào một khung giờ mỗi ngày</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const target = Date.now() + reminderConfig.countdownMinutes * 60 * 1000;
+                    handleSaveReminder({ ...reminderConfig, mode: "countdown", countdownTarget: target });
+                  }}
+                  className={`p-3 rounded-xl border-2 text-left transition ${
+                    reminderConfig.mode === "countdown"
+                      ? "border-amber-500 bg-amber-50/60 shadow-sm"
+                      : "border-slate-200 hover:border-slate-300"
+                  }`}
+                >
+                  <span className="font-bold text-xs block text-slate-800">⏳ Đếm ngược chu kỳ</span>
+                  <span className="text-[11px] text-slate-500">Nhắc sau X phút kể từ bây giờ</span>
+                </button>
+              </div>
+
+              {/* INPUT THEO CHẾ ĐỘ */}
+              {reminderConfig.mode === "daily" ? (
+                <div className="p-3 bg-amber-50/40 rounded-xl border border-amber-200 flex items-center justify-between">
+                  <div>
+                    <span className="text-xs font-bold text-slate-700 block">Giờ chốt sổ & xem tài chính</span>
+                    <span className="text-[11px] text-slate-500">Ví dụ: 20:00 hoặc 21:30 hàng ngày</span>
+                  </div>
+                  <input
+                    type="time"
+                    value={reminderConfig.dailyTime}
+                    onChange={(e) => handleSaveReminder({ ...reminderConfig, dailyTime: e.target.value })}
+                    className="p-2 rounded-lg border border-slate-300 text-base font-black text-[#0C2C47] bg-white"
+                  />
+                </div>
+              ) : (
+                <div className="p-3 bg-amber-50/40 rounded-xl border border-amber-200 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-700">Thời gian đếm ngược</span>
+                    <span className="text-xs font-black text-amber-700">{countdownText || `${reminderConfig.countdownMinutes} phút`}</span>
+                  </div>
+                  <div className="grid grid-cols-4 gap-2 text-xs font-bold">
+                    {[15, 30, 60, 120].map((mins) => (
+                      <button
+                        key={mins}
+                        type="button"
+                        onClick={() => {
+                          const target = Date.now() + mins * 60 * 1000;
+                          handleSaveReminder({
+                            ...reminderConfig,
+                            countdownMinutes: mins,
+                            countdownTarget: target,
+                          });
+                        }}
+                        className={`py-1.5 rounded-lg border transition ${
+                          reminderConfig.countdownMinutes === mins
+                            ? "bg-amber-500 text-white border-amber-600"
+                            : "bg-white text-slate-700 border-slate-300 hover:bg-slate-50"
+                        }`}
+                      >
+                        {mins < 60 ? `${mins}p` : `${mins / 60}h`}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* CHỌN KIỂU CHUÔNG THÔNG BÁO ĐẶC QUYỀN */}
+            <div className="space-y-3">
+              <label className="block text-xs font-bold text-[#0C2C47] uppercase">2. Kiểu chuông đặc quyền</label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* LENG KENG TIỀN XU */}
+                <div
+                  onClick={() => handleSaveReminder({ ...reminderConfig, soundType: "coin" })}
+                  className={`p-3.5 rounded-xl border-2 transition cursor-pointer flex flex-col justify-between ${
+                    reminderConfig.soundType === "coin"
+                      ? "border-amber-500 bg-amber-50/70 shadow-sm ring-2 ring-amber-300"
+                      : "border-slate-200 hover:border-slate-300 bg-white"
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-center space-x-2">
+                      <span className="text-xl">🪙</span>
+                      <span className="font-bold text-xs text-slate-800">Leng Keng Tiền Xu</span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      Âm kim loại vàng/bạc va chạm ngân vang, trong trẻo và kích tài lộc.
+                    </p>
+                  </div>
+                  <div className="mt-3 flex items-center justify-between pt-2 border-t border-slate-100">
+                    <span className="text-[10px] font-bold text-amber-700">Coin Clinking</span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        isPlayingSoundTest === "income" ? handleStopSoundTest() : handleTestSound("income");
+                      }}
+                      className="px-2.5 py-1 rounded-md bg-amber-500 hover:bg-amber-600 text-white text-[11px] font-bold flex items-center space-x-1"
+                    >
+                      {isPlayingSoundTest === "income" ? (
+                        <>
+                          <Square className="w-3 h-3 fill-white" />
+                          <span>Dừng</span>
+                        </>
+                      ) : (
+                        <>
+                          <Volume2 className="w-3 h-3" />
+                          <span>Thử chuông</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                {/* MÁY ĐẾM TIỀN */}
+                <div
+                  onClick={() => handleSaveReminder({ ...reminderConfig, soundType: "cash_counter" })}
+                  className={`p-3.5 rounded-xl border-2 transition cursor-pointer flex flex-col justify-between ${
+                    reminderConfig.soundType === "cash_counter"
+                      ? "border-amber-500 bg-amber-50/70 shadow-sm ring-2 ring-amber-300"
+                      : "border-slate-200 hover:border-slate-300 bg-white"
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-center space-x-2">
+                      <span className="text-xl">💵</span>
+                      <span className="font-bold text-xs text-slate-800">Tiếng Máy Đếm Tiền</span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      Nhịp rào rào tạch tạch của từng xếp tiền polyme chạy qua lô đếm.
+                    </p>
+                  </div>
+                  <div className="mt-3 flex items-center justify-between pt-2 border-t border-slate-100">
+                    <span className="text-[10px] font-bold text-amber-700">Cash Counter</span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        isPlayingSoundTest === "expense" ? handleStopSoundTest() : handleTestSound("expense");
+                      }}
+                      className="px-2.5 py-1 rounded-md bg-amber-500 hover:bg-amber-600 text-white text-[11px] font-bold flex items-center space-x-1"
+                    >
+                      {isPlayingSoundTest === "expense" ? (
+                        <>
+                          <Square className="w-3 h-3 fill-white" />
+                          <span>Dừng</span>
+                        </>
+                      ) : (
+                        <>
+                          <Volume2 className="w-3 h-3" />
+                          <span>Thử chuông</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* THỜI LƯỢNG CHUÔNG KÊU */}
+            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between">
+              <div>
+                <span className="text-xs font-bold text-slate-700 block">Thời lượng chuông kêu</span>
+                <span className="text-[11px] text-slate-500">Chuông phát liên tục trong bao lâu</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                {[3, 5, 8, 10].map((sec) => (
+                  <button
+                    key={sec}
+                    type="button"
+                    onClick={() => handleSaveReminder({ ...reminderConfig, durationSeconds: sec })}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition ${
+                      reminderConfig.durationSeconds === sec
+                        ? "bg-[#0C2C47] text-white"
+                        : "bg-white border border-slate-300 text-slate-600 hover:bg-slate-100"
+                    }`}
+                  >
+                    {sec}s
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* THÔNG BÁO TRÌNH DUYỆT (NOTIFICATION) */}
+            {notificationPermission !== "granted" && (
+              <div className="p-3 bg-blue-50 rounded-xl border border-blue-200 flex items-center justify-between">
+                <div className="pr-2">
+                  <span className="text-xs font-bold text-blue-900 block">Bật thông báo đẩy</span>
+                  <span className="text-[11px] text-blue-700">Nhận thông báo kể cả khi chuyển tab khác</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={requestNotifyPermission}
+                  className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 whitespace-nowrap"
+                >
+                  Cấp quyền
+                </button>
+              </div>
+            )}
+
+            <div className="pt-2 flex justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  stopAllSounds();
+                  setShowReminderModal(false);
+                }}
+                className="w-full py-3 rounded-xl bg-[#0C2C47] text-white text-xs font-black hover:bg-[#0C2C47]/90 shadow-md transition cursor-pointer"
+              >
+                ĐÃ LƯU CÀI ĐẶT NHẮC NHỞ ✓
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 4: BÁO THỨC / ĐẾN GIỜ XEM BÁO CÁO TÀI CHÍNH */}
+      {showAlarmAlertModal && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-300">
+          <div className="bg-gradient-to-b from-amber-50 to-white rounded-3xl max-w-md w-full p-6 shadow-2xl border-4 border-amber-400 text-center space-y-4">
+            <div className="w-16 h-16 rounded-full bg-amber-100 border-2 border-amber-300 mx-auto flex items-center justify-center shadow-lg text-amber-600 animate-bounce">
+              <Bell className="w-8 h-8" />
+            </div>
+
+            <div>
+              <span className="px-3 py-1 bg-amber-200 text-amber-900 rounded-full text-[10px] font-black uppercase tracking-widest">
+                Đến Giờ Chốt Sổ & Kiểm Tra
+              </span>
+              <h3 className="text-2xl font-black text-[#0C2C47] mt-2">ĐÃ ĐẾN GIỜ XEM TÀI CHÍNH!</h3>
+              <p className="text-xs text-slate-600 mt-1">
+                Dành 2 phút đối chiếu dòng tiền hôm nay để giữ tài sản luôn an toàn và sinh lời.
+              </p>
+            </div>
+
+            {/* TÓM TẮT NHANH TÀI SẢN RÒNG */}
+            <div className="p-3 bg-white rounded-2xl border border-amber-200 shadow-sm text-left">
+              <span className="text-[10px] uppercase font-bold text-slate-400 block">Tài sản ròng hiện tại</span>
+              <span className="text-xl font-black text-[#0C2C47]">{netWorth.toLocaleString("vi-VN")} ₫</span>
+              <div className="mt-2 pt-2 border-t border-slate-100 flex justify-between text-xs text-slate-600">
+                <span>Tổng tiền trong các kho:</span>
+                <span className="font-bold text-emerald-700">{totalBalance.toLocaleString("vi-VN")} ₫</span>
+              </div>
+            </div>
+
+            {/* NÚT THAO TÁC */}
+            <div className="space-y-2 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  stopAllSounds();
+                  setShowAlarmAlertModal(false);
+                  setActiveTab("home");
+                }}
+                className="w-full py-3.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-black text-sm shadow-lg shadow-amber-500/30 transition transform hover:scale-[1.02] cursor-pointer"
+              >
+                📊 XEM CHI TIẾT THU CHI & CHỐT SỔ NGAY ➔
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  stopAllSounds();
+                  setShowAlarmAlertModal(false);
+                }}
+                className="w-full py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition cursor-pointer"
+              >
+                Đã xem / Tắt chuông
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* MODAL SỬA DÒNG TIỀN / SỰ KIỆN DỰ CHI DỰ THU (Quy ước 1 = 1.000 VNĐ) */}
+      {editingFlow && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border-2 border-slate-300 space-y-4 max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b pb-3">
+              <div className="flex items-center space-x-2">
+                <div className="w-9 h-9 rounded-xl bg-blue-100 flex items-center justify-center text-blue-700">
+                  <Edit className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-[#0C2C47]">
+                    SỬA SỐ LIỆU: {editingFlow.isActual ? "DÒNG CHẢY THỰC TẾ" : "KẾ HOẠCH DỰ KIẾN"}
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Quy ước nhập số: <span className="font-bold text-blue-700">1 = 1.000 VNĐ</span> (Vd: 20 = 20.000đ, 50000 = 50 triệu)
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setEditingFlow(null)}
+                className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateFlow} className="space-y-4">
+              {/* Tên mục / tiêu đề */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tiêu đề / Mục đích</label>
+                <input
+                  type="text"
+                  required
+                  value={editFlowForm.title}
+                  onChange={(e) => setEditFlowForm({ ...editFlowForm, title: e.target.value })}
+                  className="w-full p-2.5 rounded-xl border border-slate-300 text-sm font-bold text-slate-800 focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+
+              {/* Ngày phát sinh / dự kiến */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    {editingFlow.isActual ? "Ngày phát sinh" : "Ngày dự kiến"}
+                  </label>
+                  <input
+                    type="date"
+                    value={editFlowForm.flowDate}
+                    onChange={(e) => setEditFlowForm({ ...editFlowForm, flowDate: e.target.value })}
+                    className="w-full p-2.5 rounded-xl border border-slate-300 text-xs font-bold bg-white cursor-pointer"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Nhãn giao dịch</label>
+                  <input
+                    type="text"
+                    value={editFlowForm.tag}
+                    onChange={(e) => setEditFlowForm({ ...editFlowForm, tag: e.target.value })}
+                    className="w-full p-2.5 rounded-xl border border-slate-300 text-xs"
+                    placeholder="Nhãn..."
+                  />
+                </div>
+              </div>
+
+              {/* Mức độ ưu tiên nếu là Kế hoạch dự kiến */}
+              {!editingFlow.isActual && (
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-700 uppercase">Mức độ ưu tiên</label>
+                  <div className="flex items-center space-x-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setEditFlowForm({ ...editFlowForm, priority: "high" })}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold border transition cursor-pointer ${
+                        editFlowForm.priority === "high"
+                          ? "bg-rose-600 text-white border-rose-600 shadow-xs"
+                          : "bg-white text-slate-600 border-slate-200 hover:bg-rose-50 hover:text-rose-700"
+                      }`}
+                    >
+                      🔴 Cao
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditFlowForm({ ...editFlowForm, priority: "medium" })}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold border transition cursor-pointer ${
+                        editFlowForm.priority === "medium" || !editFlowForm.priority
+                          ? "bg-amber-500 text-white border-amber-500 shadow-xs"
+                          : "bg-white text-slate-600 border-slate-200 hover:bg-amber-50 hover:text-amber-700"
+                      }`}
+                    >
+                      🟡 Trung bình
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditFlowForm({ ...editFlowForm, priority: "low" })}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold border transition cursor-pointer ${
+                        editFlowForm.priority === "low"
+                          ? "bg-slate-700 text-white border-slate-700 shadow-xs"
+                          : "bg-white text-slate-600 border-slate-200 hover:bg-slate-100"
+                      }`}
+                    >
+                      🟢 Thấp
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Màn hình nhập số tiền cực to nền tối chữ sáng quy ước 1 = 1.000 */}
+              <div className="bg-[#091522] border-2 border-blue-500 rounded-2xl p-5 text-center shadow-xl ring-1 ring-blue-500/30">
+                <div className="flex items-center justify-between text-xs font-black text-blue-400 uppercase tracking-wider mb-2">
+                  <span>SỐ ĐƠN VỊ NHẬP (1 = 1.000Đ)</span>
+                  <span className="text-[10px] text-amber-300 font-bold">QUY ƯỚC 1=1K</span>
+                </div>
+                <div className="flex items-center justify-center space-x-2 py-1">
+                  <input
+                    type="number"
+                    step="any"
+                    inputMode="decimal"
+                    required
+                    placeholder="0"
+                    value={editFlowForm.amountUnits}
+                    onChange={(e) => setEditFlowForm({ ...editFlowForm, amountUnits: e.target.value })}
+                    className="w-full text-center text-4xl sm:text-5xl font-black text-blue-300 bg-transparent focus:outline-none placeholder-slate-700 font-mono cursor-pointer"
+                  />
+                  <span className="text-2xl sm:text-3xl font-black text-blue-400">k</span>
+                </div>
+                {editFlowForm.amountUnits && !isNaN(parseFloat(editFlowForm.amountUnits)) ? (
+                  <div className="mt-3 pt-2.5 border-t border-slate-800 flex flex-col items-center">
+                    <span className="text-xs text-slate-400">Thành tiền thực tế:</span>
+                    <span className="text-base sm:text-lg font-black text-amber-300 tracking-wide">
+                      = {(Math.round(parseFloat(editFlowForm.amountUnits) * 1000)).toLocaleString("vi-VN")} Đồng
+                    </span>
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-500 mt-2">Ví dụ: gõ 50 = 50.000₫ | gõ 10000 = 10.000.000₫</p>
+                )}
+              </div>
+
+              {/* Phím số nhanh mệnh giá */}
+              <div>
+                <label className="block text-[11px] font-black text-slate-600 uppercase mb-1.5">
+                  Phím cộng nhanh (theo đơn vị k):
+                </label>
+                <div className="grid grid-cols-4 gap-1.5 text-xs font-black">
+                  {[
+                    { label: "+10k", val: 10 },
+                    { label: "+50k", val: 50 },
+                    { label: "+100k", val: 100 },
+                    { label: "+500k", val: 500 },
+                    { label: "+1 Tr", val: 1000 },
+                    { label: "+5 Tr", val: 5000 },
+                    { label: "+10 Tr", val: 10000 },
+                    { label: "+50 Tr", val: 50000 },
+                  ].map((btn) => (
+                    <button
+                      key={btn.label}
+                      type="button"
+                      onClick={() => {
+                        const cur = parseFloat(editFlowForm.amountUnits) || 0;
+                        setEditFlowForm({ ...editFlowForm, amountUnits: (cur + btn.val).toString() });
+                      }}
+                      className="py-2 px-1 rounded-xl bg-slate-100 hover:bg-blue-100 hover:text-blue-800 border border-slate-300 transition text-slate-800 active:scale-95 shadow-2xs cursor-pointer"
+                    >
+                      {btn.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="pt-3 flex items-center justify-end space-x-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setEditingFlow(null)}
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 text-xs font-bold text-slate-600 hover:bg-slate-100 cursor-pointer"
+                >
+                  Hủy Bỏ
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-black shadow-md cursor-pointer"
+                >
+                  Lưu Chỉnh Sửa ➔
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL POPUP XÁC NHẬN XÓA SỐ LIỆU */}
+      {flowToDelete && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border-2 border-rose-300 text-center space-y-4">
+            <div className="w-14 h-14 rounded-full bg-rose-100 text-rose-600 mx-auto flex items-center justify-center shadow-inner">
+              <Trash2 className="w-7 h-7" />
+            </div>
+
+            <div>
+              <h3 className="text-lg font-black text-[#0C2C47]">XÁC NHẬN XÓA DỮ LIỆU</h3>
+              <p className="text-xs text-slate-500 mt-1">
+                Bạn có chắc chắn muốn xóa mục này khỏi sổ sách kế toán không?
+              </p>
+            </div>
+
+            <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 text-left text-xs space-y-1">
+              <div className="flex justify-between">
+                <span className="text-slate-500">Mục đích:</span>
+                <span className="font-bold text-slate-800">{flowToDelete.title}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Số tiền:</span>
+                <span className="font-black text-rose-700 text-sm">{flowToDelete.amount.toLocaleString("vi-VN")} ₫</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Trạng thái:</span>
+                <span className="font-bold text-slate-700">{flowToDelete.isActual ? "Đã trừ/cộng kho thực tế" : "Kế hoạch dự kiến"}</span>
+              </div>
+              {flowToDelete.isActual && (
+                <p className="text-[11px] text-amber-700 pt-1 border-t border-slate-200 font-semibold">
+                  ⚠️ Lưu ý: Vì là giao dịch thực tế, số tiền sẽ được tự động hoàn trả/cân đối lại kho ban đầu.
+                </p>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setFlowToDelete(null)}
+                className="py-2.5 rounded-xl border border-slate-300 text-xs font-bold text-slate-600 hover:bg-slate-100 cursor-pointer"
+              >
+                Hủy Bỏ
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteFlowConfirm}
+                className="py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-black shadow-md cursor-pointer"
+              >
+                Đồng Ý Xóa Vĩnh Viễn
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL POPUP CHỈNH SỬA SỐ LIỆU CÀI ĐẶT (7.4 & 7.5 - Quy ước 1 = 1.000 VNĐ) */}
+      {settingEditModal.isOpen && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border-2 border-[#0C2C47] space-y-4">
+            <div className="flex items-center justify-between border-b pb-3">
+              <div className="flex items-center space-x-2">
+                <div className="w-8 h-8 rounded-xl bg-amber-100 flex items-center justify-center text-amber-800 font-black text-sm">
+                  1k
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-[#0C2C47] uppercase">{settingEditModal.title}</h3>
+                  <p className="text-[10px] text-slate-500">Quy ước nhập số: 1 = 1.000 VNĐ</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setSettingEditModal({ ...settingEditModal, isOpen: false })}
+                className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-600">{settingEditModal.description}</p>
+
+            {/* Màn hình nhập số cực to nền tối chữ sáng */}
+            <div className="bg-[#091522] border-2 border-amber-400 rounded-2xl p-5 text-center shadow-xl">
+              <span className="block text-[11px] font-black text-amber-400 uppercase tracking-wider mb-2">
+                NHẬP SỐ ĐƠN VỊ (QUY ƯỚC 1 = 1.000 VNĐ)
+              </span>
+              <div className="flex items-center justify-center space-x-2 py-1">
+                <input
+                  type="number"
+                  step="any"
+                  inputMode="numeric"
+                  required
+                  placeholder="0"
+                  value={settingEditModal.inputUnits}
+                  onChange={(e) => setSettingEditModal({ ...settingEditModal, inputUnits: e.target.value })}
+                  className="w-full text-center text-4xl sm:text-5xl font-black text-amber-300 bg-transparent focus:outline-none placeholder-slate-700 font-mono cursor-pointer"
+                />
+                <span className="text-3xl font-black text-amber-400">k</span>
+              </div>
+              {settingEditModal.inputUnits && !isNaN(parseFloat(settingEditModal.inputUnits)) ? (
+                <div className="mt-3 pt-2.5 border-t border-slate-800 flex flex-col items-center">
+                  <span className="text-xs text-slate-400">Giá trị thực tế sẽ lưu:</span>
+                  <span className="text-base sm:text-lg font-black text-emerald-400 tracking-wide">
+                    = {(Math.round(parseFloat(settingEditModal.inputUnits) * 1000)).toLocaleString("vi-VN")} Đồng
+                  </span>
+                </div>
+              ) : (
+                <p className="text-xs text-slate-500 mt-2">Ví dụ: gõ 50000 = 50 triệu | gõ 200000 = 200 triệu</p>
+              )}
+            </div>
+
+            {/* Phím cộng nhanh */}
+            <div>
+              <label className="block text-[11px] font-black text-slate-600 uppercase mb-1.5">
+                Các mức phổ biến:
+              </label>
+              <div className="grid grid-cols-4 gap-1.5 text-xs font-black">
+                {[
+                  { label: "10 Tr", val: 10000 },
+                  { label: "20 Tr", val: 20000 },
+                  { label: "50 Tr", val: 50000 },
+                  { label: "100 Tr", val: 100000 },
+                  { label: "200 Tr", val: 200000 },
+                  { label: "500 Tr", val: 500000 },
+                  { label: "1 Tỷ", val: 1000000 },
+                  { label: "2 Tỷ", val: 2000000 },
+                ].map((item) => (
+                  <button
+                    key={item.label}
+                    type="button"
+                    onClick={() =>
+                      setSettingEditModal({
+                        ...settingEditModal,
+                        inputUnits: item.val.toString(),
+                      })
+                    }
+                    className="py-2 px-1 rounded-xl bg-slate-100 hover:bg-amber-100 hover:text-amber-900 border border-slate-200 transition text-slate-800 cursor-pointer shadow-2xs text-[11px]"
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setSettingEditModal({ ...settingEditModal, isOpen: false })}
+                className="py-2.5 rounded-xl border border-slate-300 text-xs font-bold text-slate-600 hover:bg-slate-100 cursor-pointer"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveSettingFromModal}
+                className="py-2.5 rounded-xl bg-[#0C2C47] hover:bg-[#0C2C47]/90 text-white text-xs font-black shadow-md cursor-pointer"
+              >
+                Lưu Số Liệu Ngay ➔
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL TRUNG TÂM THÔNG BÁO HỆ THỐNG */}
+      {showNotificationCenterModal && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border-2 border-[#0C2C47] space-y-4 max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between border-b pb-3">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-2xl bg-amber-100 flex items-center justify-center text-amber-800 shadow-2xs">
+                  <Bell className="w-5 h-5 text-amber-700" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-[#0C2C47] uppercase tracking-wide">
+                    Trung Tâm Thông Báo Hệ Thống
+                  </h3>
+                  <p className="text-xs text-slate-500 font-medium">
+                    Cảnh báo dự thu/chi, ngưỡng nợ, hạn mức kho & lịch sử thu chi
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowNotificationCenterModal(false)}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 cursor-pointer transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Chuyển Tab: Cảnh báo & Kế hoạch VS Lịch sử thu chi */}
+            <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
+              <div className="flex space-x-1.5">
+                <button
+                  type="button"
+                  onClick={() => setNotifCenterTab("alerts")}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                    notifCenterTab === "alerts"
+                      ? "bg-[#0C2C47] text-white shadow-xs"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  }`}
+                >
+                  🔔 Cảnh Báo ({allSystemAlerts.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setNotifCenterTab("history")}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                    notifCenterTab === "history"
+                      ? "bg-[#0C2C47] text-white shadow-xs"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  }`}
+                >
+                  📜 Lịch Sử Thu Chi
+                </button>
+              </div>
+
+              {notifCenterTab === "alerts" && allSystemAlerts.length > 0 && (
+                <button
+                  type="button"
+                  onClick={markAllAlertsAsRead}
+                  className="text-[11px] font-bold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                >
+                  ✓ Đã đọc tất cả
+                </button>
+              )}
+            </div>
+
+            {/* Nội dung theo Tab */}
+            <div className="flex-1 overflow-y-auto space-y-2.5 pr-1">
+              {notifCenterTab === "alerts" ? (
+                allSystemAlerts.length === 0 ? (
+                  <div className="text-center py-12 text-slate-400 space-y-2.5">
+                    <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto" />
+                    <p className="font-bold text-sm text-slate-800">Tất cả chỉ số đều an toàn</p>
+                    <p className="text-xs text-slate-400">
+                      Không có cảnh báo vượt hạn mức hoặc nhắc nhở nào đang chờ xử lý.
+                    </p>
+                  </div>
+                ) : (
+                  allSystemAlerts.map((item) => (
+                    <div
+                      key={item.id}
+                      className={`p-3.5 rounded-2xl border flex items-start justify-between gap-3 text-xs shadow-2xs transition ${
+                        item.severity === "danger"
+                          ? "bg-rose-50/90 border-rose-200 text-rose-950"
+                          : item.severity === "warning"
+                          ? "bg-amber-50/90 border-amber-200 text-amber-950"
+                          : "bg-blue-50/90 border-blue-200 text-blue-950"
+                      }`}
+                    >
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-1.5">
+                          <span
+                            className={`w-2 h-2 rounded-full ${
+                              item.severity === "danger"
+                                ? "bg-rose-600"
+                                : item.severity === "warning"
+                                ? "bg-amber-600"
+                                : "bg-blue-600"
+                            }`}
+                          />
+                          <span className="font-black text-xs">{item.title}</span>
+                        </div>
+                        <p className="text-[11px] opacity-90 leading-relaxed font-medium pl-3.5">
+                          {item.desc}
+                        </p>
+                      </div>
+                      {item.actionTab && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveTab(item.actionTab as any);
+                            setShowNotificationCenterModal(false);
+                          }}
+                          className="px-3 py-1.5 rounded-xl bg-white border border-slate-200 hover:border-slate-400 shadow-xs font-black text-[11px] whitespace-nowrap hover:bg-slate-50 cursor-pointer text-slate-800 transition shrink-0"
+                        >
+                          Xem ngay ➔
+                        </button>
+                      )}
+                    </div>
+                  ))
+                )
+              ) : (
+                /* TAB LỊCH SỬ THU CHI GẦN ĐÂY */
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-[11px] text-slate-500 font-bold px-1">
+                    <span>Giao dịch thực tế gần nhất:</span>
+                    <span>15 khoản mới nhất</span>
+                  </div>
+                  {flows.filter((f) => f.isActual).length === 0 ? (
+                    <div className="text-center py-10 text-slate-400 text-xs">
+                      Chưa có giao dịch thu chi nào được ghi nhận.
+                    </div>
+                  ) : (
+                    flows
+                      .filter((f) => f.isActual)
+                      .slice(0, 15)
+                      .map((flow) => (
+                        <div
+                          key={flow.id}
+                          className="p-3 rounded-xl border border-slate-100 bg-slate-50/70 hover:bg-slate-100/80 transition flex items-center justify-between text-xs"
+                        >
+                          <div className="space-y-0.5">
+                            <div className="flex items-center space-x-1.5">
+                              <span className="font-bold text-slate-900">{flow.title}</span>
+                              <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-slate-200 text-slate-700">
+                                {flow.tag}
+                              </span>
+                            </div>
+                            <span className="text-[11px] text-slate-500 block">
+                              {flow.from} ➔ {flow.to} • {flow.date || flow.rawDate}
+                            </span>
+                          </div>
+                          <span
+                            className={`font-black text-xs sm:text-sm ${
+                              flow.type === "income"
+                                ? "text-emerald-600"
+                                : flow.type === "expense"
+                                ? "text-rose-600"
+                                : "text-slate-800"
+                            }`}
+                          >
+                            {flow.type === "income" ? "+" : flow.type === "expense" ? "-" : ""}
+                            {flow.amount.toLocaleString("vi-VN")} ₫
+                          </span>
+                        </div>
+                      ))
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
+              <span className="text-xs text-slate-400 font-medium">
+                {notifCenterTab === "alerts"
+                  ? allSystemAlerts.length > 0
+                    ? `Có ${allSystemAlerts.length} thông báo cảnh báo`
+                    : "Hệ thống trạng thái tốt"
+                  : `Tổng ${flows.filter((f) => f.isActual).length} khoản thu chi`}
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowNotificationCenterModal(false)}
+                className="px-5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold cursor-pointer transition"
+              >
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 1: TẠO / SỬA KHOẢN VAY - MƯỢN (CHỦ NỢ & CON NỢ) */}
+      {showLoanModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl p-6 w-full max-w-lg shadow-2xl border border-slate-100 max-h-[90vh] overflow-y-auto space-y-4">
+            <div className="flex justify-between items-center border-b pb-3 border-slate-100">
+              <div className="flex items-center space-x-2">
+                <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${
+                  loanForm.role === "creditor" ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800"
+                }`}>
+                  <Handshake className="w-4 h-4" />
+                </div>
+                <h3 className="text-base font-black text-[#0C2C47]">
+                  {editingLoan ? "SỬA KHOẢN VAY / MƯỢN" : "TẠO KHOẢN VAY / MƯỢN MỚI"}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowLoanModal(false)}
+                className="text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveLoan} className="space-y-4">
+              {/* Chọn vai trò: Chủ Nợ hay Con Nợ */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                  Vai Trò Của Bạn *
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setLoanForm((prev) => ({ ...prev, role: "creditor", confirmedCreditor: true }))}
+                    className={`py-2 px-3 rounded-xl text-xs font-black border transition cursor-pointer flex items-center justify-center space-x-1.5 ${
+                      loanForm.role === "creditor"
+                        ? "bg-emerald-600 text-white border-emerald-700 shadow-xs"
+                        : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                    }`}
+                  >
+                    <span>🟢 Tôi Là Chủ Nợ (Cho Vay)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLoanForm((prev) => ({ ...prev, role: "debtor", confirmedDebtor: true }))}
+                    className={`py-2 px-3 rounded-xl text-xs font-black border transition cursor-pointer flex items-center justify-center space-x-1.5 ${
+                      loanForm.role === "debtor"
+                        ? "bg-rose-600 text-white border-rose-700 shadow-xs"
+                        : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                    }`}
+                  >
+                    <span>🔴 Tôi Là Con Nợ (Đi Vay)</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Tên khoản nợ */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                  Tên / Mục Đích Khoản Nợ *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ví dụ: Vay mua thiết bị, Cho anh Nam mượn..."
+                  value={loanForm.title}
+                  onChange={(e) => setLoanForm((prev) => ({ ...prev, title: e.target.value }))}
+                  className="w-full p-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-[#0C2C47] text-xs font-medium"
+                />
+              </div>
+
+              {/* Đối tác (Ai?) */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                  Đối Tác (Ai?) *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Tên cá nhân, ngân hàng hoặc tổ chức đối tác..."
+                  value={loanForm.partnerName}
+                  onChange={(e) => setLoanForm((prev) => ({ ...prev, partnerName: e.target.value }))}
+                  className="w-full p-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-[#0C2C47] text-xs font-medium"
+                />
+              </div>
+
+              {/* MoBo liên kết */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                  Tài Khoản MoBo Liên Kết
+                </label>
+                <select
+                  value={loanForm.linkedVaultId}
+                  onChange={(e) => setLoanForm((prev) => ({ ...prev, linkedVaultId: e.target.value }))}
+                  className="w-full p-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-[#0C2C47] text-xs font-medium bg-white"
+                >
+                  <option value="">-- Chưa liên kết MoBo --</option>
+                  {vaults.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.name} ({v.balance.toLocaleString("vi-VN")} ₫)
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  {loanForm.role === "creditor"
+                    ? "MoBo nguồn trích tiền cho vay và nhận tiền thu hồi về sau này"
+                    : "MoBo tiếp nhận tiền vay và trích tiền thanh toán trả nợ sau này"}
+                </p>
+              </div>
+
+              {/* Số tiền gốc (Bao nhiêu? Quy ước 1 = 1.000 VNĐ) */}
+              <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200 space-y-1.5">
+                <div className="flex justify-between items-center">
+                  <label className="block text-xs font-black text-slate-800 uppercase">
+                    Số Tiền Gốc (Quy ước: 1 = 1.000 VNĐ) *
+                  </label>
+                  <span className="text-[10px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded">
+                    1 = 1.000 VNĐ
+                  </span>
+                </div>
+                <div className="relative">
+                  <input
+                    type="number"
+                    step="any"
+                    required
+                    placeholder="Gõ 20 = 20.000₫ | Gõ 50000 = 50 triệu..."
+                    value={loanForm.amountUnits}
+                    onChange={(e) => setLoanForm((prev) => ({ ...prev, amountUnits: e.target.value }))}
+                    className="w-full p-2.5 pr-14 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-[#0C2C47] font-black text-base"
+                  />
+                  <span className="absolute right-3 top-2.5 text-xs text-slate-400 font-bold">
+                    k VNĐ
+                  </span>
+                </div>
+                {loanForm.amountUnits && !isNaN(parseFloat(loanForm.amountUnits)) && (
+                  <div className="p-2 bg-emerald-50 rounded-xl border border-emerald-200 text-xs font-black text-emerald-800">
+                    💰 Số tiền thực tế:{" "}
+                    {Math.round(parseFloat(loanForm.amountUnits) * 1000).toLocaleString("vi-VN")} ₫
+                  </div>
+                )}
+              </div>
+
+              {/* Lãi suất & Thời hạn trả lãi */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    Loại Lãi Suất
+                  </label>
+                  <select
+                    value={loanForm.interestType}
+                    onChange={(e) => setLoanForm((prev) => ({ ...prev, interestType: e.target.value as any }))}
+                    className="w-full p-2.5 rounded-xl border border-slate-300 text-xs font-medium bg-white"
+                  >
+                    <option value="none">Không tính lãi (0%)</option>
+                    <option value="monthly">% / tháng</option>
+                    <option value="yearly">% / năm</option>
+                    <option value="fixed_sum">Tiền lãi cố định</option>
+                  </select>
+                </div>
+
+                {loanForm.interestType !== "none" && (
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                      Mức Lãi ({loanForm.interestType === "monthly" ? "%/tháng" : loanForm.interestType === "yearly" ? "%/năm" : "VNĐ"})
+                    </label>
+                    <input
+                      type="number"
+                      step="any"
+                      placeholder="Ví dụ: 1.2"
+                      value={loanForm.interestRate}
+                      onChange={(e) => setLoanForm((prev) => ({ ...prev, interestRate: e.target.value }))}
+                      className="w-full p-2.5 rounded-xl border border-slate-300 text-xs font-bold"
+                    />
+                  </div>
+                )}
+
+                <div className="col-span-1 sm:col-span-2">
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    Kỳ Hạn Trả Lãi
+                  </label>
+                  <select
+                    value={loanForm.interestDueTerm}
+                    onChange={(e) => setLoanForm((prev) => ({ ...prev, interestDueTerm: e.target.value }))}
+                    className="w-full p-2.5 rounded-xl border border-slate-300 text-xs font-medium bg-white"
+                  >
+                    <option value="end_term">Cuối kỳ cùng tiền gốc</option>
+                    <option value="monthly">Hàng tháng định kỳ</option>
+                    <option value="quarterly">Hàng quý</option>
+                    <option value="none">Không có lãi</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Lúc nào (Ngày bắt đầu) & Thời hạn gốc (Ngày đáo hạn) */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    Ngày Bắt Đầu (Lúc nào?)
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={loanForm.startDate}
+                    onChange={(e) => setLoanForm((prev) => ({ ...prev, startDate: e.target.value }))}
+                    className="w-full p-2.5 rounded-xl border border-slate-300 text-xs font-medium"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    Hạn Trả Gốc (Đáo hạn)
+                  </label>
+                  <input
+                    type="date"
+                    value={loanForm.dueDate}
+                    onChange={(e) => setLoanForm((prev) => ({ ...prev, dueDate: e.target.value }))}
+                    className="w-full p-2.5 rounded-xl border border-slate-300 text-xs font-medium"
+                  />
+                </div>
+              </div>
+
+              {/* Xác nhận từ 2 phía */}
+              <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200 space-y-2">
+                <span className="block text-xs font-black text-slate-800 uppercase">
+                  Xác Nhận Đối Soát 2 Phía
+                </span>
+                <div className="flex items-center justify-between gap-4 text-xs">
+                  <label className="flex items-center space-x-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={loanForm.confirmedCreditor}
+                      onChange={(e) => setLoanForm((prev) => ({ ...prev, confirmedCreditor: e.target.checked }))}
+                      className="w-4 h-4 text-emerald-600 rounded"
+                    />
+                    <span className="font-bold text-slate-700">Chủ Nợ xác nhận</span>
+                  </label>
+                  <label className="flex items-center space-x-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={loanForm.confirmedDebtor}
+                      onChange={(e) => setLoanForm((prev) => ({ ...prev, confirmedDebtor: e.target.checked }))}
+                      className="w-4 h-4 text-rose-600 rounded"
+                    />
+                    <span className="font-bold text-slate-700">Con Nợ xác nhận</span>
+                  </label>
+                </div>
+              </div>
+
+              {/* Tùy chọn đồng bộ MoBo ngay khi tạo */}
+              {!editingLoan && loanForm.linkedVaultId && (
+                <label className="flex items-start space-x-2 p-3 bg-blue-50/70 rounded-xl border border-blue-200 cursor-pointer text-xs">
+                  <input
+                    type="checkbox"
+                    checked={loanForm.syncMoBo}
+                    onChange={(e) => setLoanForm((prev) => ({ ...prev, syncMoBo: e.target.checked }))}
+                    className="w-4 h-4 text-blue-600 rounded mt-0.5"
+                  />
+                  <div>
+                    <span className="font-black text-blue-950 block">
+                      {loanForm.role === "creditor"
+                        ? "Trừ tiền MoBo ngay (Xuất tiền cho vay thực tế)"
+                        : "Cộng tiền vào MoBo ngay (Đã nhận tiền vay thực tế)"}
+                    </span>
+                    <span className="text-[11px] text-blue-800">
+                      Tự động tạo dòng tiền (Flow) và biến động số dư MoBo tại ngày bắt đầu.
+                    </span>
+                  </div>
+                </label>
+              )}
+
+              {/* Ghi chú */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                  Ghi Chú / Điều Khoản Hợp Đồng
+                </label>
+                <textarea
+                  rows={2}
+                  placeholder="Ghi chú điều khoản trả góp, số tài khoản nhận tiền..."
+                  value={loanForm.notes}
+                  onChange={(e) => setLoanForm((prev) => ({ ...prev, notes: e.target.value }))}
+                  className="w-full p-2.5 rounded-xl border border-slate-300 text-xs font-medium"
+                />
+              </div>
+
+              <div className="pt-2 flex justify-end space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setShowLoanModal(false)}
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs hover:bg-slate-50 cursor-pointer"
+                >
+                  Hủy Bỏ
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 rounded-xl bg-[#0C2C47] text-white font-black text-xs hover:bg-[#0C2C47]/90 shadow-md cursor-pointer"
+                >
+                  {editingLoan ? "Lưu Thay Đổi" : "Tạo Khoản Vay Mới"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 2: TRẢ NỢ / THU NỢ (QUY ƯỚC 1 = 1.000 VNĐ) */}
+      {activePayingLoan && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl border border-slate-100 space-y-4">
+            <div className="flex justify-between items-center border-b pb-3 border-slate-100">
+              <div className="flex items-center space-x-2">
+                <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${
+                  activePayingLoan.role === "creditor" ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800"
+                }`}>
+                  <CreditCard className="w-4 h-4" />
+                </div>
+                <h3 className="text-base font-black text-[#0C2C47]">
+                  {activePayingLoan.role === "creditor" ? "THU HỒI NỢ VỀ MOBO" : "THANH TOÁN TRẢ NỢ TỪ MOBO"}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActivePayingLoan(null)}
+                className="text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmitPayLoan} className="space-y-4">
+              <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 text-xs space-y-1">
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Khoản nợ:</span>
+                  <span className="font-bold text-slate-900">{activePayingLoan.title}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Đối tác:</span>
+                  <span className="font-bold text-slate-900">{activePayingLoan.partnerName}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Dư nợ còn lại:</span>
+                  <span className="font-black text-rose-600 text-sm">
+                    {activePayingLoan.remainingAmount.toLocaleString("vi-VN")} ₫
+                  </span>
+                </div>
+              </div>
+
+              {/* Nhập số tiền trả (1=1k) */}
+              <div className="space-y-1.5">
+                <div className="flex justify-between items-center">
+                  <label className="block text-xs font-black text-slate-800 uppercase">
+                    Số Tiền Thanh Toán (Quy ước 1 = 1.000 VNĐ) *
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setPayingAmountUnits((activePayingLoan.remainingAmount / 1000).toString())}
+                    className="text-[10px] font-black text-blue-700 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded cursor-pointer"
+                  >
+                    Tất toán hết ({activePayingLoan.remainingAmount.toLocaleString("vi-VN")}₫)
+                  </button>
+                </div>
+                <div className="relative">
+                  <input
+                    type="number"
+                    step="any"
+                    required
+                    placeholder="Nhập số tiền..."
+                    value={payingAmountUnits}
+                    onChange={(e) => setPayingAmountUnits(e.target.value)}
+                    className="w-full p-2.5 pr-14 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-[#0C2C47] font-black text-base"
+                  />
+                  <span className="absolute right-3 top-2.5 text-xs text-slate-400 font-bold">
+                    k VNĐ
+                  </span>
+                </div>
+                {payingAmountUnits && !isNaN(parseFloat(payingAmountUnits)) && (
+                  <div className="p-2 bg-emerald-50 rounded-xl border border-emerald-200 text-xs font-black text-emerald-800">
+                    Thực trả: {Math.round(parseFloat(payingAmountUnits) * 1000).toLocaleString("vi-VN")} ₫
+                  </div>
+                )}
+              </div>
+
+              {/* Chọn MoBo thực hiện */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                  {activePayingLoan.role === "creditor" ? "MoBo Nhận Tiền Thu Về" : "MoBo Trích Tiền Đi Trả"}
+                </label>
+                <select
+                  value={payingVaultId}
+                  onChange={(e) => setPayingVaultId(e.target.value)}
+                  className="w-full p-2.5 rounded-xl border border-slate-300 text-xs font-medium bg-white"
+                >
+                  <option value="">-- Không cập nhật MoBo (Chỉ ghi sổ) --</option>
+                  {vaults.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.name} ({v.balance.toLocaleString("vi-VN")} ₫)
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Ghi chú */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                  Ghi Chú Đợt Trả
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ví dụ: Trả đợt 1, thanh toán chuyển khoản..."
+                  value={payingNote}
+                  onChange={(e) => setPayingNote(e.target.value)}
+                  className="w-full p-2.5 rounded-xl border border-slate-300 text-xs font-medium"
+                />
+              </div>
+
+              <div className="pt-2 flex justify-end space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setActivePayingLoan(null)}
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs hover:bg-slate-50 cursor-pointer"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 rounded-xl bg-[#0C2C47] text-white font-black text-xs hover:bg-[#0C2C47]/90 shadow-md cursor-pointer"
+                >
+                  Xác Nhận Thanh Toán
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* MODAL: TẠO THỎA THUẬN KÝ ĐIỆN TỬ QUA ID LIÊN KẾT */}
+      {/* ======================================================== */}
+      {showAgreementModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl p-6 w-full max-w-lg shadow-2xl border border-slate-100 max-h-[90vh] overflow-y-auto space-y-4">
+            
+            {/* Header Modal */}
+            <div className="flex justify-between items-center border-b pb-3 border-slate-100">
+              <div className="flex items-center space-x-2">
+                <div className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-800 flex items-center justify-center">
+                  <PenTool className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-[#0C2C47]">
+                    TẠO THỎA THUẬN KÝ ĐIỆN TỬ
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Sinh mã ID liên kết • 2 bên cùng ký tên Canvas • Tự import vào Sổ Vay Mượn
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAgreementModal(false)}
+                className="text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {createdAgreementResult ? (
+              /* MÀN HÌNH SAU KHI TẠO THÀNH CÔNG: HIỂN THỊ LINK CHIA SẺ */
+              <div className="space-y-4 py-2">
+                <div className={`p-4 rounded-2xl border text-center space-y-2 ${
+                  createdAgreementResult.status === "completed"
+                    ? "bg-emerald-50 border-emerald-200"
+                    : "bg-blue-50 border-blue-200"
+                }`}>
+                  <div className={`w-12 h-12 rounded-full flex items-center justify-center mx-auto ${
+                    createdAgreementResult.status === "completed"
+                      ? "bg-emerald-100 text-emerald-700"
+                      : "bg-blue-100 text-blue-700"
+                  }`}>
+                    <Check className="w-6 h-6" />
+                  </div>
+                  <h4 className="font-black text-slate-900 text-base">
+                    {createdAgreementResult.status === "completed"
+                      ? "Đã Tạo & Kích Hoạt Vào Sổ Nợ Thành Công!"
+                      : "Đã Khởi Tạo Thỏa Thuận Chờ Ký Thành Công!"}
+                  </h4>
+                  <p className="text-xs text-slate-700">
+                    Mã định danh thỏa thuận: <b className="text-slate-950 font-black text-sm">{createdAgreementResult.id}</b>
+                  </p>
+                  {createdAgreementResult.status === "completed" && (
+                    <div className="text-[11px] font-bold text-emerald-800 bg-emerald-100/70 py-1 px-3 rounded-lg inline-block">
+                      ⚡ Đã tự động ghi vào Sổ Vay & Mượn (Không cần chờ ký 2 bên)
+                    </div>
+                  )}
+                </div>
+
+                {/* Khối chia sẻ link */}
+                <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 space-y-2">
+                  <span className="text-xs font-black text-slate-800 uppercase block">
+                    Đường Link Thỏa Thuận & Ký Điện Tử:
+                  </span>
+                  
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="text"
+                      readOnly
+                      value={typeof window !== "undefined" ? `${window.location.origin}/agreement/${createdAgreementResult.id}` : `/agreement/${createdAgreementResult.id}`}
+                      className="w-full p-2.5 rounded-xl border border-slate-300 text-xs font-mono bg-white text-slate-800 select-all"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const link = `${window.location.origin}/agreement/${createdAgreementResult.id}`;
+                        navigator.clipboard.writeText(link);
+                        setAgreementLinkCopied(true);
+                        setTimeout(() => setAgreementLinkCopied(false), 2000);
+                      }}
+                      className="px-3.5 py-2.5 rounded-xl bg-indigo-700 hover:bg-indigo-800 text-white font-black text-xs cursor-pointer shrink-0 flex items-center space-x-1"
+                    >
+                      {agreementLinkCopied ? (
+                        <>
+                          <Check className="w-4 h-4" />
+                          <span>Đã chép!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-4 h-4" />
+                          <span>Sao Chép</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  <p className="text-[11px] text-slate-500 italic">
+                    {createdAgreementResult.status === "completed"
+                      ? "💡 Khoản nợ đã có hiệu lực ngay trong Sổ Nợ. Bạn vẫn có thể gửi link này cho đối tác xem hợp đồng trực tuyến hoặc ký chữ ký điện tử bổ sung."
+                      : "💡 Hãy gửi link này cho đối tác (Chủ nợ hoặc Con nợ) qua Zalo/SMS. Khi cả hai bên cùng hoàn tất ký tên trên Canvas, thỏa thuận sẽ tự động import vào Sổ Vay & Mượn và tạo 2 bản lưu để tải về."}
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-between pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowAgreementModal(false)}
+                    className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition cursor-pointer"
+                  >
+                    Đóng
+                  </button>
+
+                  <a
+                    href={`/agreement/${createdAgreementResult.id}`}
+                    target="_blank"
+                    className="px-5 py-2 rounded-xl bg-[#0C2C47] text-white font-black text-xs hover:bg-[#12385b] shadow-xs cursor-pointer flex items-center space-x-1.5"
+                  >
+                    {createdAgreementResult.status === "completed" ? (
+                      <>
+                        <FileText className="w-3.5 h-3.5" />
+                        <span>Xem Văn Bản / In PDF ➔</span>
+                      </>
+                    ) : (
+                      <>
+                        <PenTool className="w-3.5 h-3.5" />
+                        <span>Mở Trang Ký Tên Ngay ➔</span>
+                      </>
+                    )}
+                  </a>
+                </div>
+              </div>
+            ) : (
+              /* FORM NHẬP LIỆU THỎA THUẬN */
+              <form onSubmit={handleCreateAgreement} className="space-y-4">
+                {/* Vai trò người lập */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    Bạn Đang Là Bên Nào Trong Thỏa Thuận? *
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setAgreementForm((prev) => ({ ...prev, creatorRole: "creditor" }))}
+                      className={`py-2 px-3 rounded-xl text-xs font-black border transition cursor-pointer flex items-center justify-center space-x-1.5 ${
+                        agreementForm.creatorRole === "creditor"
+                          ? "bg-emerald-600 text-white border-emerald-700 shadow-xs"
+                          : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                      }`}
+                    >
+                      <span>🟢 Tôi Là Bên Cho Vay (Chủ Nợ)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAgreementForm((prev) => ({ ...prev, creatorRole: "debtor" }))}
+                      className={`py-2 px-3 rounded-xl text-xs font-black border transition cursor-pointer flex items-center justify-center space-x-1.5 ${
+                        agreementForm.creatorRole === "debtor"
+                          ? "bg-rose-600 text-white border-rose-700 shadow-xs"
+                          : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                      }`}
+                    >
+                      <span>🔴 Tôi Là Bên Vay (Con Nợ)</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Tiêu đề mục đích */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    Mục Đích Thỏa Thuận Vay *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ví dụ: Vay vốn nhập hàng kinh doanh, Vay mua máy tính..."
+                    value={agreementForm.title}
+                    onChange={(e) => setAgreementForm((prev) => ({ ...prev, title: e.target.value }))}
+                    className="w-full p-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-[#0C2C47] text-xs font-medium"
+                  />
+                </div>
+
+                {/* Thông tin 2 Bên */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50/70 p-3 rounded-2xl border border-slate-200">
+                  <div>
+                    <label className="block text-xs font-black text-emerald-800 uppercase mb-1">
+                      Họ Tên Bên A (Chủ Nợ) *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Họ tên người cho vay..."
+                      value={agreementForm.creditorName}
+                      onChange={(e) => setAgreementForm((prev) => ({ ...prev, creditorName: e.target.value }))}
+                      className="w-full p-2 rounded-xl border border-slate-300 text-xs font-medium bg-white"
+                    />
+                    <input
+                      type="text"
+                      placeholder="SĐT / CCCD (tùy chọn)"
+                      value={agreementForm.creditorContact}
+                      onChange={(e) => setAgreementForm((prev) => ({ ...prev, creditorContact: e.target.value }))}
+                      className="w-full p-1.5 rounded-lg border border-slate-200 text-[11px] font-medium bg-white mt-1.5"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-black text-rose-800 uppercase mb-1">
+                      Họ Tên Bên B (Con Nợ) *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Họ tên người đi vay..."
+                      value={agreementForm.debtorName}
+                      onChange={(e) => setAgreementForm((prev) => ({ ...prev, debtorName: e.target.value }))}
+                      className="w-full p-2 rounded-xl border border-slate-300 text-xs font-medium bg-white"
+                    />
+                    <input
+                      type="text"
+                      placeholder="SĐT / CCCD (tùy chọn)"
+                      value={agreementForm.debtorContact}
+                      onChange={(e) => setAgreementForm((prev) => ({ ...prev, debtorContact: e.target.value }))}
+                      className="w-full p-1.5 rounded-lg border border-slate-200 text-[11px] font-medium bg-white mt-1.5"
+                    />
+                  </div>
+                </div>
+
+                {/* Số tiền gốc (1=1k) */}
+                <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200 space-y-1.5">
+                  <div className="flex justify-between items-center">
+                    <label className="block text-xs font-black text-slate-800 uppercase">
+                      Số Tiền Thỏa Thuận (Quy ước: 1 = 1.000 VNĐ) *
+                    </label>
+                    <span className="text-[10px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded">
+                      1 = 1.000 VNĐ
+                    </span>
+                  </div>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      step="any"
+                      required
+                      placeholder="Ví dụ: 30000 = 30 triệu..."
+                      value={agreementForm.amountUnits}
+                      onChange={(e) => setAgreementForm((prev) => ({ ...prev, amountUnits: e.target.value }))}
+                      className="w-full p-2.5 pr-14 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-[#0C2C47] font-black text-base"
+                    />
+                    <span className="absolute right-3 top-2.5 text-xs text-slate-400 font-bold">
+                      k VNĐ
+                    </span>
+                  </div>
+                  {agreementForm.amountUnits && !isNaN(parseFloat(agreementForm.amountUnits)) && (
+                    <div className="p-2 bg-emerald-50 rounded-xl border border-emerald-200 text-xs font-black text-emerald-800">
+                      💰 Số tiền thực tế:{" "}
+                      {Math.round(parseFloat(agreementForm.amountUnits) * 1000).toLocaleString("vi-VN")} ₫
+                    </div>
+                  )}
+                </div>
+
+                {/* Lãi suất */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                      Loại Lãi Suất
+                    </label>
+                    <select
+                      value={agreementForm.interestType}
+                      onChange={(e) => setAgreementForm((prev) => ({ ...prev, interestType: e.target.value as any }))}
+                      className="w-full p-2 rounded-xl border border-slate-300 text-xs font-medium bg-white"
+                    >
+                      <option value="none">Không tính lãi (0%)</option>
+                      <option value="monthly">% / tháng</option>
+                      <option value="yearly">% / năm</option>
+                      <option value="fixed_sum">Lãi cố định</option>
+                    </select>
+                  </div>
+
+                  {agreementForm.interestType !== "none" ? (
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                        Mức Lãi ({agreementForm.interestType === "monthly" ? "%/tháng" : agreementForm.interestType === "yearly" ? "%/năm" : "VNĐ"})
+                      </label>
+                      <input
+                        type="number"
+                        step="any"
+                        placeholder="Ví dụ: 1.0"
+                        value={agreementForm.interestRate}
+                        onChange={(e) => setAgreementForm((prev) => ({ ...prev, interestRate: e.target.value }))}
+                        className="w-full p-2 rounded-xl border border-slate-300 text-xs font-bold"
+                      />
+                    </div>
+                  ) : (
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                        Kỳ Hạn Lãi
+                      </label>
+                      <span className="block p-2 rounded-xl border border-slate-200 bg-slate-50 text-xs text-slate-400 font-semibold">
+                        Không phát sinh lãi
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Thời gian */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                      Ngày Bắt Đầu
+                    </label>
+                    <input
+                      type="date"
+                      required
+                      value={agreementForm.startDate}
+                      onChange={(e) => setAgreementForm((prev) => ({ ...prev, startDate: e.target.value }))}
+                      className="w-full p-2 rounded-xl border border-slate-300 text-xs font-medium"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                      Ngày Đáo Hạn
+                    </label>
+                    <input
+                      type="date"
+                      value={agreementForm.dueDate}
+                      onChange={(e) => setAgreementForm((prev) => ({ ...prev, dueDate: e.target.value }))}
+                      className="w-full p-2 rounded-xl border border-slate-300 text-xs font-medium"
+                    />
+                  </div>
+                </div>
+
+                {/* MoBo liên kết */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    MoBo Liên Kết Giao Dịch Của Bạn
+                  </label>
+                  <select
+                    value={agreementForm.linkedVaultId}
+                    onChange={(e) => setAgreementForm((prev) => ({ ...prev, linkedVaultId: e.target.value }))}
+                    className="w-full p-2.5 rounded-xl border border-slate-300 text-xs font-medium bg-white"
+                  >
+                    <option value="">-- Chưa gán MoBo --</option>
+                    {vaults.map((v) => (
+                      <option key={v.id} value={v.id}>
+                        {v.name} ({v.balance.toLocaleString("vi-VN")} ₫)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Tùy chọn Kích hoạt vào Sổ Nợ ngay không cần xác nhận 2 bên */}
+                <div className="bg-indigo-50/70 p-3 rounded-2xl border border-indigo-200">
+                  <label className="flex items-start space-x-2.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(agreementForm.autoActivate)}
+                      onChange={(e) => setAgreementForm((prev) => ({ ...prev, autoActivate: e.target.checked }))}
+                      className="mt-0.5 w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 cursor-pointer"
+                    />
+                    <div>
+                      <span className="text-xs font-black text-indigo-950 flex items-center gap-1.5">
+                        <span>⚡ Kích hoạt vào Sổ Nợ ngay (Không cần xác nhận 2 bên)</span>
+                        <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.2 rounded">Khuyên dùng</span>
+                      </span>
+                      <p className="text-[11px] text-indigo-900/80 mt-0.5 leading-relaxed">
+                        Khoản nợ sẽ được lưu và có hiệu lực ngay trong Sổ Vay & Mượn. Không bắt buộc cả 2 phía phải vẽ chữ ký trên máy. Bạn vẫn có link và mã để gửi đối tác xem hoặc ký xác nhận bổ sung bất cứ lúc nào.
+                      </p>
+                    </div>
+                  </label>
+                </div>
+
+                <div className="pt-2 flex flex-wrap items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowAgreementModal(false)}
+                    className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition cursor-pointer"
+                  >
+                    Hủy Bỏ
+                  </button>
+
+                  {agreementForm.autoActivate ? (
+                    <button
+                      type="button"
+                      onClick={() => handleCreateAgreement(undefined, true)}
+                      disabled={isCreatingAgreement}
+                      className="px-5 py-2.5 rounded-xl text-xs font-black text-white bg-emerald-700 hover:bg-emerald-800 shadow-xs transition active:scale-95 cursor-pointer disabled:opacity-50 flex items-center space-x-1.5"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>{isCreatingAgreement ? "Đang Ghi Sổ..." : "⚡ Tạo & Ghi Sổ Nợ Ngay"}</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => handleCreateAgreement(undefined, false)}
+                      disabled={isCreatingAgreement}
+                      className="px-5 py-2.5 rounded-xl text-xs font-black text-white bg-indigo-700 hover:bg-indigo-800 shadow-xs transition active:scale-95 cursor-pointer disabled:opacity-50 flex items-center space-x-1.5"
+                    >
+                      <PenTool className="w-3.5 h-3.5" />
+                      <span>{isCreatingAgreement ? "Đang Khởi Tạo..." : "Tạo Thỏa Thuận & Lấy Link Ký"}</span>
+                    </button>
+                  )}
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 3: XÁC NHẬN XÓA KHOẢN VAY */}
+      {loanToDelete && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl border border-slate-100 space-y-4 text-center">
+            <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center mx-auto">
+              <Trash2 className="w-6 h-6" />
+            </div>
+            <div>
+              <h3 className="text-base font-black text-slate-900">Xóa Khoản Vay / Mượn?</h3>
+              <p className="text-xs text-slate-500 mt-1">
+                Bạn có chắc chắn muốn xóa hợp đồng: <b>"{loanToDelete.title}"</b> của đối tác <b>{loanToDelete.partnerName}</b>?
+              </p>
+            </div>
+            <div className="flex justify-center space-x-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setLoanToDelete(null)}
+                className="px-4 py-2 rounded-xl border border-slate-300 text-slate-700 text-xs font-bold hover:bg-slate-50 cursor-pointer"
+              >
+                Hủy Bỏ
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteLoan}
+                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-black shadow-md cursor-pointer"
+              >
+                Xác Nhận Xóa
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL THÊM NHÃN GIAO DỊCH MỚI */}
+      {showAddTagModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-indigo-200 space-y-4">
+            <div className="flex items-center justify-between border-b pb-3 border-slate-100">
+              <div className="flex items-center space-x-2">
+                <Tag className="w-5 h-5 text-indigo-600" />
+                <h3 className="text-base font-black text-[#0C2C47]">Thêm Nhãn Giao Dịch Mới</h3>
+              </div>
+              <button onClick={() => setShowAddTagModal(false)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateTag} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tên nhãn (*)</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Vd: Quảng cáo, Tiếp khách, Vật tư..."
+                  value={newTagName}
+                  onChange={(e) => setNewTagName(e.target.value)}
+                  className="w-full p-2.5 rounded-xl border border-slate-300 text-sm font-bold text-slate-800 focus:border-indigo-600 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Loại nhãn áp dụng</label>
+                <div className="grid grid-cols-3 gap-2 text-xs font-bold">
+                  {[
+                    { id: "income", label: "🟢 Nhãn Thu" },
+                    { id: "expense", label: "🔴 Nhãn Chi" },
+                    { id: "both", label: "🔵 Thu & Chi" },
+                  ].map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setNewTagType(item.id as any)}
+                      className={`py-2 rounded-xl border transition cursor-pointer ${
+                        newTagType === item.id
+                          ? "bg-indigo-600 text-white border-indigo-600 shadow-xs"
+                          : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100"
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="pt-2 flex items-center justify-end space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAddTagModal(false)}
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 text-xs font-bold text-slate-600 hover:bg-slate-100 cursor-pointer"
+                >
+                  Hủy Bỏ
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black shadow-md cursor-pointer"
+                >
+                  Tạo Nhãn Ngay ➔
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL SỬA NHÃN GIAO DỊCH */}
+      {editingTag && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-indigo-200 space-y-4">
+            <div className="flex items-center justify-between border-b pb-3 border-slate-100">
+              <div className="flex items-center space-x-2">
+                <Edit className="w-5 h-5 text-indigo-600" />
+                <h3 className="text-base font-black text-[#0C2C47]">Chỉnh Sửa Nhãn Giao Dịch</h3>
+              </div>
+              <button onClick={() => setEditingTag(null)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateTag} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tên nhãn (*)</label>
+                <input
+                  type="text"
+                  required
+                  value={editingTag.name}
+                  onChange={(e) => setEditingTag({ ...editingTag, name: e.target.value })}
+                  className="w-full p-2.5 rounded-xl border border-slate-300 text-sm font-bold text-slate-800 focus:border-indigo-600 focus:outline-none"
+                />
+                <p className="text-[11px] text-slate-500 mt-1">
+                  💡 Lưu ý: Khi đổi tên nhãn, tất cả ({editingTag.flowCount || 0}) giao dịch cũ đang dùng nhãn này sẽ tự động được cập nhật theo tên mới.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Loại nhãn áp dụng</label>
+                <div className="grid grid-cols-3 gap-2 text-xs font-bold">
+                  {[
+                    { id: "income", label: "🟢 Nhãn Thu" },
+                    { id: "expense", label: "🔴 Nhãn Chi" },
+                    { id: "both", label: "🔵 Thu & Chi" },
+                  ].map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setEditingTag({ ...editingTag, type: item.id as any })}
+                      className={`py-2 rounded-xl border transition cursor-pointer ${
+                        editingTag.type === item.id
+                          ? "bg-indigo-600 text-white border-indigo-600 shadow-xs"
+                          : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100"
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="pt-2 flex items-center justify-end space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingTag(null)}
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 text-xs font-bold text-slate-600 hover:bg-slate-100 cursor-pointer"
+                >
+                  Hủy Bỏ
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black shadow-md cursor-pointer"
+                >
+                  Lưu Thay Đổi ➔
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL XÁC NHẬN XÓA NHÃN GIAO DỊCH */}
+      {tagToDelete && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-rose-300 space-y-4">
+            <div className="flex items-center space-x-3 text-rose-600 border-b border-rose-100 pb-3">
+              <Trash2 className="w-6 h-6 shrink-0" />
+              <div>
+                <h4 className="font-black text-sm">Xóa Nhãn Giao Dịch?</h4>
+                <p className="text-[11px] text-slate-500">Hành động này không thể hoàn tác</p>
+              </div>
+            </div>
+
+            <div className="text-xs text-slate-600 space-y-2">
+              <p>
+                Bạn có chắc chắn muốn xóa nhãn <b className="text-slate-900">"{tagToDelete.name}"</b>?
+              </p>
+              {(tagToDelete.flowCount || 0) > 0 && (
+                <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-amber-900 text-[11px]">
+                  ⚠️ Có <b>{tagToDelete.flowCount}</b> giao dịch đang sử dụng nhãn này. Khi xóa, các giao dịch đó sẽ tự động được chuyển sang nhãn <b className="font-bold">"Khác"</b>.
+                </div>
+              )}
+            </div>
+
+            <div className="pt-2 flex items-center justify-end space-x-2">
+              <button
+                type="button"
+                onClick={() => setTagToDelete(null)}
+                className="px-4 py-2 rounded-xl border border-slate-300 text-xs font-bold text-slate-600 hover:bg-slate-100 cursor-pointer"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteTag}
+                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-black shadow-sm cursor-pointer"
+              >
+                Xác Nhận Xóa
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
