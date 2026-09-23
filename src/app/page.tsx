@@ -67,6 +67,7 @@ import {
   stopAllSounds,
 } from "@/lib/sound";
 import FinancialHealthChart from "@/components/FinancialHealthChart";
+import FinancialTrendsChart from "@/components/FinancialTrendsChart";
 
 interface Loan {
   id: string;
@@ -1911,6 +1912,11 @@ export default function Home() {
             flows={flows}
             systemSettings={systemSettings}
           />
+
+          {/* ======================================================== */}
+          {/* KHỐI BIỂU ĐỒ ĐƯỜNG XU HƯỚNG: DỰ CHI - DỰ THU - THU THẬT - CHI THẬT - ĐƯỜNG NỢ */}
+          {/* ======================================================== */}
+          <FinancialTrendsChart flows={flows} loans={loans} vaults={vaults} />
 
           {/* ======================================================== */}
           {/* KHỐI 2: CÁC MOBO (Money Box) */}
