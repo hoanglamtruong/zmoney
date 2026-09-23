@@ -457,6 +457,7 @@ export default function Home() {
     dueDate: "",
     linkedVaultId: "",
     terms: "Hai bên cam kết tự nguyện thỏa thuận vay và cho vay đúng theo các điều khoản ghi trong thỏa thuận này.",
+    autoActivate: true,
   });
   const [createdAgreementResult, setCreatedAgreementResult] = useState<any | null>(null);
   const [agreementLinkCopied, setAgreementLinkCopied] = useState(false);
@@ -1191,12 +1192,13 @@ export default function Home() {
       dueDate: "",
       linkedVaultId: defaultVault ? defaultVault.id : "",
       terms: "Hai bên cam kết tự nguyện thỏa thuận vay và cho vay đúng theo các điều khoản ghi trong thỏa thuận này.",
+      autoActivate: true,
     });
     setShowAgreementModal(true);
   };
 
-  const handleCreateAgreement = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleCreateAgreement = async (e?: React.FormEvent, forceAutoActivate?: boolean) => {
+    if (e) e.preventDefault();
     if (!agreementForm.title.trim()) return alert("Vui lòng nhập mục đích vay");
     if (!agreementForm.creditorName.trim()) return alert("Vui lòng nhập họ tên Chủ Nợ");
     if (!agreementForm.debtorName.trim()) return alert("Vui lòng nhập họ tên Con Nợ");
@@ -1204,6 +1206,8 @@ export default function Home() {
     const units = parseFloat(agreementForm.amountUnits);
     if (isNaN(units) || units <= 0) return alert("Vui lòng nhập số tiền hợp lệ (> 0). Quy ước 1 = 1.000 VNĐ.");
     const realAmount = Math.round(units * 1000);
+
+    const willAutoActivate = forceAutoActivate !== undefined ? forceAutoActivate : Boolean(agreementForm.autoActivate);
 
     try {
       setIsCreatingAgreement(true);
@@ -1225,12 +1229,16 @@ export default function Home() {
           dueDate: agreementForm.dueDate || null,
           linkedVaultId: agreementForm.linkedVaultId || null,
           terms: agreementForm.terms,
+          autoActivate: willAutoActivate,
         }),
       });
 
       const data = await res.json();
       if (data.success) {
         setCreatedAgreementResult(data.data);
+        if (willAutoActivate) {
+          await fetchData();
+        }
       } else {
         alert("Lỗi: " + data.error);
       }
@@ -7161,16 +7169,31 @@ export default function Home() {
             {createdAgreementResult ? (
               /* MÀN HÌNH SAU KHI TẠO THÀNH CÔNG: HIỂN THỊ LINK CHIA SẺ */
               <div className="space-y-4 py-2">
-                <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-200 text-center space-y-2">
-                  <div className="w-12 h-12 bg-emerald-100 text-emerald-700 rounded-full flex items-center justify-center mx-auto">
+                <div className={`p-4 rounded-2xl border text-center space-y-2 ${
+                  createdAgreementResult.status === "completed"
+                    ? "bg-emerald-50 border-emerald-200"
+                    : "bg-blue-50 border-blue-200"
+                }`}>
+                  <div className={`w-12 h-12 rounded-full flex items-center justify-center mx-auto ${
+                    createdAgreementResult.status === "completed"
+                      ? "bg-emerald-100 text-emerald-700"
+                      : "bg-blue-100 text-blue-700"
+                  }`}>
                     <Check className="w-6 h-6" />
                   </div>
                   <h4 className="font-black text-slate-900 text-base">
-                    Đã Khởi Tạo Thỏa Thuận Thành Công!
+                    {createdAgreementResult.status === "completed"
+                      ? "Đã Tạo & Kích Hoạt Vào Sổ Nợ Thành Công!"
+                      : "Đã Khởi Tạo Thỏa Thuận Chờ Ký Thành Công!"}
                   </h4>
-                  <p className="text-xs text-emerald-800">
-                    Mã định danh thỏa thuận duy nhất: <b className="text-emerald-950 font-black text-sm">{createdAgreementResult.id}</b>
+                  <p className="text-xs text-slate-700">
+                    Mã định danh thỏa thuận: <b className="text-slate-950 font-black text-sm">{createdAgreementResult.id}</b>
                   </p>
+                  {createdAgreementResult.status === "completed" && (
+                    <div className="text-[11px] font-bold text-emerald-800 bg-emerald-100/70 py-1 px-3 rounded-lg inline-block">
+                      ⚡ Đã tự động ghi vào Sổ Vay & Mượn (Không cần chờ ký 2 bên)
+                    </div>
+                  )}
                 </div>
 
                 {/* Khối chia sẻ link */}
@@ -7211,7 +7234,9 @@ export default function Home() {
                   </div>
 
                   <p className="text-[11px] text-slate-500 italic">
-                    💡 Hãy gửi link này cho đối tác (Chủ nợ hoặc Con nợ) qua Zalo/SMS. Khi cả hai bên cùng hoàn tất ký tên trên Canvas, thỏa thuận sẽ tự động import vào Sổ Vay & Mượn và tạo 2 bản lưu để tải về.
+                    {createdAgreementResult.status === "completed"
+                      ? "💡 Khoản nợ đã có hiệu lực ngay trong Sổ Nợ. Bạn vẫn có thể gửi link này cho đối tác xem hợp đồng trực tuyến hoặc ký chữ ký điện tử bổ sung."
+                      : "💡 Hãy gửi link này cho đối tác (Chủ nợ hoặc Con nợ) qua Zalo/SMS. Khi cả hai bên cùng hoàn tất ký tên trên Canvas, thỏa thuận sẽ tự động import vào Sổ Vay & Mượn và tạo 2 bản lưu để tải về."}
                   </p>
                 </div>
 
@@ -7229,8 +7254,17 @@ export default function Home() {
                     target="_blank"
                     className="px-5 py-2 rounded-xl bg-[#0C2C47] text-white font-black text-xs hover:bg-[#12385b] shadow-xs cursor-pointer flex items-center space-x-1.5"
                   >
-                    <PenTool className="w-3.5 h-3.5" />
-                    <span>Mở Trang Ký Tên Ngay ➔</span>
+                    {createdAgreementResult.status === "completed" ? (
+                      <>
+                        <FileText className="w-3.5 h-3.5" />
+                        <span>Xem Văn Bản / In PDF ➔</span>
+                      </>
+                    ) : (
+                      <>
+                        <PenTool className="w-3.5 h-3.5" />
+                        <span>Mở Trang Ký Tên Ngay ➔</span>
+                      </>
+                    )}
                   </a>
                 </div>
               </div>
@@ -7450,7 +7484,28 @@ export default function Home() {
                   </select>
                 </div>
 
-                <div className="pt-2 flex justify-end space-x-2">
+                {/* Tùy chọn Kích hoạt vào Sổ Nợ ngay không cần xác nhận 2 bên */}
+                <div className="bg-indigo-50/70 p-3 rounded-2xl border border-indigo-200">
+                  <label className="flex items-start space-x-2.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(agreementForm.autoActivate)}
+                      onChange={(e) => setAgreementForm((prev) => ({ ...prev, autoActivate: e.target.checked }))}
+                      className="mt-0.5 w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 cursor-pointer"
+                    />
+                    <div>
+                      <span className="text-xs font-black text-indigo-950 flex items-center gap-1.5">
+                        <span>⚡ Kích hoạt vào Sổ Nợ ngay (Không cần xác nhận 2 bên)</span>
+                        <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.2 rounded">Khuyên dùng</span>
+                      </span>
+                      <p className="text-[11px] text-indigo-900/80 mt-0.5 leading-relaxed">
+                        Khoản nợ sẽ được lưu và có hiệu lực ngay trong Sổ Vay & Mượn. Không bắt buộc cả 2 phía phải vẽ chữ ký trên máy. Bạn vẫn có link và mã để gửi đối tác xem hoặc ký xác nhận bổ sung bất cứ lúc nào.
+                      </p>
+                    </div>
+                  </label>
+                </div>
+
+                <div className="pt-2 flex flex-wrap items-center justify-end gap-2">
                   <button
                     type="button"
                     onClick={() => setShowAgreementModal(false)}
@@ -7458,13 +7513,28 @@ export default function Home() {
                   >
                     Hủy Bỏ
                   </button>
-                  <button
-                    type="submit"
-                    disabled={isCreatingAgreement}
-                    className="px-5 py-2 rounded-xl text-xs font-black text-white bg-indigo-700 hover:bg-indigo-800 shadow-xs transition active:scale-95 cursor-pointer disabled:opacity-50"
-                  >
-                    {isCreatingAgreement ? "Đang Khởi Tạo..." : "Tạo Thỏa Thuận & Lấy Link Ký"}
-                  </button>
+
+                  {agreementForm.autoActivate ? (
+                    <button
+                      type="button"
+                      onClick={() => handleCreateAgreement(undefined, true)}
+                      disabled={isCreatingAgreement}
+                      className="px-5 py-2.5 rounded-xl text-xs font-black text-white bg-emerald-700 hover:bg-emerald-800 shadow-xs transition active:scale-95 cursor-pointer disabled:opacity-50 flex items-center space-x-1.5"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>{isCreatingAgreement ? "Đang Ghi Sổ..." : "⚡ Tạo & Ghi Sổ Nợ Ngay"}</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => handleCreateAgreement(undefined, false)}
+                      disabled={isCreatingAgreement}
+                      className="px-5 py-2.5 rounded-xl text-xs font-black text-white bg-indigo-700 hover:bg-indigo-800 shadow-xs transition active:scale-95 cursor-pointer disabled:opacity-50 flex items-center space-x-1.5"
+                    >
+                      <PenTool className="w-3.5 h-3.5" />
+                      <span>{isCreatingAgreement ? "Đang Khởi Tạo..." : "Tạo Thỏa Thuận & Lấy Link Ký"}</span>
+                    </button>
+                  )}
                 </div>
               </form>
             )}

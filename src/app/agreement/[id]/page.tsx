@@ -75,6 +75,8 @@ export default function AgreementPage() {
   const [isDrawing, setIsDrawing] = useState(false);
   const [hasSignatureDrawn, setHasSignatureDrawn] = useState(false);
 
+  const [isActivating, setIsActivating] = useState(false);
+
   const fetchAgreement = async () => {
     try {
       setLoading(true);
@@ -89,6 +91,29 @@ export default function AgreementPage() {
       setError("Lỗi kết nối máy chủ: " + err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleActivateDirectly = async () => {
+    if (!confirm("Bạn có muốn kích hoạt thỏa thuận này và lưu trực tiếp vào Sổ Vay & Mượn ngay không cần chờ chữ ký 2 bên?")) {
+      return;
+    }
+    try {
+      setIsActivating(true);
+      const res = await fetch(`/api/agreements/${id}/activate`, {
+        method: "POST",
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert("Đã kích hoạt thỏa thuận và ghi nhận trực tiếp vào Sổ Vay & Mượn thành công!");
+        fetchAgreement();
+      } else {
+        alert("Lỗi: " + data.error);
+      }
+    } catch (err: any) {
+      alert("Lỗi kết nối: " + err.message);
+    } finally {
+      setIsActivating(false);
     }
   };
 
@@ -243,6 +268,7 @@ export default function AgreementPage() {
   }
 
   const bothSigned = Boolean(agreement.creditor_signature && agreement.debtor_signature);
+  const isCompleted = agreement.status === "completed" || bothSigned;
   const amountNumber = parseFloat(agreement.amount as any) || 0;
 
   return (
@@ -297,7 +323,7 @@ export default function AgreementPage() {
       <main className="max-w-4xl mx-auto px-4 pt-6 space-y-6">
         {/* Banner Trạng Thái (Ẩn khi In) */}
         <div className="print:hidden">
-          {bothSigned ? (
+          {isCompleted ? (
             <div className="bg-emerald-600 text-white p-4.5 rounded-2xl shadow-md flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <div className="flex items-center space-x-3">
                 <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
@@ -305,10 +331,14 @@ export default function AgreementPage() {
                 </div>
                 <div>
                   <h3 className="font-black text-sm sm:text-base">
-                    Thỏa Thuận Đã Hoàn Tất Ký Kết Điện Tử 2 Phía!
+                    {bothSigned
+                      ? "Thỏa Thuận Đã Hoàn Tất Ký Kết Điện Tử 2 Phía!"
+                      : "Thỏa Thuận Đã Kích Hoạt & Ghi Nhận Vào Sổ Nợ!"}
                   </h3>
                   <p className="text-xs text-emerald-100">
-                    Khoản nợ đã tự động được đồng bộ và import vào hệ thống Quản Lý Sổ Vay & Mượn.
+                    {bothSigned
+                      ? "Khoản nợ đã tự động được đồng bộ và import vào hệ thống Quản Lý Sổ Vay & Mượn."
+                      : "Thỏa thuận đã có hiệu lực và được ghi nhận trong Sổ Nợ (không bắt buộc 2 bên cùng ký)."}
                   </p>
                 </div>
               </div>
@@ -344,20 +374,33 @@ export default function AgreementPage() {
                 </div>
               </div>
 
-              <button
-                type="button"
-                onClick={handleCopyLink}
-                className="px-3.5 py-2 rounded-xl bg-white text-amber-900 hover:bg-amber-50 text-xs font-black shadow-xs cursor-pointer flex items-center space-x-1.5 transition self-start sm:self-auto"
-              >
-                <Share2 className="w-4 h-4" />
-                <span>Gửi Link Cho Đối Tác Ký</span>
-              </button>
+              <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+                <button
+                  type="button"
+                  onClick={handleActivateDirectly}
+                  disabled={isActivating}
+                  className="px-3.5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-black shadow-xs cursor-pointer flex items-center space-x-1.5 transition active:scale-95 disabled:opacity-50"
+                  title="Kích hoạt trực tiếp vào Sổ Nợ mà không cần chờ đối tác ký"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>{isActivating ? "Đang xử lý..." : "⚡ Kích Hoạt Vào Sổ Nợ Ngay"}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleCopyLink}
+                  className="px-3.5 py-2 rounded-xl bg-white text-amber-900 hover:bg-amber-50 text-xs font-black shadow-xs cursor-pointer flex items-center space-x-1.5 transition"
+                >
+                  <Share2 className="w-4 h-4" />
+                  <span>Gửi Link Ký</span>
+                </button>
+              </div>
             </div>
           )}
         </div>
 
-        {/* Thanh Điều Khiển Tải 2 Bản Lưu (Khi đã hoàn tất ký) */}
-        {bothSigned && (
+        {/* Thanh Điều Khiển Tải 2 Bản Lưu (Khi đã hoàn tất ký hoặc đã kích hoạt) */}
+        {isCompleted && (
           <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs print:hidden space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center space-x-1.5">
@@ -589,15 +632,21 @@ export default function AgreementPage() {
                       </span>
                     </div>
                   ) : (
-                    <div className="print:hidden space-y-1 text-center">
-                      <span className="text-[11px] text-slate-400 italic block">Chưa ký tên</span>
+                    <div className="print:hidden space-y-1.5 text-center">
+                      <span className={`text-[11px] font-bold block ${isCompleted ? "text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full" : "text-slate-400 italic"}`}>
+                        {isCompleted ? "✓ Đã xác nhận trực tiếp" : "Chưa ký tên"}
+                      </span>
                       <button
                         type="button"
                         onClick={() => handleOpenSignModal("creditor")}
-                        className="px-3 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-black text-xs shadow-xs cursor-pointer flex items-center space-x-1 mx-auto transition active:scale-95"
+                        className={`px-3 py-1.5 rounded-xl font-black text-xs shadow-xs cursor-pointer flex items-center space-x-1 mx-auto transition active:scale-95 ${
+                          isCompleted
+                            ? "border border-emerald-300 text-emerald-800 bg-white hover:bg-emerald-50"
+                            : "bg-emerald-700 hover:bg-emerald-800 text-white"
+                        }`}
                       >
                         <PenTool className="w-3.5 h-3.5" />
-                        <span>Ký Tên Bên A</span>
+                        <span>{isCompleted ? "Ký Bổ Sung (Tùy chọn)" : "Ký Tên Bên A"}</span>
                       </button>
                     </div>
                   )}
@@ -631,15 +680,21 @@ export default function AgreementPage() {
                       </span>
                     </div>
                   ) : (
-                    <div className="print:hidden space-y-1 text-center">
-                      <span className="text-[11px] text-slate-400 italic block">Chưa ký tên</span>
+                    <div className="print:hidden space-y-1.5 text-center">
+                      <span className={`text-[11px] font-bold block ${isCompleted ? "text-rose-700 bg-rose-50 px-2 py-0.5 rounded-full" : "text-slate-400 italic"}`}>
+                        {isCompleted ? "✓ Đã xác nhận trực tiếp" : "Chưa ký tên"}
+                      </span>
                       <button
                         type="button"
                         onClick={() => handleOpenSignModal("debtor")}
-                        className="px-3 py-1.5 rounded-xl bg-rose-700 hover:bg-rose-800 text-white font-black text-xs shadow-xs cursor-pointer flex items-center space-x-1 mx-auto transition active:scale-95"
+                        className={`px-3 py-1.5 rounded-xl font-black text-xs shadow-xs cursor-pointer flex items-center space-x-1 mx-auto transition active:scale-95 ${
+                          isCompleted
+                            ? "border border-rose-300 text-rose-800 bg-white hover:bg-rose-50"
+                            : "bg-rose-700 hover:bg-rose-800 text-white"
+                        }`}
                       >
                         <PenTool className="w-3.5 h-3.5" />
-                        <span>Ký Tên Bên B</span>
+                        <span>{isCompleted ? "Ký Bổ Sung (Tùy chọn)" : "Ký Tên Bên B"}</span>
                       </button>
                     </div>
                   )}
@@ -655,7 +710,7 @@ export default function AgreementPage() {
             <div className="mt-5 pt-3 border-t border-slate-200 text-center text-[10px] text-slate-400 flex flex-col sm:flex-row items-center justify-between gap-1">
               <span>Hệ thống quản lý tài chính Money Box (MoBo)</span>
               <span>Mã xác thực chữ ký số: SHA256-{agreement.id}-{(agreement.created_at || agreement.createdAtFormatted || "SIGNED").slice(0, 10)}</span>
-              <span>Trạng thái: {bothSigned ? "HỢP ĐỒNG CÓ HIỆU LỰC" : "CHỜ KÝ ĐẦY ĐỦ"}</span>
+              <span>Trạng thái: {isCompleted ? "HỢP ĐỒNG CÓ HIỆU LỰC (ĐÃ GHI SỔ NỢ)" : "CHỜ KÝ ĐẦY ĐỦ"}</span>
             </div>
           </div>
         </div>
