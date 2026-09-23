@@ -37,6 +37,7 @@ import {
   ShieldAlert,
   Printer,
   ChevronDown,
+  ChevronUp,
   Info,
   Volume2,
   Volume1,
@@ -293,6 +294,10 @@ export default function Home() {
   // ==========================================
   const [loans, setLoans] = useState<Loan[]>([]);
   const [loanTabFilter, setLoanTabFilter] = useState<"all" | "creditor" | "debtor">("all");
+  const [expandedLoanIds, setExpandedLoanIds] = useState<string[]>([]);
+  const toggleLoanExpand = (id: string) => {
+    setExpandedLoanIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
   const [showLoanModal, setShowLoanModal] = useState(false);
   const [editingLoan, setEditingLoan] = useState<Loan | null>(null);
   const [loanForm, setLoanForm] = useState({
@@ -1890,12 +1895,13 @@ export default function Home() {
               }
 
               return (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div className="space-y-2.5">
                   {filteredLoans.map((loan) => {
                     const isCreditor = loan.role === "creditor";
                     const isSettled = loan.status === "settled" || loan.remainingAmount <= 0;
                     const bothConfirmed = loan.confirmedCreditor && loan.confirmedDebtor;
                     const percentPaid = loan.amount > 0 ? Math.min(100, Math.round((loan.paidAmount / loan.amount) * 100)) : 0;
+                    const isExpanded = expandedLoanIds.includes(loan.id);
 
                     // Tính đếm ngược ngày đáo hạn
                     const getDueCountdown = (dueDateStr: string | null) => {
@@ -1911,7 +1917,7 @@ export default function Home() {
                       } else if (diffDays === 0) {
                         return { text: "Hôm nay đáo hạn!", status: "today" };
                       } else if (diffDays <= 7) {
-                        return { text: `Còn ${diffDays} ngày (sắp đến hạn)`, status: "warning" };
+                        return { text: `Còn ${diffDays} ngày`, status: "warning" };
                       } else {
                         return { text: `Còn ${diffDays} ngày`, status: "normal" };
                       }
@@ -1926,372 +1932,212 @@ export default function Home() {
                     const debtorName = loan.agreementDebtorName || (!isCreditor ? "Tôi (Con Nợ)" : loan.partnerName);
                     const debtorContact = loan.agreementDebtorContact || (!isCreditor && loan.vaultName ? `MoBo: ${loan.vaultName}` : "");
 
-                    // Ước tính tiền lãi theo kỳ
-                    let estimatedInterestText = "";
-                    if (loan.interestRate > 0 && loan.remainingAmount > 0) {
-                      if (loan.interestType === "monthly") {
-                        const est = Math.round((loan.remainingAmount * loan.interestRate) / 100);
-                        estimatedInterestText = `~${est.toLocaleString("vi-VN")} ₫/tháng`;
-                      } else if (loan.interestType === "yearly") {
-                        const est = Math.round((loan.remainingAmount * loan.interestRate) / 100 / 12);
-                        estimatedInterestText = `~${est.toLocaleString("vi-VN")} ₫/tháng`;
-                      } else if (loan.interestType === "fixed_sum") {
-                        estimatedInterestText = `${loan.interestRate.toLocaleString("vi-VN")} ₫ (cố định)`;
-                      }
-                    }
-
                     return (
                       <div
                         key={loan.id}
-                        className={`rounded-2xl p-4 sm:p-5 border-2 transition-all space-y-3.5 ${
+                        className={`rounded-2xl p-3.5 sm:p-4 border transition-all ${
                           isSettled
                             ? "bg-slate-50/70 border-slate-200 opacity-80"
                             : isCreditor
-                            ? "bg-gradient-to-br from-white via-white to-emerald-50/30 border-emerald-200 hover:border-emerald-400 shadow-xs"
-                            : "bg-gradient-to-br from-white via-white to-rose-50/30 border-rose-200 hover:border-rose-400 shadow-xs"
+                            ? "bg-white border-emerald-200 hover:border-emerald-300 hover:shadow-2xs"
+                            : "bg-white border-rose-200 hover:border-rose-300 hover:shadow-2xs"
                         }`}
                       >
-                        {/* Hàng 1: Huy hiệu Vai Trò, Trạng thái & Link Thỏa Thuận */}
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div className="flex items-center space-x-2">
-                            <span
-                              className={`text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full border flex items-center space-x-1 ${
-                                isCreditor
-                                  ? "bg-emerald-100 text-emerald-800 border-emerald-300"
-                                  : "bg-rose-100 text-rose-800 border-rose-300"
-                              }`}
-                            >
-                              <span>{isCreditor ? "🟢 Tôi là Chủ Nợ (Cho Vay)" : "🔴 Tôi là Con Nợ (Đi Vay)"}</span>
-                            </span>
+                        {/* Hàng Tóm Tắt Chính (Gọn Gàng) */}
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          {/* Khối Thông Tin Trái */}
+                          <div className="space-y-1 min-w-0">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span
+                                className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-md ${
+                                  isCreditor
+                                    ? "bg-emerald-100 text-emerald-800"
+                                    : "bg-rose-100 text-rose-800"
+                                }`}
+                              >
+                                {isCreditor ? "🟢 Cho Vay" : "🔴 Đi Vay"}
+                              </span>
 
-                            {isSettled ? (
-                              <span className="text-[10px] font-black bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full">
-                                ✓ Đã tất toán
-                              </span>
-                            ) : dueCountdown?.status === "overdue" ? (
-                              <span className="text-[10px] font-black bg-rose-100 text-rose-800 border border-rose-300 px-2 py-0.5 rounded-full animate-pulse">
-                                ⚠️ Quá hạn trả nợ
-                              </span>
-                            ) : (
-                              <span className="text-[10px] font-black bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
-                                ⏳ Đang hiệu lực
-                              </span>
-                            )}
-                          </div>
+                              <h4 className="font-black text-slate-900 text-sm sm:text-base leading-snug truncate" title={loan.title}>
+                                {loan.title}
+                              </h4>
 
-                          {loan.agreementId && (
-                            <Link
-                              href={`/agreement/${loan.agreementId}`}
-                              target="_blank"
-                              className="inline-flex items-center space-x-1 text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-lg hover:bg-indigo-100 transition shrink-0"
-                              title="Xem văn bản thỏa thuận điện tử có 2 bản ký"
-                            >
-                              <FileText className="w-3 h-3 text-indigo-600" />
-                              <span>Thỏa thuận: #{loan.agreementId} ➔</span>
-                            </Link>
-                          )}
-                        </div>
-
-                        {/* Hàng 2: Tiêu đề khoản nợ */}
-                        <div className="space-y-0.5">
-                          <h4 className="font-black text-slate-900 text-base leading-snug">{loan.title}</h4>
-                          <div className="flex items-center space-x-2 text-[11px] text-slate-500">
-                            <span className="flex items-center space-x-1">
-                              <Clock className="w-3 h-3 text-slate-400" />
-                              <span>Tạo: {loan.createdAt || loan.startDateFormatted || loan.startDate}</span>
-                            </span>
-                            {loan.agreementStatus && (
-                              <span className="text-indigo-600 font-semibold bg-indigo-50/80 px-1.5 py-0.2 rounded border border-indigo-100">
-                                {loan.agreementStatus === "completed" ? "✓ Ký hoàn tất 2 phía" : "⏳ Chờ ký điện tử"}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Hàng 3: Khối THÔNG TIN 2 BÊN (Chủ Nợ vs Con Nợ) */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 p-3 rounded-xl bg-slate-50/90 border border-slate-200/90">
-                          {/* Bên Cho Vay (Chủ Nợ) */}
-                          <div className={`p-2.5 rounded-lg border transition ${isCreditor ? "bg-emerald-50/70 border-emerald-300" : "bg-white border-slate-200"}`}>
-                            <div className="flex items-center justify-between mb-1">
-                              <span className="text-[10px] font-black uppercase text-emerald-800 tracking-wider flex items-center space-x-1">
-                                <Building2 className="w-3 h-3 text-emerald-600" />
-                                <span>Chủ Nợ (Bên Cho Vay)</span>
-                              </span>
-                              {isCreditor && (
-                                <span className="text-[9px] font-black bg-emerald-600 text-white px-1.5 py-0.2 rounded">
-                                  Tôi
+                              {isSettled ? (
+                                <span className="text-[10px] font-bold bg-slate-100 text-slate-600 px-2 py-0.5 rounded">
+                                  ✓ Đã tất toán
                                 </span>
+                              ) : dueCountdown?.status === "overdue" ? (
+                                <span className="text-[10px] font-bold bg-rose-100 text-rose-700 px-2 py-0.5 rounded animate-pulse">
+                                  ⚠️ {dueCountdown.text}
+                                </span>
+                              ) : dueCountdown ? (
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${dueCountdown.status === "warning" ? "bg-amber-100 text-amber-800" : "bg-blue-50 text-blue-700"}`}>
+                                  ⏳ {dueCountdown.text}
+                                </span>
+                              ) : null}
+                            </div>
+
+                            {/* Dòng Tóm Tắt Đối Tác & MoBo & Lãi Suất */}
+                            <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-slate-600">
+                              <span>
+                                Chủ nợ: <b className="text-slate-800">{creditorName}</b>
+                                {isCreditor && <span className="ml-1 text-[10px] text-emerald-700 font-bold">(Tôi)</span>}
+                              </span>
+                              <span className="text-slate-300">•</span>
+                              <span>
+                                Con nợ: <b className="text-slate-800">{debtorName}</b>
+                                {!isCreditor && <span className="ml-1 text-[10px] text-rose-700 font-bold">(Tôi)</span>}
+                              </span>
+                              {loan.vaultName && (
+                                <>
+                                  <span className="text-slate-300">•</span>
+                                  <span className="text-blue-700 font-medium">
+                                    MoBo: <b>{loan.vaultName}</b>
+                                  </span>
+                                </>
+                              )}
+                              {loan.interestRate > 0 && (
+                                <>
+                                  <span className="text-slate-300">•</span>
+                                  <span className="text-indigo-700 font-medium">
+                                    Lãi: <b>{loan.interestRate}%</b>{loan.interestType === "monthly" ? "/th" : loan.interestType === "yearly" ? "/năm" : ""}
+                                  </span>
+                                </>
+                              )}
+                              {loan.agreementId && (
+                                <>
+                                  <span className="text-slate-300">•</span>
+                                  <Link
+                                    href={`/agreement/${loan.agreementId}`}
+                                    target="_blank"
+                                    className="text-indigo-700 font-bold hover:underline inline-flex items-center space-x-0.5"
+                                  >
+                                    <span>#{loan.agreementId}</span>
+                                    <FileText className="w-3 h-3 text-indigo-500" />
+                                  </Link>
+                                </>
                               )}
                             </div>
-                            <div className="font-black text-slate-900 text-sm truncate" title={creditorName}>
-                              {creditorName}
-                            </div>
-                            <div className="mt-1 flex flex-col gap-0.5 text-[11px] text-slate-500">
-                              {creditorContact && <span className="truncate">Liên hệ: {creditorContact}</span>}
-                              <div className="flex items-center space-x-1 mt-0.5">
-                                <span className="text-slate-400">Trạng thái:</span>
-                                {loan.creditorSignedAt ? (
-                                  <span className="font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded text-[10px] flex items-center space-x-0.5" title={`Ký lúc: ${loan.creditorSignedAt}`}>
-                                    <CheckCircle2 className="w-2.5 h-2.5 text-indigo-600" />
-                                    <span>Đã ký ({loan.creditorSignedAt})</span>
-                                  </span>
-                                ) : loan.confirmedCreditor ? (
-                                  <span className="font-bold text-emerald-700 bg-emerald-100/70 px-1.5 py-0.5 rounded text-[10px]">
-                                    ✓ Đã xác nhận chốt
-                                  </span>
-                                ) : (
-                                  <span className="font-bold text-amber-700 bg-amber-100/70 px-1.5 py-0.5 rounded text-[10px]">
-                                    ⏳ Chờ chốt xác nhận
-                                  </span>
-                                )}
-                              </div>
-                            </div>
                           </div>
 
-                          {/* Bên Vay (Con Nợ) */}
-                          <div className={`p-2.5 rounded-lg border transition ${!isCreditor ? "bg-rose-50/70 border-rose-300" : "bg-white border-slate-200"}`}>
-                            <div className="flex items-center justify-between mb-1">
-                              <span className="text-[10px] font-black uppercase text-rose-800 tracking-wider flex items-center space-x-1">
-                                <Users className="w-3 h-3 text-rose-600" />
-                                <span>Con Nợ (Bên Đi Vay)</span>
-                              </span>
-                              {!isCreditor && (
-                                <span className="text-[9px] font-black bg-rose-600 text-white px-1.5 py-0.2 rounded">
-                                  Tôi
-                                </span>
-                              )}
-                            </div>
-                            <div className="font-black text-slate-900 text-sm truncate" title={debtorName}>
-                              {debtorName}
-                            </div>
-                            <div className="mt-1 flex flex-col gap-0.5 text-[11px] text-slate-500">
-                              {debtorContact && <span className="truncate">Liên hệ: {debtorContact}</span>}
-                              <div className="flex items-center space-x-1 mt-0.5">
-                                <span className="text-slate-400">Trạng thái:</span>
-                                {loan.debtorSignedAt ? (
-                                  <span className="font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded text-[10px] flex items-center space-x-0.5" title={`Ký lúc: ${loan.debtorSignedAt}`}>
-                                    <CheckCircle2 className="w-2.5 h-2.5 text-indigo-600" />
-                                    <span>Đã ký ({loan.debtorSignedAt})</span>
-                                  </span>
-                                ) : loan.confirmedDebtor ? (
-                                  <span className="font-bold text-emerald-700 bg-emerald-100/70 px-1.5 py-0.5 rounded text-[10px]">
-                                    ✓ Đã xác nhận chốt
-                                  </span>
-                                ) : (
-                                  <span className="font-bold text-amber-700 bg-amber-100/70 px-1.5 py-0.5 rounded text-[10px]">
-                                    ⏳ Chờ chốt xác nhận
-                                  </span>
-                                )}
+                          {/* Khối Phải: Dư Nợ & Nút Thao Tác Tinh Gọn */}
+                          <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100">
+                            {/* Dư nợ tóm tắt */}
+                            <div className="text-left sm:text-right">
+                              <div className="text-[11px] text-slate-400 font-medium">
+                                Dư nợ / Gốc: {loan.amount.toLocaleString("vi-VN")}₫
                               </div>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Hàng 4: Khối THÔNG TIN TÀI CHÍNH ĐI KÈM */}
-                        <div className="bg-white p-3.5 rounded-xl border border-slate-200/90 shadow-2xs space-y-3">
-                          {/* Gốc - Đã trả - Dư nợ */}
-                          <div>
-                            <div className="flex items-baseline justify-between mb-1.5">
-                              <span className="text-xs text-slate-500 font-medium">
-                                Gốc ban đầu: <b className="text-slate-800">{loan.amount.toLocaleString("vi-VN")} ₫</b>
-                              </span>
-                              <span className="text-xs text-slate-500 font-medium">
-                                Đã trả: <b className="text-slate-800">{loan.paidAmount.toLocaleString("vi-VN")} ₫</b> ({percentPaid}%)
-                              </span>
-                            </div>
-
-                            {/* Progress bar */}
-                            <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
-                              <div
-                                className={`h-full transition-all duration-500 ${isCreditor ? "bg-emerald-500" : "bg-rose-500"}`}
-                                style={{ width: `${percentPaid}%` }}
-                              />
-                            </div>
-
-                            <div className="flex items-baseline justify-between mt-2 pt-1 border-t border-slate-100">
-                              <span className="text-xs font-black text-slate-700">Dư nợ còn lại:</span>
-                              <span className={`text-lg sm:text-xl font-black ${isCreditor ? "text-emerald-700" : "text-rose-700"}`}>
+                              <div className={`text-base sm:text-lg font-black ${isCreditor ? "text-emerald-600" : "text-rose-600"}`}>
                                 {loan.remainingAmount.toLocaleString("vi-VN")} ₫
-                              </span>
-                            </div>
-                          </div>
-
-                          {/* Lưới thông số tài chính đi kèm: Lãi suất, Kỳ hạn, Thời hạn, Đáo hạn */}
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-2 border-t border-slate-100 text-xs">
-                            {/* Ô Lãi Suất & Kỳ Trả Lãi */}
-                            <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-100 space-y-1">
-                              <div className="flex items-center space-x-1 text-slate-500 text-[11px] font-bold">
-                                <BadgePercent className="w-3.5 h-3.5 text-indigo-600" />
-                                <span>Lãi suất & Kỳ hạn trả lãi:</span>
-                              </div>
-                              <div className="font-black text-slate-900 text-xs">
-                                {loan.interestType === "none" || loan.interestRate === 0
-                                  ? "0% (Không tính lãi)"
-                                  : `${loan.interestRate}% (${loan.interestType === "monthly" ? "/tháng" : loan.interestType === "yearly" ? "/năm" : "cố định"})`}
-                              </div>
-                              <div className="text-[10px] text-slate-600">
-                                {loan.interestDueTerm === "monthly"
-                                  ? "Trả lãi hàng tháng"
-                                  : loan.interestDueTerm === "quarterly"
-                                  ? "Trả lãi hàng quý"
-                                  : loan.interestDueTerm === "end_term"
-                                  ? "Trả lãi cuối kỳ cùng gốc"
-                                  : "Theo thỏa thuận"}
-                                {estimatedInterestText && (
-                                  <span className="block text-indigo-700 font-bold mt-0.5">
-                                    Ước tính lãi: {estimatedInterestText}
-                                  </span>
-                                )}
                               </div>
                             </div>
 
-                            {/* Ô Thời Hạn & Đáo Hạn */}
-                            <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-100 space-y-1">
-                              <div className="flex items-center space-x-1 text-slate-500 text-[11px] font-bold">
-                                <Calendar className="w-3.5 h-3.5 text-amber-600" />
-                                <span>Thời gian & Đáo hạn:</span>
-                              </div>
-                              <div className="text-[11px] text-slate-700">
-                                Bắt đầu: <b className="text-slate-900">{loan.startDateFormatted || loan.startDate}</b>
-                              </div>
-                              <div className="text-[11px] text-slate-700">
-                                Đáo hạn: <b className="text-slate-900">{loan.dueDateFormatted || loan.dueDate || "Chưa hẹn ngày"}</b>
-                              </div>
-                              {dueCountdown && !isSettled && (
-                                <span
-                                  className={`inline-block text-[10px] font-black px-1.5 py-0.5 rounded ${
-                                    dueCountdown.status === "overdue"
-                                      ? "bg-rose-100 text-rose-800 border border-rose-300"
-                                      : dueCountdown.status === "today"
-                                      ? "bg-amber-100 text-amber-900 border border-amber-300"
-                                      : dueCountdown.status === "warning"
-                                      ? "bg-amber-50 text-amber-800 border border-amber-200"
-                                      : "bg-blue-50 text-blue-700 border border-blue-200"
+                            {/* Cụm Nút Thao Tác */}
+                            <div className="flex items-center space-x-1.5">
+                              {!isSettled && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenPayLoan(loan)}
+                                  className={`px-3 py-1.5 rounded-xl text-white font-bold text-xs shadow-2xs transition active:scale-95 cursor-pointer ${
+                                    isCreditor ? "bg-emerald-700 hover:bg-emerald-800" : "bg-rose-700 hover:bg-rose-800"
                                   }`}
                                 >
-                                  {dueCountdown.text}
-                                </span>
+                                  {isCreditor ? "Thu Nợ" : "Trả Nợ"}
+                                </button>
                               )}
+
+                              {loan.agreementId && (
+                                <Link
+                                  href={`/agreement/${loan.agreementId}`}
+                                  target="_blank"
+                                  className="p-1.5 rounded-lg text-indigo-700 bg-indigo-50 hover:bg-indigo-100 transition cursor-pointer"
+                                  title={`Xem văn bản thỏa thuận #${loan.agreementId}`}
+                                >
+                                  <FileText className="w-4 h-4" />
+                                </Link>
+                              )}
+
+                              {/* Nút Xem Chi Tiết / Thu Gọn */}
+                              <button
+                                type="button"
+                                onClick={() => toggleLoanExpand(loan.id)}
+                                className="p-1.5 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition cursor-pointer"
+                                title={isExpanded ? "Thu gọn tóm tắt" : "Xem chi tiết"}
+                              >
+                                {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditLoan(loan)}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition cursor-pointer"
+                                title="Sửa"
+                              >
+                                <Edit className="w-3.5 h-3.5" />
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => setLoanToDelete(loan)}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
+                                title="Xóa"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
                             </div>
                           </div>
+                        </div>
 
-                          {/* Hũ MoBo liên kết & Ghi chú */}
-                          <div className="pt-1.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-xs">
-                            <div className="flex items-center space-x-1.5">
-                              <Wallet className="w-3.5 h-3.5 text-blue-600" />
-                              <span className="text-slate-500 text-[11px]">MoBo liên kết:</span>
-                              <b className="text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-100 text-[11px]">
-                                {loan.vaultName || "Chưa gán MoBo"}
-                              </b>
+                        {/* Phần Mở Rộng Chi Tiết (Mặc Định Ẩn - Chỉ Bung Ra Khi Bấm Mở Rộng) */}
+                        {isExpanded && (
+                          <div className="mt-3 pt-3 border-t border-slate-100 space-y-2.5 text-xs text-slate-600">
+                            {/* Chi tiết 2 bên */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-slate-50 p-2.5 rounded-xl">
+                              <div>
+                                <span className="text-[10px] font-bold text-slate-400 block uppercase">Chủ Nợ (Cho vay)</span>
+                                <b className="text-slate-900">{creditorName}</b>
+                                {creditorContact && <span className="block text-[11px] text-slate-500">{creditorContact}</span>}
+                                <span className="text-[10px] text-emerald-700 font-bold block mt-0.5">
+                                  {loan.creditorSignedAt ? `✓ Đã ký (${loan.creditorSignedAt})` : loan.confirmedCreditor ? "✓ Đã xác nhận" : "⏳ Chờ xác nhận"}
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-[10px] font-bold text-slate-400 block uppercase">Con Nợ (Đi vay)</span>
+                                <b className="text-slate-900">{debtorName}</b>
+                                {debtorContact && <span className="block text-[11px] text-slate-500">{debtorContact}</span>}
+                                <span className="text-[10px] text-rose-700 font-bold block mt-0.5">
+                                  {loan.debtorSignedAt ? `✓ Đã ký (${loan.debtorSignedAt})` : loan.confirmedDebtor ? "✓ Đã xác nhận" : "⏳ Chờ xác nhận"}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Chi tiết tài chính */}
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+                              <div>
+                                <span className="text-slate-400 block">Đã thanh toán:</span>
+                                <b>{loan.paidAmount.toLocaleString("vi-VN")} ₫</b> ({percentPaid}%)
+                              </div>
+                              <div>
+                                <span className="text-slate-400 block">Lãi suất & kỳ:</span>
+                                <b>{loan.interestType === "none" || loan.interestRate === 0 ? "0% (Không lãi)" : `${loan.interestRate}% (${loan.interestType === "monthly" ? "/tháng" : "/năm"})`}</b>
+                              </div>
+                              <div>
+                                <span className="text-slate-400 block">Bắt đầu:</span>
+                                <b>{loan.startDateFormatted || loan.startDate}</b>
+                              </div>
+                              <div>
+                                <span className="text-slate-400 block">Đáo hạn:</span>
+                                <b>{loan.dueDateFormatted || loan.dueDate || "Chưa hẹn"}</b>
+                              </div>
                             </div>
 
                             {loan.notes && (
-                              <span className="text-[10px] text-slate-500 italic max-w-xs truncate" title={loan.notes}>
+                              <div className="text-[11px] text-slate-500 italic bg-white p-2 rounded-lg border border-slate-100">
                                 Ghi chú: {loan.notes}
-                              </span>
+                              </div>
                             )}
                           </div>
-                        </div>
-
-                        {/* Hàng 5: Nút Xác Nhận 2 Phía */}
-                        <div className="pt-1 flex flex-wrap items-center justify-between gap-2 text-xs">
-                          <div className="flex items-center space-x-2">
-                            <span className="text-[11px] font-bold text-slate-500">Xác nhận:</span>
-                            
-                            {/* Phía Chủ Nợ */}
-                            <button
-                              type="button"
-                              onClick={() => handleToggleLoanConfirm(loan, "creditor")}
-                              title="Bấm để chuyển trạng thái xác nhận phía Chủ Nợ"
-                              className={`px-2 py-0.5 rounded-md text-[10px] font-bold border transition cursor-pointer flex items-center space-x-1 ${
-                                loan.confirmedCreditor
-                                  ? "bg-emerald-50 text-emerald-800 border-emerald-300"
-                                  : "bg-amber-50 text-amber-800 border-amber-300"
-                              }`}
-                            >
-                              <span>Chủ nợ: {loan.confirmedCreditor ? "✓ Đã chốt" : "⏳ Chờ chốt"}</span>
-                            </button>
-
-                            {/* Phía Con Nợ */}
-                            <button
-                              type="button"
-                              onClick={() => handleToggleLoanConfirm(loan, "debtor")}
-                              title="Bấm để chuyển trạng thái xác nhận phía Con Nợ"
-                              className={`px-2 py-0.5 rounded-md text-[10px] font-bold border transition cursor-pointer flex items-center space-x-1 ${
-                                loan.confirmedDebtor
-                                  ? "bg-emerald-50 text-emerald-800 border-emerald-300"
-                                  : "bg-amber-50 text-amber-800 border-amber-300"
-                              }`}
-                            >
-                              <span>Con nợ: {loan.confirmedDebtor ? "✓ Đã chốt" : "⏳ Chờ chốt"}</span>
-                            </button>
-                          </div>
-
-                          {bothConfirmed ? (
-                            <span className="text-[10px] font-black text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-md flex items-center space-x-1">
-                              <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                              <span>Đã xác nhận 2 phía</span>
-                            </span>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => handleToggleLoanConfirm(loan, undefined, true)}
-                              className="text-[10px] font-bold text-blue-700 hover:text-blue-900 hover:underline cursor-pointer"
-                            >
-                              Xác nhận cả 2 bên ➔
-                            </button>
-                          )}
-                        </div>
-
-                        {/* Hàng 6: Nút hành động */}
-                        <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
-                          {!isSettled ? (
-                            <button
-                              type="button"
-                              onClick={() => handleOpenPayLoan(loan)}
-                              className={`px-3.5 py-1.5 rounded-xl text-white font-black text-xs shadow-xs transition active:scale-95 cursor-pointer flex items-center space-x-1 ${
-                                isCreditor
-                                  ? "bg-emerald-700 hover:bg-emerald-800"
-                                  : "bg-rose-700 hover:bg-rose-800"
-                              }`}
-                            >
-                              <span>{isCreditor ? "✓ Thu Hồi Nợ" : "✓ Thanh Toán Trả Nợ"}</span>
-                            </button>
-                          ) : (
-                            <span className="text-xs text-slate-400 font-bold italic">
-                              Khoản nợ đã tất toán 100%
-                            </span>
-                          )}
-
-                          <div className="flex items-center space-x-1">
-                            {loan.agreementId && (
-                              <Link
-                                href={`/agreement/${loan.agreementId}`}
-                                target="_blank"
-                                className="p-1.5 rounded-lg text-indigo-600 hover:bg-indigo-50 transition cursor-pointer"
-                                title="Xem văn bản thỏa thuận ký điện tử & 2 bản lưu"
-                              >
-                                <FileText className="w-3.5 h-3.5" />
-                              </Link>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => handleOpenEditLoan(loan)}
-                              className="p-1.5 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-blue-50 transition cursor-pointer"
-                              title="Sửa khoản nợ"
-                            >
-                              <Edit className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setLoanToDelete(loan)}
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
-                              title="Xóa khoản nợ"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </div>
+                        )}
                       </div>
                     );
                   })}

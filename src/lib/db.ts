@@ -159,20 +159,6 @@ export async function initDatabase() {
           ('o3', 'Thuế GTGT & TNCN Quý 3/2026', 'tax', 'debtor', 9600000, 'Chi cục Thuế khu vực', 'Khoán 1.5% doanh thu dòng chảy', NULL, '2026-09-30', 'normal');
       `);
     }
-
-    // Seed data nếu bảng loans trống
-    const { rows: loanCount } = await client.query(`SELECT COUNT(*) FROM loans;`);
-    if (parseInt(loanCount[0].count, 10) === 0) {
-      // Lấy id một vault có sẵn nếu có
-      const vQuery = await client.query(`SELECT id FROM vaults WHERE is_closed = false LIMIT 1;`);
-      const defaultVaultId = vQuery.rows.length > 0 ? vQuery.rows[0].id : null;
-
-      await client.query(`
-        INSERT INTO loans (id, title, role, partner_name, linked_vault_id, start_date, due_date, amount, paid_amount, interest_rate, interest_type, interest_due_term, confirmed_creditor, confirmed_debtor, status, notes) VALUES
-          ('loan_1', 'Cho anh Nam mượn vốn nhập hàng', 'creditor', 'Anh Nam (Hải Phòng)', $1, CURRENT_DATE - INTERVAL '15 days', CURRENT_DATE + INTERVAL '45 days', 30000000, 10000000, 1.0, 'monthly', 'Hàng tháng ngày 15', true, true, 'active', 'Cam kết hoàn trả qua MoBo liên kết'),
-          ('loan_2', 'Vay vốn nhập thiết bị điện tử', 'debtor', 'Ngân hàng Techcombank', $1, CURRENT_DATE - INTERVAL '5 days', CURRENT_DATE + INTERVAL '60 days', 50000000, 0, 8.5, 'yearly', 'Cuối kỳ cùng gốc', true, false, 'active', 'Hạn mức kinh doanh ngắn hạn');
-      `, [defaultVaultId]);
-    }
   } finally {
     client.release();
   }
