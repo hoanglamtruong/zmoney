@@ -112,6 +112,17 @@ interface Vault {
   daysInactive?: number;
 }
 
+interface TagItem {
+  id: string;
+  name: string;
+  type: "income" | "expense" | "both";
+  color?: string;
+  flowCount?: number;
+  incomeSum?: number;
+  expenseSum?: number;
+  createdAt?: string;
+}
+
 interface Flow {
   id: string;
   title: string;
@@ -240,6 +251,104 @@ export default function Home() {
   const [isPlayingSoundTest, setIsPlayingSoundTest] = useState<"alert" | "income" | "expense" | "goal" | null>(null);
 
   // Cấu hình Hệ thống & Ngưỡng kiểm soát tài chính
+  // State danh mục nhãn giao dịch
+  const [tags, setTags] = useState<TagItem[]>([]);
+  const [tagSettingsFilter, setTagSettingsFilter] = useState<"all" | "income" | "expense" | "both">("all");
+  const [showAddTagModal, setShowAddTagModal] = useState(false);
+  const [newTagName, setNewTagName] = useState("");
+  const [newTagType, setNewTagType] = useState<"income" | "expense" | "both">("both");
+  const [newTagColor, setNewTagColor] = useState("blue");
+  const [editingTag, setEditingTag] = useState<TagItem | null>(null);
+  const [tagToDelete, setTagToDelete] = useState<TagItem | null>(null);
+
+  // Hàm nạp danh mục nhãn
+  const fetchTags = async () => {
+    try {
+      const res = await fetch("/api/tags");
+      const json = await res.json();
+      if (json.success && Array.isArray(json.data)) {
+        setTags(json.data);
+      }
+    } catch (err) {
+      console.error("Lỗi nạp danh mục nhãn:", err);
+    }
+  };
+
+  // Thêm nhãn mới
+  const handleCreateTag = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTagName.trim()) return;
+    try {
+      const res = await fetch("/api/tags", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newTagName.trim(), type: newTagType, color: newTagColor }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setNewTagName("");
+        setShowAddTagModal(false);
+        await fetchTags();
+        handleTestSound("income");
+      } else {
+        alert(data.error || "Không thể tạo nhãn");
+      }
+    } catch (err) {
+      console.error("Lỗi tạo nhãn:", err);
+      alert("Đã xảy ra lỗi khi tạo nhãn");
+    }
+  };
+
+  // Cập nhật nhãn
+  const handleUpdateTag = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingTag || !editingTag.name.trim()) return;
+    try {
+      const res = await fetch("/api/tags", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: editingTag.id,
+          name: editingTag.name.trim(),
+          type: editingTag.type,
+          color: editingTag.color || "blue",
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setEditingTag(null);
+        await fetchTags();
+        await fetchData();
+        handleTestSound("goal");
+      } else {
+        alert(data.error || "Không thể cập nhật nhãn");
+      }
+    } catch (err) {
+      console.error("Lỗi cập nhật nhãn:", err);
+      alert("Đã xảy ra lỗi khi cập nhật nhãn");
+    }
+  };
+
+  // Xóa nhãn
+  const handleDeleteTag = async () => {
+    if (!tagToDelete) return;
+    try {
+      const res = await fetch(`/api/tags?id=${tagToDelete.id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (data.success) {
+        setTagToDelete(null);
+        await fetchTags();
+        await fetchData();
+        handleTestSound("expense");
+      } else {
+        alert(data.error || "Không thể xóa nhãn");
+      }
+    } catch (err) {
+      console.error("Lỗi xóa nhãn:", err);
+      alert("Đã xảy ra lỗi khi xóa nhãn");
+    }
+  };
+
   const [systemSettings, setSystemSettings] = useState<FinancialSystemSettings>({
     plannedAdvanceNoticeDays: 3, // Báo trước 3 ngày trước khi đến hạn dự chi/thu
     enablePlannedNotice: true,
@@ -479,6 +588,11 @@ export default function Home() {
       const lRes = await fetch("/api/loans");
       const lData = await lRes.json();
       if (lData.success) setLoans(lData.data);
+
+      // 6. Tags (Danh mục nhãn)
+      const tRes = await fetch("/api/tags");
+      const tData = await tRes.json();
+      if (tData.success) setTags(tData.data);
     } catch (err) {
       console.error("Lỗi nạp dữ liệu:", err);
     } finally {
@@ -2263,16 +2377,177 @@ export default function Home() {
                   className="p-2 rounded-xl border border-slate-300 bg-white text-xs"
                 >
                   <option value="">Tất cả Nhãn</option>
-                  <option value="Doanh thu">Doanh thu</option>
-                  <option value="Chi phí">Chi phí</option>
-                  <option value="Nội bộ">Nội bộ</option>
-                  <option value="Vận hành">Vận hành</option>
-                  <option value="Thu nợ">Thu nợ</option>
-                  <option value="Trả nợ">Trả nợ</option>
-                  <option value="Chênh lệch">Chênh lệch</option>
+                  {tags.map((t) => (
+                    <option key={t.id} value={t.name}>
+                      {t.name}
+                    </option>
+                  ))}
+                  {tags.length === 0 && (
+                    <>
+                      <option value="Doanh thu">Doanh thu</option>
+                      <option value="Chi phí">Chi phí</option>
+                      <option value="Nội bộ">Nội bộ</option>
+                      <option value="Vận hành">Vận hành</option>
+                      <option value="Thu nợ">Thu nợ</option>
+                      <option value="Trả nợ">Trả nợ</option>
+                      <option value="Chênh lệch">Chênh lệch</option>
+                    </>
+                  )}
                 </select>
               </div>
             </div>
+
+            {/* WIDGET THỐNG KÊ & LỌC THEO NHÃN TRÊN DASHBOARD */}
+            {(() => {
+              const actualFlows = flows.filter((f) => f.isActual);
+              const todayYMD = new Date().toISOString().split("T")[0];
+              const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+              const curMonthYMD = todayYMD.substring(0, 7);
+
+              // Lọc theo khoảng thời gian và kho (độc lập với filter nhãn để tính thống kê toàn bộ các nhãn trong kỳ)
+              const periodFlows = actualFlows.filter((flow) => {
+                if (homeFilterType !== "all" && flow.type !== homeFilterType) return false;
+                if (homeFilterVault && flow.fromVaultId !== homeFilterVault && flow.toVaultId !== homeFilterVault) return false;
+                const flowYMD = flow.rawDate ? String(flow.rawDate).split("T")[0] : "";
+                if (homeFilterRange === "today") {
+                  if (flowYMD && flowYMD !== todayYMD) return false;
+                } else if (homeFilterRange === "7days") {
+                  if (flowYMD && flowYMD < sevenDaysAgo) return false;
+                } else if (homeFilterRange === "month") {
+                  if (flowYMD && !flowYMD.startsWith(curMonthYMD)) return false;
+                } else if (homeFilterRange === "custom") {
+                  if (homeFilterStartDate && flowYMD && flowYMD < homeFilterStartDate) return false;
+                  if (homeFilterEndDate && flowYMD && flowYMD > homeFilterEndDate) return false;
+                }
+                return true;
+              });
+
+              // Tổng hợp số liệu theo từng nhãn trong kỳ
+              const tagStatsMap: Record<string, { tag: string; count: number; income: number; expense: number }> = {};
+              periodFlows.forEach((f) => {
+                const tagName = f.tag || "Khác";
+                if (!tagStatsMap[tagName]) {
+                  tagStatsMap[tagName] = { tag: tagName, count: 0, income: 0, expense: 0 };
+                }
+                tagStatsMap[tagName].count += 1;
+                if (f.type === "income") tagStatsMap[tagName].income += f.amount;
+                if (f.type === "expense") tagStatsMap[tagName].expense += f.amount;
+              });
+
+              const tagStatsList = Object.values(tagStatsMap).sort((a, b) => (b.income + b.expense) - (a.income + a.expense));
+              const totalPeriodIncome = periodFlows.filter(f => f.type === "income").reduce((s, f) => s + f.amount, 0);
+              const totalPeriodExpense = periodFlows.filter(f => f.type === "expense").reduce((s, f) => s + f.amount, 0);
+
+              return (
+                <div className="p-4 bg-slate-50/80 rounded-2xl border border-slate-200 space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-200/80 pb-2.5">
+                    <div className="flex items-center space-x-2">
+                      <Tag className="w-4 h-4 text-indigo-600" />
+                      <span className="text-xs font-black text-slate-800 uppercase tracking-wide">
+                        Thống Kê Dòng Tiền & Lọc Nhanh Theo Nhãn ({tagStatsList.length} nhãn phát sinh)
+                      </span>
+                    </div>
+                    {homeFilterTag && (
+                      <button
+                        type="button"
+                        onClick={() => setHomeFilterTag("")}
+                        className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-100 text-[11px] font-bold border border-rose-200 transition cursor-pointer self-start sm:self-auto"
+                      >
+                        <X className="w-3 h-3" />
+                        <span>Bỏ lọc nhãn: "{homeFilterTag}"</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Thanh Pills Lọc Tức Thì Theo Nhãn */}
+                  <div className="flex items-center gap-2 overflow-x-auto pb-1 text-xs no-scrollbar">
+                    <button
+                      type="button"
+                      onClick={() => setHomeFilterTag("")}
+                      className={`px-3 py-1.5 rounded-xl font-bold transition whitespace-nowrap cursor-pointer flex items-center space-x-1.5 ${
+                        !homeFilterTag
+                          ? "bg-[#0C2C47] text-white shadow-xs"
+                          : "bg-white text-slate-700 hover:bg-slate-100 border border-slate-200"
+                      }`}
+                    >
+                      <span>Tất cả ({periodFlows.length})</span>
+                    </button>
+
+                    {tagStatsList.map((stat) => {
+                      const isSelected = homeFilterTag === stat.tag;
+                      const hasIncome = stat.income > 0;
+                      const hasExpense = stat.expense > 0;
+                      return (
+                        <button
+                          key={stat.tag}
+                          type="button"
+                          onClick={() => setHomeFilterTag(isSelected ? "" : stat.tag)}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer flex items-center space-x-1.5 border ${
+                            isSelected
+                              ? "bg-indigo-600 text-white border-indigo-700 shadow-sm ring-2 ring-indigo-300"
+                              : "bg-white text-slate-700 hover:border-indigo-300 hover:bg-indigo-50/50 border-slate-200"
+                          }`}
+                        >
+                          <span>{stat.tag}</span>
+                          <span
+                            className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                              isSelected
+                                ? "bg-white/20 text-white"
+                                : "bg-slate-100 text-slate-600"
+                            }`}
+                          >
+                            {stat.count}
+                          </span>
+                          {hasIncome && (
+                            <span className={isSelected ? "text-emerald-200 text-[11px]" : "text-emerald-600 text-[11px]"}>
+                              +{(stat.income >= 1000000 ? `${(stat.income / 1000000).toFixed(1)}Tr` : `${(stat.income / 1000).toFixed(0)}k`)}
+                            </span>
+                          )}
+                          {hasExpense && (
+                            <span className={isSelected ? "text-rose-200 text-[11px]" : "text-rose-600 text-[11px]"}>
+                              -{(stat.expense >= 1000000 ? `${(stat.expense / 1000000).toFixed(1)}Tr` : `${(stat.expense / 1000).toFixed(0)}k`)}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Bảng tóm tắt tỷ trọng các nhãn hàng đầu */}
+                  {tagStatsList.length > 0 && (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 pt-1 text-[11px]">
+                      {tagStatsList.slice(0, 4).map((stat) => {
+                        const totalMoney = stat.income + stat.expense;
+                        const grandTotal = totalPeriodIncome + totalPeriodExpense;
+                        const pct = grandTotal > 0 ? Math.round((totalMoney / grandTotal) * 100) : 0;
+                        return (
+                          <div
+                            key={stat.tag}
+                            onClick={() => setHomeFilterTag(homeFilterTag === stat.tag ? "" : stat.tag)}
+                            className={`p-2.5 rounded-xl border transition cursor-pointer flex flex-col justify-between ${
+                              homeFilterTag === stat.tag
+                                ? "bg-indigo-50 border-indigo-300"
+                                : "bg-white border-slate-200 hover:border-slate-300"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="font-bold text-slate-800 truncate">{stat.tag}</span>
+                              <span className="text-slate-400 font-bold">{pct}%</span>
+                            </div>
+                            <div className="flex items-baseline justify-between mt-1">
+                              <span className="text-[10px] text-slate-500">{stat.count} giao dịch</span>
+                              <span className="font-black text-slate-900">
+                                {stat.income > 0 ? `+${stat.income.toLocaleString("vi-VN")}₫` : `-${stat.expense.toLocaleString("vi-VN")}₫`}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* DANH SÁCH GIAO DỊCH SAU KHI LỌC */}
             {(() => {
@@ -3624,6 +3899,158 @@ export default function Home() {
               </div>
             </div>
           </div>
+
+          {/* 7.6 QUẢN LÝ DANH MỤC NHÃN GIAO DỊCH (Tags Management) */}
+          <div className="bg-white p-5 sm:p-6 rounded-2xl border-2 border-indigo-200 shadow-md space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-indigo-100 pb-4">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-md shadow-indigo-600/30">
+                  <Tag className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h4 className="text-base font-black text-[#0C2C47]">
+                      Quản Lý Danh Mục Nhãn Giao Dịch
+                    </h4>
+                    <span className="text-[10px] font-black bg-indigo-100 text-indigo-800 px-2.5 py-0.5 rounded-full">
+                      {tags.length} nhãn
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 font-medium">
+                    Xem, thêm mới, chỉnh sửa tên và xóa các nhãn phân loại giao dịch thu chi
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setNewTagName("");
+                  setNewTagType("both");
+                  setShowAddTagModal(true);
+                }}
+                className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black shadow-xs flex items-center space-x-1.5 transition active:scale-95 cursor-pointer self-start sm:self-auto"
+              >
+                <PlusCircle className="w-4 h-4" />
+                <span>+ Thêm Nhãn Mới</span>
+              </button>
+            </div>
+
+            {/* BỘ LỌC PHẠM VI NHÃN */}
+            <div className="flex items-center gap-2 border-b border-slate-100 pb-2 text-xs font-bold">
+              {[
+                { id: "all", label: `Tất cả (${tags.length})` },
+                { id: "income", label: `🟢 Nhãn Thu (${tags.filter(t => t.type === "income").length})` },
+                { id: "expense", label: `🔴 Nhãn Chi (${tags.filter(t => t.type === "expense").length})` },
+                { id: "both", label: `🔵 Dùng Chung (${tags.filter(t => t.type === "both").length})` },
+              ].map((f) => (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => setTagSettingsFilter(f.id as any)}
+                  className={`px-3 py-1.5 rounded-xl transition cursor-pointer ${
+                    tagSettingsFilter === f.id
+                      ? "bg-indigo-600 text-white shadow-xs"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+
+            {/* DANH SÁCH CÁC NHÃN */}
+            {(() => {
+              const filteredTags = tags.filter((t) => {
+                if (tagSettingsFilter === "all") return true;
+                return t.type === tagSettingsFilter;
+              });
+
+              if (filteredTags.length === 0) {
+                return (
+                  <div className="p-8 text-center text-slate-400 text-xs bg-slate-50 rounded-xl border border-slate-200">
+                    Không có nhãn nào trong danh mục này. Hãy bấm "+ Thêm Nhãn Mới" để tạo nhãn đầu tiên.
+                  </div>
+                );
+              }
+
+              return (
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                  {filteredTags.map((tag) => {
+                    const isIncome = tag.type === "income";
+                    const isExpense = tag.type === "expense";
+                    return (
+                      <div
+                        key={tag.id}
+                        className="p-3.5 rounded-xl border border-slate-200 bg-white hover:border-indigo-300 transition shadow-2xs flex flex-col justify-between space-y-2.5"
+                      >
+                        <div className="flex items-start justify-between">
+                          <div className="space-y-1">
+                            <div className="flex items-center space-x-2">
+                              <span className="font-black text-slate-900 text-sm">{tag.name}</span>
+                              <span
+                                className={`text-[10px] font-black px-2 py-0.5 rounded-md ${
+                                  isIncome
+                                    ? "bg-emerald-100 text-emerald-800"
+                                    : isExpense
+                                    ? "bg-rose-100 text-rose-800"
+                                    : "bg-blue-100 text-blue-800"
+                                }`}
+                              >
+                                {isIncome ? "Thu (+)" : isExpense ? "Chi (-)" : "Thu & Chi"}
+                              </span>
+                            </div>
+                            <span className="text-[11px] text-slate-500 block">
+                              Đã dùng trong: <b>{tag.flowCount || 0}</b> giao dịch
+                            </span>
+                          </div>
+
+                          <div className="flex items-center space-x-1">
+                            <button
+                              type="button"
+                              onClick={() => setEditingTag(tag)}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition cursor-pointer"
+                              title="Chỉnh sửa nhãn"
+                            >
+                              <Edit className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setTagToDelete(tag)}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
+                              title="Xóa nhãn"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Thống kê dòng tiền theo nhãn */}
+                        <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px]">
+                          <span className="text-slate-500">Tổng dòng tiền:</span>
+                          <div className="space-x-1.5 font-bold">
+                            {(tag.incomeSum || 0) > 0 && (
+                              <span className="text-emerald-700">
+                                +{Number(tag.incomeSum).toLocaleString("vi-VN")} ₫
+                              </span>
+                            )}
+                            {(tag.expenseSum || 0) > 0 && (
+                              <span className="text-rose-700">
+                                -{Number(tag.expenseSum).toLocaleString("vi-VN")} ₫
+                              </span>
+                            )}
+                            {!(tag.incomeSum || 0) && !(tag.expenseSum || 0) && (
+                              <span className="text-slate-400 italic">Chưa có số liệu</span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+          </div>
         </div>
       )}
 
@@ -4560,11 +4987,22 @@ export default function Home() {
                     onChange={(e) => setQuickIncomeForm({ ...quickIncomeForm, tag: e.target.value })}
                     className="w-full p-2.5 rounded-lg border border-slate-300 text-xs bg-white font-bold text-slate-800"
                   >
-                    <option value="Doanh thu">Doanh thu bán hàng</option>
-                    <option value="Thu nợ">Thu hồi nợ</option>
-                    <option value="Tiền thưởng">Thưởng / Thu nhập khác</option>
-                    <option value="Nội bộ">Chuyển nội bộ</option>
-                    <option value="Khác">Khoản thu khác</option>
+                    {tags
+                      .filter((t) => t.type === "income" || t.type === "both")
+                      .map((t) => (
+                        <option key={t.id} value={t.name}>
+                          {t.name}
+                        </option>
+                      ))}
+                    {tags.length === 0 && (
+                      <>
+                        <option value="Doanh thu">Doanh thu bán hàng</option>
+                        <option value="Thu nợ">Thu hồi nợ</option>
+                        <option value="Tiền thưởng">Thưởng / Thu nhập khác</option>
+                        <option value="Nội bộ">Chuyển nội bộ</option>
+                        <option value="Khác">Khoản thu khác</option>
+                      </>
+                    )}
                   </select>
                 </div>
                 <div>
@@ -4782,12 +5220,23 @@ export default function Home() {
                     onChange={(e) => setQuickExpenseForm({ ...quickExpenseForm, tag: e.target.value })}
                     className="w-full p-2.5 rounded-lg border border-slate-300 text-xs bg-white font-bold text-slate-800"
                   >
-                    <option value="Chi phí">Chi phí vận hành</option>
-                    <option value="Ăn uống">Ăn uống / Tiếp khách</option>
-                    <option value="Nhập hàng">Nhập hàng / Vật tư</option>
-                    <option value="Trả nợ">Trả nợ đối tác</option>
-                    <option value="Thuế">Nộp thuế</option>
-                    <option value="Khác">Chi tiêu khác</option>
+                    {tags
+                      .filter((t) => t.type === "expense" || t.type === "both")
+                      .map((t) => (
+                        <option key={t.id} value={t.name}>
+                          {t.name}
+                        </option>
+                      ))}
+                    {tags.length === 0 && (
+                      <>
+                        <option value="Chi phí">Chi phí vận hành</option>
+                        <option value="Ăn uống">Ăn uống / Tiếp khách</option>
+                        <option value="Nhập hàng">Nhập hàng / Vật tư</option>
+                        <option value="Trả nợ">Trả nợ đối tác</option>
+                        <option value="Thuế">Nộp thuế</option>
+                        <option value="Khác">Chi tiêu khác</option>
+                      </>
+                    )}
                   </select>
                 </div>
                 <div>
@@ -6609,6 +7058,192 @@ export default function Home() {
         </div>
       )}
 
+      {/* MODAL THÊM NHÃN GIAO DỊCH MỚI */}
+      {showAddTagModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-indigo-200 space-y-4">
+            <div className="flex items-center justify-between border-b pb-3 border-slate-100">
+              <div className="flex items-center space-x-2">
+                <Tag className="w-5 h-5 text-indigo-600" />
+                <h3 className="text-base font-black text-[#0C2C47]">Thêm Nhãn Giao Dịch Mới</h3>
+              </div>
+              <button onClick={() => setShowAddTagModal(false)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateTag} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tên nhãn (*)</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Vd: Quảng cáo, Tiếp khách, Vật tư..."
+                  value={newTagName}
+                  onChange={(e) => setNewTagName(e.target.value)}
+                  className="w-full p-2.5 rounded-xl border border-slate-300 text-sm font-bold text-slate-800 focus:border-indigo-600 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Loại nhãn áp dụng</label>
+                <div className="grid grid-cols-3 gap-2 text-xs font-bold">
+                  {[
+                    { id: "income", label: "🟢 Nhãn Thu" },
+                    { id: "expense", label: "🔴 Nhãn Chi" },
+                    { id: "both", label: "🔵 Thu & Chi" },
+                  ].map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setNewTagType(item.id as any)}
+                      className={`py-2 rounded-xl border transition cursor-pointer ${
+                        newTagType === item.id
+                          ? "bg-indigo-600 text-white border-indigo-600 shadow-xs"
+                          : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100"
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="pt-2 flex items-center justify-end space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAddTagModal(false)}
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 text-xs font-bold text-slate-600 hover:bg-slate-100 cursor-pointer"
+                >
+                  Hủy Bỏ
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black shadow-md cursor-pointer"
+                >
+                  Tạo Nhãn Ngay ➔
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL SỬA NHÃN GIAO DỊCH */}
+      {editingTag && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-indigo-200 space-y-4">
+            <div className="flex items-center justify-between border-b pb-3 border-slate-100">
+              <div className="flex items-center space-x-2">
+                <Edit className="w-5 h-5 text-indigo-600" />
+                <h3 className="text-base font-black text-[#0C2C47]">Chỉnh Sửa Nhãn Giao Dịch</h3>
+              </div>
+              <button onClick={() => setEditingTag(null)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateTag} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tên nhãn (*)</label>
+                <input
+                  type="text"
+                  required
+                  value={editingTag.name}
+                  onChange={(e) => setEditingTag({ ...editingTag, name: e.target.value })}
+                  className="w-full p-2.5 rounded-xl border border-slate-300 text-sm font-bold text-slate-800 focus:border-indigo-600 focus:outline-none"
+                />
+                <p className="text-[11px] text-slate-500 mt-1">
+                  💡 Lưu ý: Khi đổi tên nhãn, tất cả ({editingTag.flowCount || 0}) giao dịch cũ đang dùng nhãn này sẽ tự động được cập nhật theo tên mới.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Loại nhãn áp dụng</label>
+                <div className="grid grid-cols-3 gap-2 text-xs font-bold">
+                  {[
+                    { id: "income", label: "🟢 Nhãn Thu" },
+                    { id: "expense", label: "🔴 Nhãn Chi" },
+                    { id: "both", label: "🔵 Thu & Chi" },
+                  ].map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setEditingTag({ ...editingTag, type: item.id as any })}
+                      className={`py-2 rounded-xl border transition cursor-pointer ${
+                        editingTag.type === item.id
+                          ? "bg-indigo-600 text-white border-indigo-600 shadow-xs"
+                          : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100"
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="pt-2 flex items-center justify-end space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingTag(null)}
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 text-xs font-bold text-slate-600 hover:bg-slate-100 cursor-pointer"
+                >
+                  Hủy Bỏ
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black shadow-md cursor-pointer"
+                >
+                  Lưu Thay Đổi ➔
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL XÁC NHẬN XÓA NHÃN GIAO DỊCH */}
+      {tagToDelete && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-rose-300 space-y-4">
+            <div className="flex items-center space-x-3 text-rose-600 border-b border-rose-100 pb-3">
+              <Trash2 className="w-6 h-6 shrink-0" />
+              <div>
+                <h4 className="font-black text-sm">Xóa Nhãn Giao Dịch?</h4>
+                <p className="text-[11px] text-slate-500">Hành động này không thể hoàn tác</p>
+              </div>
+            </div>
+
+            <div className="text-xs text-slate-600 space-y-2">
+              <p>
+                Bạn có chắc chắn muốn xóa nhãn <b className="text-slate-900">"{tagToDelete.name}"</b>?
+              </p>
+              {(tagToDelete.flowCount || 0) > 0 && (
+                <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-amber-900 text-[11px]">
+                  ⚠️ Có <b>{tagToDelete.flowCount}</b> giao dịch đang sử dụng nhãn này. Khi xóa, các giao dịch đó sẽ tự động được chuyển sang nhãn <b className="font-bold">"Khác"</b>.
+                </div>
+              )}
+            </div>
+
+            <div className="pt-2 flex items-center justify-end space-x-2">
+              <button
+                type="button"
+                onClick={() => setTagToDelete(null)}
+                className="px-4 py-2 rounded-xl border border-slate-300 text-xs font-bold text-slate-600 hover:bg-slate-100 cursor-pointer"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteTag}
+                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-black shadow-sm cursor-pointer"
+              >
+                Xác Nhận Xóa
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

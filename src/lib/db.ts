@@ -134,7 +134,37 @@ export async function initDatabase() {
         status VARCHAR(50) NOT NULL DEFAULT 'pending',
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
+
+      -- 7. Danh Mục Nhãn Giao Dịch (Tags)
+      CREATE TABLE IF NOT EXISTS tags (
+        id VARCHAR(50) PRIMARY KEY,
+        name VARCHAR(100) NOT NULL UNIQUE,
+        type VARCHAR(20) NOT NULL DEFAULT 'both', -- 'income' | 'expense' | 'both'
+        color VARCHAR(50) DEFAULT 'blue',
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
     `);
+
+    // Seed data tags nếu bảng tags trống
+    const { rows: tagCount } = await client.query(`SELECT COUNT(*) FROM tags;`);
+    if (parseInt(tagCount[0].count, 10) === 0) {
+      await client.query(`
+        INSERT INTO tags (id, name, type, color) VALUES
+          ('tag_1', 'Doanh thu', 'income', 'emerald'),
+          ('tag_2', 'Thu nợ', 'income', 'emerald'),
+          ('tag_3', 'Tiền thưởng', 'income', 'emerald'),
+          ('tag_4', 'Chi phí', 'expense', 'rose'),
+          ('tag_5', 'Ăn uống', 'expense', 'amber'),
+          ('tag_6', 'Nhập hàng', 'expense', 'rose'),
+          ('tag_7', 'Trả nợ', 'expense', 'rose'),
+          ('tag_8', 'Thuế', 'expense', 'purple'),
+          ('tag_9', 'Vận hành', 'expense', 'indigo'),
+          ('tag_10', 'Nội bộ', 'both', 'blue'),
+          ('tag_11', 'Khác', 'both', 'slate'),
+          ('tag_12', 'Chênh lệch', 'both', 'cyan')
+        ON CONFLICT (name) DO NOTHING;
+      `);
+    }
 
     // Seed data nếu bảng vaults trống
     const { rows: vaultCount } = await client.query(`SELECT COUNT(*) FROM vaults;`);
