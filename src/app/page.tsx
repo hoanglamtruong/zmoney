@@ -66,6 +66,7 @@ import {
   playEventSound,
   stopAllSounds,
 } from "@/lib/sound";
+import FinancialHealthChart from "@/components/FinancialHealthChart";
 
 interface Loan {
   id: string;
@@ -1897,6 +1898,19 @@ export default function Home() {
               </div>
             </div>
           </div>
+
+          {/* ======================================================== */}
+          {/* KHỐI BIỂU ĐỒ SỨC KHỎE TÀI CHÍNH TOÀN DIỆN */}
+          {/* ======================================================== */}
+          <FinancialHealthChart
+            positiveBalance={positiveBalance}
+            negativeDebt={negativeDebt}
+            netWorth={netWorth}
+            vaults={vaults}
+            loans={loans}
+            flows={flows}
+            systemSettings={systemSettings}
+          />
 
           {/* ======================================================== */}
           {/* KHỐI 2: CÁC MOBO (Money Box) */}
