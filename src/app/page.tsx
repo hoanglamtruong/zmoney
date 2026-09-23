@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import {
   Wallet, Handshake, Users, UserCheck, BadgePercent, CreditCard, 
@@ -134,6 +134,7 @@ interface Flow {
   to: string;
   tag: string;
   isActual: boolean;
+  priority?: "high" | "medium" | "low";
   isReconcile?: boolean;
   date: string;
   rawDate?: string;
@@ -223,6 +224,7 @@ export default function Home() {
     isExpected: false, // true = người dùng tick chọn Dự kiến ngày, false = mặc định ngày hôm nay
     isActual: true,
     flowDate: new Date().toISOString().split("T")[0],
+    priority: "medium" as "high" | "medium" | "low",
   });
 
   // Form Nhập Nhanh CHI (-)
@@ -234,7 +236,13 @@ export default function Home() {
     isExpected: false, // true = người dùng tick chọn Dự kiến ngày, false = mặc định ngày hôm nay
     isActual: true,
     flowDate: new Date().toISOString().split("T")[0],
+    priority: "medium" as "high" | "medium" | "low",
   });
+
+  // Bộ điều khiển Sắp xếp & Lọc Kế Hoạch Sắp Tới (Dự Thu / Dự Chi)
+  const [plannedSortBy, setPlannedSortBy] = useState<"time_asc" | "time_desc" | "priority_desc" | "priority_asc">("time_asc");
+  const [plannedTypeFilter, setPlannedTypeFilter] = useState<"all" | "income" | "expense">("all");
+  const [plannedPriorityFilter, setPlannedPriorityFilter] = useState<"all" | "high" | "medium" | "low">("all");
 
   // Cấu hình Chuông & Nhắc nhở Tài chính
   const [reminderConfig, setReminderConfig] = useState<ReminderConfig>({
@@ -512,6 +520,7 @@ export default function Home() {
     tag: "",
     fromVaultId: "",
     toVaultId: "",
+    priority: "medium" as "high" | "medium" | "low",
   });
   const [flowToDelete, setFlowToDelete] = useState<Flow | null>(null);
 
@@ -755,6 +764,7 @@ export default function Home() {
           tag: quickIncomeForm.tag,
           isActual,
           flowDate,
+          priority: quickIncomeForm.priority || "medium",
         }),
       });
       const data = await res.json();
@@ -768,6 +778,7 @@ export default function Home() {
           isExpected: false,
           isActual: true,
           flowDate: new Date().toISOString().split("T")[0],
+          priority: "medium",
         });
         if (isActual) playCoinSound(1.2);
         await fetchData();
@@ -814,6 +825,7 @@ export default function Home() {
           tag: quickExpenseForm.tag,
           isActual,
           flowDate,
+          priority: quickExpenseForm.priority || "medium",
         }),
       });
       const data = await res.json();
@@ -827,6 +839,7 @@ export default function Home() {
           isExpected: false,
           isActual: true,
           flowDate: new Date().toISOString().split("T")[0],
+          priority: "medium",
         });
         if (isActual) playCashCounterSound(1.5);
         await fetchData();
@@ -1327,6 +1340,7 @@ export default function Home() {
       tag: flow.tag,
       fromVaultId: flow.fromVaultId || "",
       toVaultId: flow.toVaultId || "",
+      priority: flow.priority || "medium",
     });
   };
 
@@ -1366,6 +1380,7 @@ export default function Home() {
           toVaultId: editFlowForm.toVaultId || null,
           fromTitle,
           toTitle,
+          priority: editFlowForm.priority,
         }),
       });
       const data = await res.json();
@@ -1377,6 +1392,28 @@ export default function Home() {
       }
     } catch (err: any) {
       alert("Lỗi cập nhật giao dịch: " + err.message);
+    }
+  };
+
+  // Đổi nhanh mức độ ưu tiên của khoản dự tính
+  const handleQuickChangePriority = async (flow: Flow, newPriority: "high" | "medium" | "low") => {
+    try {
+      const res = await fetch("/api/flows", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: flow.id,
+          priority: newPriority,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        await fetchData();
+      } else {
+        alert("Lỗi: " + data.error);
+      }
+    } catch (err: any) {
+      alert("Lỗi đổi mức ưu tiên: " + err.message);
     }
   };
 
@@ -1541,8 +1578,73 @@ export default function Home() {
     return true;
   });
 
+  // Helper lấy timestamp ngày của Flow
+  const getFlowTimestamp = (f: Flow): number => {
+    if (f.rawDate) {
+      const t = new Date(f.rawDate).getTime();
+      if (!isNaN(t)) return t;
+    }
+    if (f.date && f.date.includes("/")) {
+      const parts = f.date.split("/");
+      const t = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`).getTime();
+      if (!isNaN(t)) return t;
+    }
+    return 0;
+  };
+
+  // Helper tính trọng số mức ưu tiên: High = 3, Medium = 2, Low = 1
+  const getPriorityWeight = (p?: string): number => {
+    if (p === "high") return 3;
+    if (p === "low") return 1;
+    return 2;
+  };
+
   // Toàn bộ các sự kiện dự chi / dự thu trong tương lai (để cấu hình gán thông báo)
   const allFuturePlannedFlows = flows.filter((f) => !f.isActual);
+
+  // Danh sách Kế hoạch dự chi / dự thu đã lọc và sắp xếp cho Khối 5
+  const filteredAndSortedPlannedFlows = useMemo(() => {
+    let list = flows.filter((f) => !f.isActual);
+
+    // Lọc theo loại (Dự thu / Dự chi)
+    if (plannedTypeFilter !== "all") {
+      list = list.filter((f) => f.type === plannedTypeFilter);
+    }
+
+    // Lọc theo mức ưu tiên
+    if (plannedPriorityFilter !== "all") {
+      list = list.filter((f) => (f.priority || "medium") === plannedPriorityFilter);
+    }
+
+    // Sắp xếp
+    list = [...list].sort((a, b) => {
+      const timeA = getFlowTimestamp(a);
+      const timeB = getFlowTimestamp(b);
+      const prioA = getPriorityWeight(a.priority);
+      const prioB = getPriorityWeight(b.priority);
+
+      if (plannedSortBy === "time_asc") {
+        // Gần nhất đến xa nhất (ngày sớm hơn lên trước; cùng ngày thì ưu tiên cao lên trước)
+        if (timeA !== timeB) return timeA - timeB;
+        return prioB - prioA;
+      } else if (plannedSortBy === "time_desc") {
+        // Xa nhất đến gần nhất
+        if (timeA !== timeB) return timeB - timeA;
+        return prioB - prioA;
+      } else if (plannedSortBy === "priority_desc") {
+        // Mức độ ưu tiên Cao -> Thấp; cùng mức ưu tiên thì ngày gần lên trước
+        if (prioA !== prioB) return prioB - prioA;
+        return timeA - timeB;
+      } else if (plannedSortBy === "priority_asc") {
+        // Mức độ ưu tiên Thấp -> Cao; cùng mức ưu tiên thì ngày gần lên trước
+        if (prioA !== prioB) return prioA - prioB;
+        return timeA - timeB;
+      }
+      return 0;
+    });
+
+    return list;
+  }, [flows, plannedTypeFilter, plannedPriorityFilter, plannedSortBy]);
 
   // 2. Ngưỡng âm nợ cho phép
   const isDebtExceeded = negativeDebt > systemSettings.maxNegativeDebtAllowed;
@@ -2815,9 +2917,9 @@ export default function Home() {
           {/* KHỐI 5: KẾ HOẠCH SẮP TỚI (DỰ THU / DỰ CHI) */}
           {/* ======================================================== */}
           <div className="bg-white rounded-3xl p-6 border border-slate-200/90 shadow-sm space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-100 pb-3 gap-2">
               <div className="flex items-center space-x-2.5">
-                <div className="w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center text-amber-800">
+                <div className="w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center text-amber-800 shrink-0">
                   <Clock className="w-5 h-5 text-amber-700" />
                 </div>
                 <div>
@@ -2825,25 +2927,196 @@ export default function Home() {
                     Kế Hoạch Sắp Tới (Dự Thu / Dự Chi)
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Các sự kiện tài chính tương lai, đếm ngược ngày đến hạn và nút thực hiện ngay
+                    Sự kiện tài chính tương lai, mức độ ưu tiên, đếm ngược ngày đến hạn và thực hiện ngay
                   </p>
                 </div>
               </div>
 
-              <span className="text-xs font-bold text-amber-800 bg-amber-50 px-3 py-1 rounded-full border border-amber-200">
-                {allFuturePlannedFlows.length} Kế Hoạch
-              </span>
+              <div className="flex items-center space-x-2 self-start sm:self-auto">
+                <span className="text-xs font-bold text-amber-800 bg-amber-50 px-3 py-1 rounded-full border border-amber-200">
+                  {filteredAndSortedPlannedFlows.length} / {allFuturePlannedFlows.length} Kế Hoạch
+                </span>
+              </div>
             </div>
 
+            {/* THANH ĐIỀU KHIỂN: SẮP XẾP & BỘ LỌC */}
+            {allFuturePlannedFlows.length > 0 && (
+              <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3">
+                {/* Dòng 1: Chọn chế độ Sắp Xếp */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                  <div className="flex items-center space-x-1.5 text-slate-600 font-bold">
+                    <Filter className="w-3.5 h-3.5 text-blue-600" />
+                    <span>Sắp xếp theo:</span>
+                  </div>
+                  <div className="flex items-center flex-wrap gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setPlannedSortBy("time_asc")}
+                      className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer flex items-center space-x-1 ${
+                        plannedSortBy === "time_asc"
+                          ? "bg-[#0C2C47] text-white shadow-xs"
+                          : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
+                      }`}
+                      title="Sự kiện gần nhất / quá hạn lên đầu"
+                    >
+                      <span>⏱️ Gần ➔ Xa</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPlannedSortBy("time_desc")}
+                      className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer flex items-center space-x-1 ${
+                        plannedSortBy === "time_desc"
+                          ? "bg-[#0C2C47] text-white shadow-xs"
+                          : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
+                      }`}
+                      title="Sự kiện xa nhất lên đầu"
+                    >
+                      <span>⏳ Xa ➔ Gần</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPlannedSortBy("priority_desc")}
+                      className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer flex items-center space-x-1 ${
+                        plannedSortBy === "priority_desc"
+                          ? "bg-rose-600 text-white shadow-xs"
+                          : "bg-white text-slate-600 border border-slate-200 hover:bg-rose-50 hover:text-rose-700"
+                      }`}
+                      title="Ưu tiên Cao -> Trung bình -> Thấp"
+                    >
+                      <span>⚡ Ưu tiên: Cao ➔ Thấp</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPlannedSortBy("priority_asc")}
+                      className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer flex items-center space-x-1 ${
+                        plannedSortBy === "priority_asc"
+                          ? "bg-slate-700 text-white shadow-xs"
+                          : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
+                      }`}
+                      title="Ưu tiên Thấp -> Trung bình -> Cao"
+                    >
+                      <span>🔻 Ưu tiên: Thấp ➔ Cao</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Dòng 2: Bộ lọc nhanh Loại & Mức độ ưu tiên */}
+                <div className="pt-2 border-t border-slate-200/60 flex flex-col md:flex-row md:items-center justify-between gap-2.5 text-xs">
+                  {/* Lọc loại giao dịch */}
+                  <div className="flex items-center space-x-1 flex-wrap gap-y-1">
+                    <span className="text-slate-500 font-medium mr-1">Loại:</span>
+                    <button
+                      type="button"
+                      onClick={() => setPlannedTypeFilter("all")}
+                      className={`px-2 py-0.5 rounded-md font-bold transition cursor-pointer ${
+                        plannedTypeFilter === "all"
+                          ? "bg-slate-800 text-white"
+                          : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
+                      }`}
+                    >
+                      Tất cả ({allFuturePlannedFlows.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPlannedTypeFilter("income")}
+                      className={`px-2 py-0.5 rounded-md font-bold transition cursor-pointer ${
+                        plannedTypeFilter === "income"
+                          ? "bg-emerald-600 text-white"
+                          : "bg-white text-emerald-700 border border-emerald-200 hover:bg-emerald-50"
+                      }`}
+                    >
+                      Dự thu ({allFuturePlannedFlows.filter((f) => f.type === "income").length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPlannedTypeFilter("expense")}
+                      className={`px-2 py-0.5 rounded-md font-bold transition cursor-pointer ${
+                        plannedTypeFilter === "expense"
+                          ? "bg-rose-600 text-white"
+                          : "bg-white text-rose-700 border border-rose-200 hover:bg-rose-50"
+                      }`}
+                    >
+                      Dự chi ({allFuturePlannedFlows.filter((f) => f.type === "expense").length})
+                    </button>
+                  </div>
+
+                  {/* Lọc mức độ ưu tiên */}
+                  <div className="flex items-center space-x-1 flex-wrap gap-y-1">
+                    <span className="text-slate-500 font-medium mr-1">Mức độ:</span>
+                    <button
+                      type="button"
+                      onClick={() => setPlannedPriorityFilter("all")}
+                      className={`px-2 py-0.5 rounded-md font-bold transition cursor-pointer ${
+                        plannedPriorityFilter === "all"
+                          ? "bg-slate-800 text-white"
+                          : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
+                      }`}
+                    >
+                      Tất cả
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPlannedPriorityFilter("high")}
+                      className={`px-2 py-0.5 rounded-md font-bold transition cursor-pointer ${
+                        plannedPriorityFilter === "high"
+                          ? "bg-rose-600 text-white"
+                          : "bg-white text-rose-700 border border-rose-200 hover:bg-rose-50"
+                      }`}
+                    >
+                      🔴 Cao ({allFuturePlannedFlows.filter((f) => f.priority === "high").length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPlannedPriorityFilter("medium")}
+                      className={`px-2 py-0.5 rounded-md font-bold transition cursor-pointer ${
+                        plannedPriorityFilter === "medium"
+                          ? "bg-amber-500 text-white"
+                          : "bg-white text-amber-700 border border-amber-200 hover:bg-amber-50"
+                      }`}
+                    >
+                      🟡 Vừa ({allFuturePlannedFlows.filter((f) => (f.priority || "medium") === "medium").length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPlannedPriorityFilter("low")}
+                      className={`px-2 py-0.5 rounded-md font-bold transition cursor-pointer ${
+                        plannedPriorityFilter === "low"
+                          ? "bg-slate-700 text-white"
+                          : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
+                      }`}
+                    >
+                      🟢 Thấp ({allFuturePlannedFlows.filter((f) => f.priority === "low").length})
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* DANH SÁCH THẺ KẾ HOẠCH */}
             {allFuturePlannedFlows.length === 0 ? (
               <div className="text-center py-10 text-slate-400 text-xs">
                 Chưa có kế hoạch dự thu hay dự chi nào trong tương lai. Bạn có thể thêm khi ghi Thu hoặc Chi.
               </div>
+            ) : filteredAndSortedPlannedFlows.length === 0 ? (
+              <div className="text-center py-10 p-6 bg-slate-50 rounded-2xl border border-dashed border-slate-300 text-xs space-y-2">
+                <p className="text-slate-500">Không có kế hoạch nào phù hợp với bộ lọc đã chọn.</p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPlannedTypeFilter("all");
+                    setPlannedPriorityFilter("all");
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-600 border border-blue-200 font-bold hover:bg-blue-100 cursor-pointer"
+                >
+                  Đặt lại bộ lọc
+                </button>
+              </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-                {allFuturePlannedFlows.map((plan) => {
+                {filteredAndSortedPlannedFlows.map((plan) => {
                   // Tính khoảng cách ngày
                   let diffDaysText = "";
+                  let isOverdue = false;
                   if (plan.rawDate || plan.date) {
                     const today0 = new Date();
                     today0.setHours(0, 0, 0, 0);
@@ -2859,18 +3132,28 @@ export default function Home() {
                       const diff = Math.ceil((pDate.getTime() - today0.getTime()) / (24 * 60 * 60 * 1000));
                       if (diff === 0) diffDaysText = "Hôm nay đến hạn";
                       else if (diff > 0) diffDaysText = `Còn ${diff} ngày nữa`;
-                      else diffDaysText = `Quá hạn ${Math.abs(diff)} ngày`;
+                      else {
+                        diffDaysText = `Quá hạn ${Math.abs(diff)} ngày`;
+                        isOverdue = true;
+                      }
                     }
                   }
+
+                  const curPriority = plan.priority || "medium";
 
                   return (
                     <div
                       key={plan.id}
-                      className="p-4 rounded-2xl border border-slate-200 bg-slate-50/50 hover:bg-slate-50 transition flex flex-col justify-between space-y-3"
+                      className={`p-4 rounded-2xl border transition flex flex-col justify-between space-y-3 ${
+                        curPriority === "high"
+                          ? "bg-rose-50/30 border-rose-200 hover:bg-rose-50/60"
+                          : "bg-slate-50/50 border-slate-200 hover:bg-slate-50"
+                      }`}
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div>
                           <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                            {/* Badge Loại Dòng Chảy */}
                             <span
                               className={`px-2 py-0.5 rounded-md text-[10px] font-black ${
                                 plan.type === "income"
@@ -2880,10 +3163,37 @@ export default function Home() {
                             >
                               {plan.type === "income" ? "DỰ THU (+)" : "DỰ CHI (-)"}
                             </span>
+
+                            {/* Badge Mức Độ Ưu Tiên (Bấm đổi nhanh Cao -> Vừa -> Thấp) */}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const nextPrio = curPriority === "high" ? "medium" : curPriority === "medium" ? "low" : "high";
+                                handleQuickChangePriority(plan, nextPrio);
+                              }}
+                              className={`px-2 py-0.5 rounded-md text-[10px] font-black border transition cursor-pointer flex items-center space-x-1 ${
+                                curPriority === "high"
+                                  ? "bg-rose-100 text-rose-800 border-rose-300 hover:bg-rose-200"
+                                  : curPriority === "low"
+                                  ? "bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200"
+                                  : "bg-amber-100 text-amber-800 border-amber-300 hover:bg-amber-200"
+                              }`}
+                              title="Bấm để đổi nhanh mức ưu tiên (Cao / Vừa / Thấp)"
+                            >
+                              <span>
+                                {curPriority === "high"
+                                  ? "🔴 Ưu tiên Cao"
+                                  : curPriority === "low"
+                                  ? "🟢 Ưu tiên Thấp"
+                                  : "🟡 Ưu tiên Vừa"}
+                              </span>
+                            </button>
+
                             <span className="font-bold text-slate-900 text-sm">{plan.title}</span>
                           </div>
                           <p className="text-[11px] text-slate-500 mt-1">
                             {plan.from} ➔ {plan.to} • Ngày: <b className="text-slate-700">{plan.date || plan.rawDate}</b>
+                            {plan.tag && <span className="ml-1 text-slate-400">#{plan.tag}</span>}
                           </p>
                         </div>
 
@@ -2892,8 +3202,14 @@ export default function Home() {
                             {plan.amount.toLocaleString("vi-VN")} ₫
                           </span>
                           {diffDaysText && (
-                            <span className="text-[10px] font-black text-amber-700 bg-amber-100/70 px-2 py-0.5 rounded-full inline-block mt-0.5">
-                              ⏳ {diffDaysText}
+                            <span
+                              className={`text-[10px] font-black px-2 py-0.5 rounded-full inline-block mt-0.5 ${
+                                isOverdue
+                                  ? "bg-rose-100 text-rose-800 border border-rose-200"
+                                  : "text-amber-700 bg-amber-100/70"
+                              }`}
+                            >
+                              {isOverdue ? "⚠️ " : "⏳ "}{diffDaysText}
                             </span>
                           )}
                         </div>
@@ -3121,7 +3437,7 @@ export default function Home() {
                                     className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 cursor-pointer"
                                   />
                                   <div>
-                                    <div className="flex items-center space-x-1.5">
+                                    <div className="flex items-center space-x-1.5 flex-wrap">
                                       <span
                                         className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
                                           f.type === "income"
@@ -3130,6 +3446,15 @@ export default function Home() {
                                         }`}
                                       >
                                         {f.type === "income" ? "DỰ THU" : "DỰ CHI"}
+                                      </span>
+                                      <span className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
+                                        f.priority === "high"
+                                          ? "bg-rose-100 text-rose-800 border border-rose-200"
+                                          : f.priority === "low"
+                                          ? "bg-slate-100 text-slate-700 border border-slate-200"
+                                          : "bg-amber-100 text-amber-800 border border-amber-200"
+                                      }`}>
+                                        {f.priority === "high" ? "🔴 Cao" : f.priority === "low" ? "🟢 Thấp" : "🟡 Vừa"}
                                       </span>
                                       <span className="font-bold text-slate-800">{f.title}</span>
                                     </div>
@@ -5084,21 +5409,61 @@ export default function Home() {
                   )}
                 </div>
 
-                {/* Khi CÓ tick: cho phép chọn ngày dự kiến cụ thể */}
+                {/* Khi CÓ tick: cho phép chọn ngày dự kiến cụ thể và mức độ ưu tiên */}
                 {quickIncomeForm.isExpected && (
-                  <div className="flex items-center justify-between pt-1 border-t border-slate-200">
-                    <span className="text-xs text-slate-500">Chọn ngày dự kiến thu:</span>
-                    <input
-                      type="date"
-                      value={quickIncomeForm.flowDate}
-                      onChange={(e) => {
-                        setQuickIncomeForm({
-                          ...quickIncomeForm,
-                          flowDate: e.target.value,
-                        });
-                      }}
-                      className="p-1.5 rounded-xl border border-amber-300 text-xs font-bold text-[#0C2C47] bg-white cursor-pointer shadow-2xs"
-                    />
+                  <div className="space-y-2 pt-1 border-t border-slate-200">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-slate-500">Chọn ngày dự kiến thu:</span>
+                      <input
+                        type="date"
+                        value={quickIncomeForm.flowDate}
+                        onChange={(e) => {
+                          setQuickIncomeForm({
+                            ...quickIncomeForm,
+                            flowDate: e.target.value,
+                          });
+                        }}
+                        className="p-1.5 rounded-xl border border-amber-300 text-xs font-bold text-[#0C2C47] bg-white cursor-pointer shadow-2xs"
+                      />
+                    </div>
+                    <div className="flex items-center justify-between pt-1 border-t border-slate-200/80">
+                      <span className="text-xs font-bold text-slate-700">Mức độ ưu tiên:</span>
+                      <div className="flex items-center space-x-1">
+                        <button
+                          type="button"
+                          onClick={() => setQuickIncomeForm({ ...quickIncomeForm, priority: "high" })}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition cursor-pointer ${
+                            quickIncomeForm.priority === "high"
+                              ? "bg-rose-600 text-white border-rose-600 shadow-xs"
+                              : "bg-white text-slate-600 border-slate-200 hover:bg-rose-50 hover:text-rose-700"
+                          }`}
+                        >
+                          🔴 Cao
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setQuickIncomeForm({ ...quickIncomeForm, priority: "medium" })}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition cursor-pointer ${
+                            quickIncomeForm.priority === "medium" || !quickIncomeForm.priority
+                              ? "bg-amber-500 text-white border-amber-500 shadow-xs"
+                              : "bg-white text-slate-600 border-slate-200 hover:bg-amber-50 hover:text-amber-700"
+                          }`}
+                        >
+                          🟡 Trung bình
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setQuickIncomeForm({ ...quickIncomeForm, priority: "low" })}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition cursor-pointer ${
+                            quickIncomeForm.priority === "low"
+                              ? "bg-slate-700 text-white border-slate-700 shadow-xs"
+                              : "bg-white text-slate-600 border-slate-200 hover:bg-slate-100"
+                          }`}
+                        >
+                          🟢 Thấp
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
@@ -5323,21 +5688,61 @@ export default function Home() {
                   )}
                 </div>
 
-                {/* Khi CÓ tick: cho phép chọn ngày dự kiến cụ thể */}
+                {/* Khi CÓ tick: cho phép chọn ngày dự kiến cụ thể và mức độ ưu tiên */}
                 {quickExpenseForm.isExpected && (
-                  <div className="flex items-center justify-between pt-1 border-t border-slate-200">
-                    <span className="text-xs text-slate-500">Chọn ngày dự kiến chi:</span>
-                    <input
-                      type="date"
-                      value={quickExpenseForm.flowDate}
-                      onChange={(e) => {
-                        setQuickExpenseForm({
-                          ...quickExpenseForm,
-                          flowDate: e.target.value,
-                        });
-                      }}
-                      className="p-1.5 rounded-xl border border-amber-300 text-xs font-bold text-[#0C2C47] bg-white cursor-pointer shadow-2xs"
-                    />
+                  <div className="space-y-2 pt-1 border-t border-slate-200">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-slate-500">Chọn ngày dự kiến chi:</span>
+                      <input
+                        type="date"
+                        value={quickExpenseForm.flowDate}
+                        onChange={(e) => {
+                          setQuickExpenseForm({
+                            ...quickExpenseForm,
+                            flowDate: e.target.value,
+                          });
+                        }}
+                        className="p-1.5 rounded-xl border border-amber-300 text-xs font-bold text-[#0C2C47] bg-white cursor-pointer shadow-2xs"
+                      />
+                    </div>
+                    <div className="flex items-center justify-between pt-1 border-t border-slate-200/80">
+                      <span className="text-xs font-bold text-slate-700">Mức độ ưu tiên:</span>
+                      <div className="flex items-center space-x-1">
+                        <button
+                          type="button"
+                          onClick={() => setQuickExpenseForm({ ...quickExpenseForm, priority: "high" })}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition cursor-pointer ${
+                            quickExpenseForm.priority === "high"
+                              ? "bg-rose-600 text-white border-rose-600 shadow-xs"
+                              : "bg-white text-slate-600 border-slate-200 hover:bg-rose-50 hover:text-rose-700"
+                          }`}
+                        >
+                          🔴 Cao
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setQuickExpenseForm({ ...quickExpenseForm, priority: "medium" })}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition cursor-pointer ${
+                            quickExpenseForm.priority === "medium" || !quickExpenseForm.priority
+                              ? "bg-amber-500 text-white border-amber-500 shadow-xs"
+                              : "bg-white text-slate-600 border-slate-200 hover:bg-amber-50 hover:text-amber-700"
+                          }`}
+                        >
+                          🟡 Trung bình
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setQuickExpenseForm({ ...quickExpenseForm, priority: "low" })}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition cursor-pointer ${
+                            quickExpenseForm.priority === "low"
+                              ? "bg-slate-700 text-white border-slate-700 shadow-xs"
+                              : "bg-white text-slate-600 border-slate-200 hover:bg-slate-100"
+                          }`}
+                        >
+                          🟢 Thấp
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
@@ -5813,6 +6218,48 @@ export default function Home() {
                   />
                 </div>
               </div>
+
+              {/* Mức độ ưu tiên nếu là Kế hoạch dự kiến */}
+              {!editingFlow.isActual && (
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-700 uppercase">Mức độ ưu tiên</label>
+                  <div className="flex items-center space-x-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setEditFlowForm({ ...editFlowForm, priority: "high" })}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold border transition cursor-pointer ${
+                        editFlowForm.priority === "high"
+                          ? "bg-rose-600 text-white border-rose-600 shadow-xs"
+                          : "bg-white text-slate-600 border-slate-200 hover:bg-rose-50 hover:text-rose-700"
+                      }`}
+                    >
+                      🔴 Cao
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditFlowForm({ ...editFlowForm, priority: "medium" })}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold border transition cursor-pointer ${
+                        editFlowForm.priority === "medium" || !editFlowForm.priority
+                          ? "bg-amber-500 text-white border-amber-500 shadow-xs"
+                          : "bg-white text-slate-600 border-slate-200 hover:bg-amber-50 hover:text-amber-700"
+                      }`}
+                    >
+                      🟡 Trung bình
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditFlowForm({ ...editFlowForm, priority: "low" })}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold border transition cursor-pointer ${
+                        editFlowForm.priority === "low"
+                          ? "bg-slate-700 text-white border-slate-700 shadow-xs"
+                          : "bg-white text-slate-600 border-slate-200 hover:bg-slate-100"
+                      }`}
+                    >
+                      🟢 Thấp
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Màn hình nhập số tiền cực to nền tối chữ sáng quy ước 1 = 1.000 */}
               <div className="bg-[#091522] border-2 border-blue-500 rounded-2xl p-5 text-center shadow-xl ring-1 ring-blue-500/30">

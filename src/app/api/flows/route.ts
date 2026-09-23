@@ -16,6 +16,7 @@ export async function GET(request: Request) {
              from_vault_id as "fromVaultId", to_vault_id as "toVaultId",
              from_title as "from", to_title as "to",
              tag, is_actual as "isActual", is_reconcile as "isReconcile",
+             COALESCE(priority, 'medium') as priority,
              TO_CHAR(flow_date, 'DD/MM/YYYY') as date,
              flow_date as "rawDate"
       FROM flows
@@ -81,6 +82,7 @@ export async function POST(request: Request) {
       tag = "Giao dịch",
       isActual = true,
       flowDate = new Date().toISOString().split("T")[0],
+      priority = "medium", // 'high' | 'medium' | 'low'
     } = body;
 
     const numAmount = parseFloat(amount);
@@ -113,14 +115,15 @@ export async function POST(request: Request) {
 
     // 2. Ghi bản ghi dòng chảy
     const flowRes = await client.query(
-      `INSERT INTO flows (id, title, amount, type, from_vault_id, to_vault_id, from_title, to_title, tag, is_actual, flow_date)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      `INSERT INTO flows (id, title, amount, type, from_vault_id, to_vault_id, from_title, to_title, tag, is_actual, flow_date, priority)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        RETURNING id, title, amount::float as amount, type, 
                  from_vault_id as "fromVaultId", to_vault_id as "toVaultId",
                  from_title as "from", to_title as "to",
                  tag, is_actual as "isActual",
+                 COALESCE(priority, 'medium') as priority,
                  TO_CHAR(flow_date, 'DD/MM/YYYY') as date;`,
-      [id, title, numAmount, type, fromVaultId, toVaultId, fromTitle, toTitle, tag, isActual, flowDate]
+      [id, title, numAmount, type, fromVaultId, toVaultId, fromTitle, toTitle, tag, isActual, flowDate, priority || "medium"]
     );
 
     await client.query("COMMIT");
@@ -151,6 +154,7 @@ export async function PUT(request: Request) {
       fromTitle,
       toTitle,
       isActual,
+      priority,
     } = body;
 
     if (!id) {
@@ -234,12 +238,14 @@ export async function PUT(request: Request) {
            to_vault_id = COALESCE($6, to_vault_id),
            from_title = COALESCE($7, from_title),
            to_title = COALESCE($8, to_title),
-           is_actual = $9
-       WHERE id = $10
+           is_actual = $9,
+           priority = COALESCE($10, priority)
+       WHERE id = $11
        RETURNING id, title, amount::float as amount, type,
                  from_vault_id as "fromVaultId", to_vault_id as "toVaultId",
                  from_title as "from", to_title as "to",
                  tag, is_actual as "isActual",
+                 COALESCE(priority, 'medium') as priority,
                  TO_CHAR(flow_date, 'DD/MM/YYYY') as date,
                  flow_date as "rawDate"`,
       [
@@ -252,6 +258,7 @@ export async function PUT(request: Request) {
         fromTitle !== undefined ? fromTitle : null,
         toTitle !== undefined ? toTitle : null,
         finalIsActual,
+        priority !== undefined ? priority : null,
         id,
       ]
     );

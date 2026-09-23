@@ -46,11 +46,13 @@ export async function initDatabase() {
         to_title VARCHAR(255),
         tag VARCHAR(100),
         is_actual BOOLEAN NOT NULL DEFAULT true,
+        priority VARCHAR(20) NOT NULL DEFAULT 'medium',
         flow_date DATE NOT NULL DEFAULT CURRENT_DATE,
         parent_flow_id VARCHAR(50),
         is_reconcile BOOLEAN NOT NULL DEFAULT false,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
+      ALTER TABLE flows ADD COLUMN IF NOT EXISTS priority VARCHAR(20) NOT NULL DEFAULT 'medium';
     `);
 
     // 3. Nghĩa vụ (Obligation - Nợ & Thuế)
